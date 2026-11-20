@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { Campaign, canWin, getQuantity, priceFor, put, take } from '../src/campaign';
+import { Campaign, canWin, districtProjects, getQuantity, priceFor, projectBond, put, take } from '../src/campaign';
 import type { Log, Project } from '../src/campaign';
-import { CELLS, TOTAL, facilities, recipes, species, vehicleTypes } from '../src/catalog';
+import { CELLS, DISTRICT_CELLS, TOTAL, facilities, recipes, species, vehicleTypes } from '../src/catalog';
 import type { Facility } from '../src/catalog';
-import { applyLand, conversionLabel, defaultSoil, desertified, distance, districtAt, height, homeDistrict, indexAt, noPressure, treesIn } from '../src/land';
+import { applyLand, conversionLabel, coverageLabel, defaultSoil, desertified, distance, districtAt, districtCell, height, homeDistrict, indexAt, noPressure, treesIn } from '../src/land';
 import { validateSave } from '../src/storage';
 import { forestryUnlocks, modifiers, upgradeFacility, upgrades } from '../src/upgrades';
 const upgradePrerequisiteFacilities=Object.values(upgradeFacility);
@@ -202,14 +202,41 @@ test('water, soil stripping and thermal projects independently complete a distri
     build(g,'forestry',15,14);
     const k=kind==='watershed'?'pump':kind;
     build(g,k,3,14);
+    const balance=g.cash;
+    assert.deepEqual(g.projectBlockers(homeDistrict,kind),[]);
     assert.ok(g.startProject(homeDistrict,kind));
+    assert.equal(g.cash,balance-districtProjects[kind].price);
     run(g,950);
     assert.equal(g.desertByDistrict[homeDistrict],1024,kind);
     assert.equal(g.scan(homeDistrict).length,0);
     assert.equal(g.won,false);
     assert.equal(g.sites.some(s=>s.kind==='data'),false);
+    assert.equal(g.cash,balance-districtProjects[kind].price+projectBond);
+    assert.equal(g.ledger.filter(entry=>entry.note==='Completed regional conversion contract').length,1);
+    assert.match(g.projectBlockers(homeDistrict,kind).join(' '),/already stable/);
+    assert.equal(g.startProject(homeDistrict,kind),false);
     assert.equal(Campaign.restore(validateSave(JSON.parse(JSON.stringify(g.snapshot())))).desertCount,g.desertCount);
   }
+});
+
+test('district survey enumerates only its own cells and project locks match commissioning',()=>{
+  const g=new Campaign();
+  const district=63;
+  const cells=g.scan(district,DISTRICT_CELLS+1);
+  assert.equal(cells.length,DISTRICT_CELLS);
+  assert.equal(cells[0].i,districtCell(district,0));
+  assert.equal(cells.at(-1)?.i,TOTAL-1);
+  assert.ok(cells.every(({i})=>districtAt(i)===district));
+  assert.equal(g.soil.size,0,'Reading the survey should not mark untouched land as simulated');
+  assert.deepEqual(g.scan(64),[]);
+  assert.equal(coverageLabel(1),'0.09');
+  assert.equal(coverageLabel(DISTRICT_CELLS-1),'99.90');
+  assert.deepEqual(g.projectBlockers(district,'watershed'),[
+    'Requires a district permit','Build Forestry Crew Base','Build Drainage Array','Insufficient funds',
+  ]);
+  assert.match(g.projectBlockers(homeDistrict,'integrated').join(' '),/Research /);
+  assert.equal(g.startProject(district,'watershed'),false);
+  assert.equal(g.cash,0);
 });
 
 test('4096-meter boundaries include 65,536 cells and victory triggers once at the exact count',()=>{
@@ -665,6 +692,32 @@ test('water cart transfers conserve the finite volume drawn from a manual pump',
   assert.equal(tankSite.water,44);
   assert.equal(ride.water,0);
   assert.doesNotThrow(()=>validateSave(JSON.parse(JSON.stringify(g.snapshot()))));
+});
+
+test('a connected reservoir caps combined inflow and honors pump allocation',()=>{
+  const g=new Campaign();
+  g.cash=10000;
+  const farm=build(g,'pump',2,14), shared=build(g,'pump',12,12);
+  const reservoir=build(g,'tank',68,12);
+  farm.water=30;
+  farm.waterMode='farm';
+  shared.water=60;
+  run(g,1);
+  assert.equal(reservoir.water??0,0);
+  const pipe=build(g,'pipe',37,12);
+  run(g,1);
+  assert.equal(reservoir.water,24);
+  assert.equal(shared.water,36);
+  assert.equal(farm.water,30);
+  pipe.on=false;
+  run(g,1);
+  assert.equal(reservoir.water,24);
+  pipe.on=true;
+  reservoir.waterMode='farm';
+  run(g,2);
+  assert.equal(reservoir.water,72);
+  assert.equal(shared.water,18);
+  assert.equal(farm.water,0);
 });
 
 test('scrubbers change heat, pollution and offered grid output in the same parcel',()=>{

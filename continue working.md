@@ -31,13 +31,13 @@ The M0–M9 milestone review covers the build, simulation, browser playthroughs 
 ## [M6 — World conversion and map progress](progress/M6/continue%20working.md)
 
 - Barren ground now shows cracks as its erosion crosses the threshold, even when the biome stage stays the same.
+- The survey counts all seven terrain stages per district. Its map color follows the most common biome and the stable-cell percentage stays visible independently.
 - Review each visible biome transition by returning to the same area in a browser. Tune rain, erosion, regrowth and local conversion pacing from an ordinary campaign.
 
 ## [M7 — Heavy industry and multiple victory strategies](progress/M7/continue%20working.md)
 
-**Reviewed**
-
-- Review the heavy attachments, field economy and mine-to-construction logistics at normal campaign pacing. Review physically connected utilities and compare campaign economics across the district strategies.
+- The project panel lists the actual prerequisites, completion bond, net cost, and elapsed field time. The three starting strategies have measured completion times and verified payouts in the M7 notes.
+- A connected reservoir respects its combined inlet limit and the supplying pumps' allocation. Continue reviewing heavy equipment, mine-to-construction logistics, and advanced strategies at normal campaign pacing.
 
 ## [M8 — Massive late-game depth](progress/M8/continue%20working.md)
 

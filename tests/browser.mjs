@@ -321,6 +321,40 @@ try{
   assert.equal((await inspect()).sites.find(s=>s.id===sorter.id).link,undefined);
   assert.equal((await inspect()).sites.find(s=>s.id===sorter.id).secondary,storage.id);
   await click('Close panel');
+  console.log('Reviewing a mixed-biome district and project requirements');
+  await press('Escape');
+  await click('Settings');
+  const survey=await inspect();
+  survey.cash=6100;
+  const vegetation=[.1,.1,.1,.1,0,0];
+  const moisture=[.65,.62,.4,.25,.16,0];
+  for(let n=0;n<6;n++){
+    const i=140*256+140+n;
+    survey.soil.push([i,{stage:n+1,vegetation:vegetation[n],moisture:moisture[n],groundwater:n===5?0:.6,
+      fertility:n===5?0:.6,heat:.12,pollution:0,erosion:n>=4?.9:0,substrate:n===5?1:n===4?.6:.2,
+      stable:n===5?60:0,clearedFor:n===0?0:100,lastTick:survey.clock}]);
+  }
+  await p.locator('input[type=file]').setInputFiles({name:'district-survey-test.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(survey))});
+  await wait(()=>window.clearcutReview().cash===6100);
+  await click('Close panel');
+  await press('KeyM');
+  await p.getByRole('heading',{name:'Land survey',exact:true}).waitFor();
+  const home=p.locator('.map-grid .zone').filter({hasText:'E5'});
+  await home.getByText('0.09%',{exact:true}).waitFor();
+  assert.equal(await home.evaluate(button=>button.style.getPropertyValue('--land')),'#4b5739');
+  await p.getByText('1 / 1,024 cells stable',{exact:true}).waitFor();
+  const counts=await p.locator('.biome-legend li strong').allTextContents();
+  const snapshot=await inspect();
+  const cells=snapshot.soil.filter(([i])=>Math.floor(i%256/32)===4&&Math.floor(i/256/32)===4);
+  const stageCounts=Array(7).fill(0);
+  stageCounts[0]=1024-cells.length;
+  for(const [,soil]of cells)stageCounts[soil.stage]++;
+  assert.deepEqual(counts.map(x=>Number(x.replaceAll(',',''))),stageCounts);
+  const watershed=p.locator('.row').filter({hasText:'Watershed drawdown'});
+  await watershed.getByText(/Build Forestry Crew Base.*Build Drainage Array.*Insufficient funds/).waitFor();
+  assert.ok(await watershed.getByRole('button',{name:'$6,200',exact:true}).isDisabled());
+  await screenshot(p,'district-biomes');
+  await click('Close panel');
   console.log('Reviewing excavation in the streamed 3D world');
   await press('Escape');
   await click('Settings');

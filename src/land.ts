@@ -1,4 +1,4 @@
-import { CELL, CELLS, DISTRICT, DISTRICTS, SIZE, TOTAL } from './catalog';
+import { CELL, CELLS, DISTRICT, DISTRICT_CELLS, DISTRICTS, SIZE, TOTAL } from './catalog';
 
 export function hash(seed: number, x: number, z: number) {
   let n = Math.imul(x + seed, 374761393) + Math.imul(z - seed, 668265263) | 0;
@@ -14,6 +14,11 @@ export const indexAt = (x: number, z: number) => {
 };
 export const cellPoint = (i: number): Point => ({ x: (i % CELLS) * CELL - SIZE / 2 + CELL / 2, z: Math.floor(i / CELLS) * CELL - SIZE / 2 + CELL / 2 });
 export const districtAt = (i: number) => Math.floor(i % CELLS / DISTRICT) + Math.floor(i / CELLS / DISTRICT) * DISTRICTS;
+export function districtCell(district:number,offset:number) {
+  const x=(district%DISTRICTS)*DISTRICT+offset%DISTRICT;
+  const z=Math.floor(district/DISTRICTS)*DISTRICT+Math.floor(offset/DISTRICT);
+  return z*CELLS+x;
+}
 export const homeDistrict = districtAt(indexAt(0, 0));
 export const districtName = (i: number) => `${String.fromCharCode(65 + i % DISTRICTS)}${Math.floor(i / DISTRICTS) + 1}`;
 export const districtCenter = (i: number): Point => cellPoint((i % DISTRICTS * DISTRICT + DISTRICT / 2) + (Math.floor(i / DISTRICTS) * DISTRICT + DISTRICT / 2) * CELLS);
@@ -115,5 +120,8 @@ export function applyLand(s: Soil, p: Pressure, seconds: number, rain: number, s
 }
 
 export function conversionLabel(count: number) {
-  return (count === TOTAL ? 100 : Math.floor(10000 * count / TOTAL) / 100).toFixed(2);
+  return coverageLabel(count,TOTAL);
+}
+export function coverageLabel(count:number,total=DISTRICT_CELLS) {
+  return (count===total?100:Math.floor(10000*count/total)/100).toFixed(2);
 }
