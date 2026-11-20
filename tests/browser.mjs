@@ -29,7 +29,7 @@ try{
   const p=await browser.newPage({viewport:{width:960,height:660},deviceScaleFactor:1,acceptDownloads:true});
   p.setDefaultTimeout(35000);
   const errors=[];
-  p.on('pageerror',error=>errors.push(error.message));
+  p.on('pageerror',error=>{errors.push(error.message);console.error('Browser page error:',error.stack);});
   p.on('console',message=>{if(message.type()==='error'&&!message.text().includes('favicon')) errors.push(message.text());});
   const inspect=()=>p.evaluate(()=>window.clearcutReview());
   const wait=(f,arg)=>p.waitForFunction(f,arg,{timeout:42000,polling:45});
@@ -120,9 +120,7 @@ try{
     id:fixture.nextId++,x:0,y:.35,z:7,q:[Math.SQRT1_2,0,0,Math.SQRT1_2],
     kind:0,length:2.6,kilograms:22,units:1,moisture:.67,quality:.76,
   });
-  const choose=p.waitForEvent('filechooser');
-  await click('Import');
-  await (await choose).setFiles({name:'refining-test.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(fixture))});
+  await p.locator('input[type=file]').setInputFiles({name:'refining-test.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(fixture))});
   await p.getByText('Campaign imported',{exact:true}).waitFor();
   await click('Close panel');
   await press('KeyB');

@@ -270,6 +270,11 @@ export class UI {
       input.addEventListener('change',()=>{update(input.checked);this.c.applySettings();});
       return input;
     };
+    const file=el('input');
+    file.type='file';
+    file.accept='application/json,.json';
+    file.hidden=true;
+    file.addEventListener('change',()=>{if(file.files?.[0])this.c.restore(file.files[0]);});
     const bindingRows=Object.entries(bindingOptions).map(([id,[title]])=>row(title,'',
       btn(this.bindingKey===id?'Press a key…':prefs.bindings[id as Binding],()=>this.c.binding(id as Binding))));
     this.panel('Settings','Graphics, controls and local campaign files.',el('div','panel-content',
@@ -285,10 +290,7 @@ export class UI {
         row('Toggle grabbing','Tap Interact to latch, then tap again to release',check(prefs.sticky,v=>prefs.sticky=v))),
       section('Campaign data',
         row('Offline industry','Simulate up to five minutes on return',check(prefs.offline,v=>prefs.offline=v)),
-        row('Save files','',btn('Export',()=>this.c.download()),btn('Import',()=>{
-          const input=el('input');input.type='file';input.accept='application/json,.json';
-          input.addEventListener('change',()=>{if(input.files?.[0])this.c.restore(input.files[0]);});input.click();
-        }))),
+        row('Save files','',btn('Export',()=>this.c.download()),btn('Import',()=>file.click()),file)),
       section('Bindings',...bindingRows,btn('Reset bindings',()=>{
         prefs.bindings=structuredClone(defaults.bindings);this.c.applySettings();this.show('settings');
       })),
@@ -378,7 +380,7 @@ export class UI {
           const kind=key as Project['kind'], built=g.projects.find(p=>p.district===district);
           const ready=g.sites.some(s=>s.kind==='forestry')&&g.sites.some(s=>s.kind===(kind==='watershed'?'pump':kind==='quarry'?'quarry':'thermal'));
           const display={watershed:'Watershed drawdown',quarry:'Regional stripping',thermal:'Thermal exhaustion'}[kind];
-          return row(display,built?.kind===kind?`Commissioned · ${duration(built.phase)}`:'Requires local industrial expertise and a district permit',
+          return row(display,built?.kind===kind?(built.complete?'Bond paid · all district cells stable':`Commissioned · ${duration(built.phase)}`):'Requires local industrial expertise and a district permit',
             btn(cash(price),()=>{if(g.startProject(district,kind))this.map();},Boolean(built)||!ready||!g.districts.has(district)||g.cash<price));
         })),
       section('Remaining-cell survey',...g.scan(district,12).map(({i,at,soil})=>row(`Cell ${i} · ${stages[soil.stage]}`,
@@ -415,8 +417,8 @@ export class UI {
         row('Ash Exchange','One green sapling, paid after burning',el('strong','','~$17')),
         row('Timber Exchange','One unit of green timber',el('strong','','~$26')),
         row('Field Sawbench','Two green boards, sold at the exchange',el('strong','','~$71'))),
-      section('Sell from your bag',...g.stock.map(lot=>row(goods[lot.good][0],`${lot.quantity} units`,btn('Sell one',()=>{g.sellInventory(lot.good,1);this.site();}),
-        btn(`Sell batch · ${cash(priceFor(lot))}`,()=>{g.sellInventory(lot.good,lot.quantity);this.site();})))),
+      section('Sell from your bag',...g.stock.map(lot=>row(goods[lot.good][0],`${lot.quantity} units`,btn('Sell one',()=>{g.sellInventory(lot.good,1,lot);this.site();}),
+        btn(`Sell batch · ${cash(priceFor(lot))}`,()=>{g.sellInventory(lot.good,lot.quantity,lot);this.site();})))),
       section('Freight contracts',...g.contracts.slice(0,4).map(deal=>row(goods[deal.good][0],
         `${deal.quantity} units · ${deal.done?'Closed':deal.failed?'Expired':duration(deal.deadline-g.clock)+' remaining'}`,
         btn('Fulfill · '+cash(deal.payout),()=>{g.fulfill(deal);this.site();},deal.done||deal.failed||getQuantity(g.stock,deal.good)<deal.quantity))),

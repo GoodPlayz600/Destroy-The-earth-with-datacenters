@@ -45,7 +45,7 @@ let using=false;
 let buttonAlt=false;
 let touchLook:{id:number;x:number;y:number}|undefined;
 let swing=0, swingPeriod=.32, reverse=false, vY=0, airborne=0, stride=0, dropTime=0, saveAge=0, victoryAge=-1;
-let toastDelay=0;
+let toastDelay=0,bladeCycle=0;
 let lastHarvest=0;
 let latestSave:Promise<unknown>=Promise.resolve();
 const inputs=new Set<string>();
@@ -381,6 +381,7 @@ function placement() {
   return {x:Math.round((p.x-Math.sin(p.yaw)*range)*2)/2,z:Math.round((p.z-Math.cos(p.yaw)*range)*2)/2};
 }
 function swingTool() {
+  if(ride)return;
   if(!active()||swing>0)return;
   if(selectedBuild||selectedVehicle){
     using=false;
@@ -417,6 +418,17 @@ function movement(dt:number) {
       if(!scene.isFalling(obstacle))scene.startFall(obstacle,p);
     }
     ride.yaw=p.yaw;p.x=ride.x;p.z=ride.z;
+    if(ride.kind==='dozer'&&using&&ahead>=0) {
+      bladeCycle+=dt;
+      if(bladeCycle>=.24) {
+        const blade={x:ride.x-Math.sin(p.yaw)*1.4,z:ride.z-Math.cos(p.yaw)*1.4};
+        if(game.stripGround(blade,bladeCycle)) {
+          ride.fuel=Math.max(0,ride.fuel-bladeCycle*.8);
+          scene.impact(new Vector3(blade.x,height(blade.x,blade.z)+.21,blade.z),'dust',4);
+        }
+        bladeCycle=0;
+      }
+    } else bladeCycle=0;
     if(def.motor&&ahead){
       ride.fuel=Math.max(0,ride.fuel-dt*(.24+mass/def.capacity*.19));
       ride.wear=Math.min(100,ride.wear+dt*.10);
@@ -452,7 +464,7 @@ function movement(dt:number) {
 }
 function targetHint():{hint?:Hint;point?:Point} {
   const t=treeTarget(),log=nearLog(2.75),site=nearSite(3.6),v=nearRide(),p=game.player;
-  if(ride)return { hint:{key:key('ride'),title:vehicles[ride.kind].name,detail:`${Math.floor(ride.fuel)}% fuel · ${Math.round(cargoMass(game.logs.values(),ride.id))} kg · ${key('load')} unload`}};
+  if(ride)return { hint:{key:key('ride'),title:vehicles[ride.kind].name,detail:`${Math.floor(ride.fuel)}% fuel · ${Math.round(cargoMass(game.logs.values(),ride.id))} kg · ${key('load')} unload${ride.kind==='dozer'?' · Swing to strip soil':''}`}};
   if(held){
     const destination=game.sites.find(s=>distance(held!.log,s)<facilities[s.kind].size+.80&&['fire','market','depot','bench','mill','chipper','charcoal'].includes(s.kind));
     if(destination)return {point:destination,hint:{key:held.mode==='hand'?key('interact'):key('drop'),title:facilities[destination.kind].name,
@@ -472,7 +484,7 @@ function targetHint():{hint?:Hint;point?:Point} {
 
 let before=performance.now();
 function frame(now:number) {
-  const dt=clamp((now-before)/1000,0,.075);before=now;
+  const dt=clamp((now-before)/1000,0,.14);before=now;
   const playing=active(), p=game.player;
   if(playing&&victoryAge<0){
     swing=Math.max(0,swing-dt);

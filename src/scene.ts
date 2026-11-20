@@ -4,7 +4,7 @@ import { CELL, SIZE, facilities, species } from './catalog';
 import type { Campaign, Log, Ride, Site } from './campaign';
 import { clamp, distance, hash, height, indexAt, soilColors, treesIn } from './land';
 import type { Point, Tree } from './land';
-import { box, leafBlade, logModel, mat, productModel, ropeModel, siteModel, stone, stumpModel, toolModel, treeModels, vehicleModel } from './models';
+import { box, distantTrees, leafBlade, logModel, mat, productModel, ropeModel, siteModel, stone, stumpModel, toolModel, treeModels, vehicleModel } from './models';
 
 const CHUNK = 32;
 const terrainMaterial = new T.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: T.DoubleSide });
@@ -111,6 +111,7 @@ export class Scene {
   }
 
   setQuality(quality: string) {
+    if(this.quality===quality&&this.renderer.shadowMap.enabled===(quality!=='low'))return;
     this.quality=quality;
     this.renderer.shadowMap.enabled=quality !== 'low';
     this.sunlight.castShadow=quality !== 'low';
@@ -131,7 +132,7 @@ export class Scene {
     this.game=game;
     for (const [key,chunk] of this.chunks) this.dropChunk(key,chunk);
     for (const {model,body} of this.logViews.values()) { this.world.remove(model); if (body) this.physics.removeRigidBody(body); }
-    for (const collection of [this.siteViews,this.rideViews,this.crew]) for (const {root} of collection.values()) this.world.remove(root);
+    for (const collection of [this.siteViews,this.rideViews,this.crew]) for (const {root} of collection.values()) this.removeModel(root);
     for (const obj of [...this.chops.values(), ...this.routes.values()]) this.world.remove(obj);
     this.logViews.clear(); this.siteViews.clear(); this.rideViews.clear();this.crew.clear(); this.chops.clear(); this.routes.clear();
     for (const f of this.fallers.values()) this.world.remove(f.model);
@@ -139,6 +140,16 @@ export class Scene {
     this.streamStamp='';
     this.landRevision=-1;
     this.stream(game.player,true);
+  }
+
+  private removeModel(group:T.Group) {
+    group.traverse(node=>{
+      if(node instanceof T.Mesh) {
+        if(node.geometry.userData.ownedMerge) node.geometry.dispose();
+        if(node.material instanceof T.MeshBasicMaterial&&node.material.transparent) node.material.dispose();
+      }
+    });
+    group.removeFromParent();
   }
 
   private makeChunk(x: number,z: number) {
@@ -172,7 +183,7 @@ export class Scene {
   }
 
   private clearCover(chunk:Chunk) {
-    chunk.cover.traverse(object=>{ if(object instanceof T.InstancedMesh) object.dispose(); });
+    chunk.cover.traverse(object=>{ if(object instanceof T.InstancedMesh){if(object.geometry.userData.landRock)object.geometry.dispose();object.dispose();} });
     for(const collider of chunk.trunks) this.physics.removeCollider(collider,false);
     chunk.trunks.length=0;
     chunk.cover.clear();
@@ -197,7 +208,8 @@ export class Scene {
     for(let kind=0;kind<treeModels.length;kind++) {
       const visible=trees.filter(tree=>tree.kind===kind && this.game.isStanding(tree) && !this.fallers.has(tree.id));
       if (!visible.length) continue;
-      for (const piece of treeModels[kind].children) {
+      const models=this.quality==='low'||!near?distantTrees:treeModels;
+      for (const piece of models[kind].children) {
         const model=piece as T.Mesh;
         const instances=new T.InstancedMesh(model.geometry,model.material,visible.length);
         for(let i=0;i<visible.length;i++) {
@@ -261,26 +273,35 @@ export class Scene {
     }
     if(etched) { cracks.count=etched; cracks.receiveShadow=true; chunk.cover.add(cracks); }
     else cracks.dispose();
+    const rocks = new T.InstancedMesh(new T.IcosahedronGeometry(1,0),mat('#777466'),16);
+    rocks.geometry.userData.landRock=true;
+    const ferns = new T.InstancedMesh(leafBlade,mat('#7d9c61'),80);
+    let rockCount=0,fernCount=0;
     for(let n=0;n<16;n++) {
       const x=chunk.x+hash(this.game.seed+n,chunk.x,chunk.z+1)*CHUNK,z=chunk.z+hash(this.game.seed-n,chunk.z,chunk.x-1)*CHUNK;
       if (Math.hypot(x*.8,z)<11) continue;
-      const y=height(x,z);
-      const stage=this.game.soil.get(indexAt(x,z))?.stage??0;
-      const group=new T.Group();
-      group.position.set(x,y,z);
+      const y=height(x,z),stage=this.game.soil.get(indexAt(x,z))?.stage??0;
       if(n%3===0 || stage>=4) {
-        const s=.21+hash(this.game.seed,n,chunk.x)*.68;
-        stone(group,mat(stage>=5?'#9c8566':'#707468'),0,.11,0,s,s*.56,s*.78).rotation.y=n;
-      } else {
-        for(let k=0;k<5;k++) {
-          const blade=new T.Mesh(leafBlade,mat(['#6da16d','#4f8249','#91a858'][n%3],0));
-          blade.scale.set(2.5,2.5+n%5*.32,2.8);
-          blade.rotation.set(.33,k*1.257,.22);
-          group.add(blade);
-        }
+        const size=.21+hash(this.game.seed,n,chunk.x)*.68;
+        this.painter.position.set(x,y+.11,z);
+        this.painter.rotation.set(0,n,0);
+        this.painter.scale.set(size,size*.56,size*.78);
+        this.painter.updateMatrix();
+        rocks.setMatrixAt(rockCount,this.painter.matrix);
+        rocks.setColorAt(rockCount++,new T.Color(stage>=5?'#ae9368':'#a2a37e'));
+      } else for(let k=0;k<5;k++) {
+        this.painter.position.set(x,y,z);
+        this.painter.rotation.set(.33,k*1.257,.22);
+        this.painter.scale.set(2.5,2.5+n%5*.32,2.8);
+        this.painter.updateMatrix();
+        ferns.setMatrixAt(fernCount,this.painter.matrix);
+        ferns.setColorAt(fernCount++,new T.Color(['#83aa74','#659d65','#a5b86a'][n%3]));
       }
-      chunk.cover.add(group);
     }
+    if(rockCount){rocks.count=rockCount;rocks.receiveShadow=true;chunk.cover.add(rocks);}
+    else {rocks.geometry.dispose();rocks.dispose();}
+    if(fernCount){ferns.count=fernCount;ferns.receiveShadow=true;chunk.cover.add(ferns);}
+    else ferns.dispose();
   }
 
   stream(at:Point, force=false, physicsAt:Point=at) {
@@ -370,15 +391,17 @@ export class Scene {
   private syncLogs(at:Point) {
     for(const [id,render] of this.logViews) {
       const log=this.game.logs.get(id);
-      if(log && log.length===render.length && distance(log,at)<80) continue;
+      if(log && log.length===render.length && distance(log,at)<78) continue;
       if(render.body) this.physics.removeRigidBody(render.body);
       this.world.remove(render.model);
       this.logViews.delete(id);
     }
     for(const log of this.game.logs.values()) {
-      if(distance(log,at)>=80) continue;
+      if(distance(log,at)>=78) continue;
+      const chunk=this.chunks.get(Math.floor(log.x/CHUNK)*CHUNK+','+Math.floor(log.z/CHUNK)*CHUNK);
+      const physical=Boolean(chunk?.collider)&&!log.cargo&&!log.carrier;
       const existing=this.logViews.get(log.id);
-      if(existing && Boolean(existing.body) === !(log.cargo||log.carrier)) continue;
+      if(existing && Boolean(existing.body) === physical) continue;
       if(existing) {
         if(existing.body) this.physics.removeRigidBody(existing.body);
         this.world.remove(existing.model);
@@ -387,7 +410,7 @@ export class Scene {
       model.position.set(log.x,log.y,log.z);
       model.quaternion.set(...log.q);
       this.world.add(model);
-      if(log.cargo||log.carrier) { this.logViews.set(log.id,{model,length:log.length}); continue; }
+      if(!physical) { this.logViews.set(log.id,{model,length:log.length}); continue; }
       const body=this.physics.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(log.x,log.y,log.z)
         .setRotation(model.quaternion).setLinearDamping(1.30).setAngularDamping(1.38).setCcdEnabled(true));
       const radius=species[log.kind].radius*clamp(log.kilograms/species[log.kind].mass,.56,1.25);
@@ -437,7 +460,12 @@ export class Scene {
   private syncSites(time:number, at:Point) {
     for(const site of this.game.sites) {
       const existing=this.siteViews.get(site.id);
-      if(distance(site,at)>125) { if(existing) { this.world.remove(existing.root); this.siteViews.delete(site.id); } continue; }
+      if(distance(site,at)>125) {
+        if(existing) { this.removeModel(existing.root); this.siteViews.delete(site.id); }
+        const route=this.routes.get(site.id);
+        if(route) { this.world.remove(route); this.routes.delete(site.id); }
+        continue;
+      }
       if(!this.siteViews.has(site.id)) {
         const visual=siteModel(site.kind);
         visual.root.position.set(site.x,height(site.x,site.z),site.z);
@@ -464,8 +492,8 @@ export class Scene {
       const output=site.output[0], job=site.jobs[0];
       const signature=(output ? output.good+output.quantity : '')+'|'+(job ? job.good : '');
       if(view.signature!==signature) {
-        if(view.stock) view.root.remove(view.stock);
-        if(view.batch) view.root.remove(view.batch);
+        if(view.stock) this.removeModel(view.stock);
+        if(view.batch) this.removeModel(view.batch);
         view.stock=undefined;
         view.batch=undefined;
         if(output) {
@@ -487,7 +515,11 @@ export class Scene {
 
   private syncRoute(site:Site,at:Point) {
     const reverse=this.game.sites.find(s=>s.id===site.link);
-    if(!reverse || distance(site,at)>80) return;
+    if(!reverse || distance(site,at)>80) {
+      const route=this.routes.get(site.id);
+      if(route) { this.world.remove(route); this.routes.delete(site.id); }
+      return;
+    }
     if(this.routes.get(site.id)?.userData.target===reverse.id) return;
     const old=this.routes.get(site.id);
     if(old) this.world.remove(old);
@@ -509,7 +541,7 @@ export class Scene {
   private syncRides(at:Point,time:number,driving?:Ride) {
     for(const ride of this.game.rides) {
       const existing=this.rideViews.get(ride.id);
-      if(distance(ride,at)>124) { if(existing) { this.world.remove(existing.root); this.rideViews.delete(ride.id); } continue; }
+      if(distance(ride,at)>124) { if(existing) { this.removeModel(existing.root); this.rideViews.delete(ride.id); } continue; }
       if(!existing) {
         const model=vehicleModel(ride.kind);
         this.rideViews.set(ride.id,model);
@@ -536,7 +568,7 @@ export class Scene {
       const worker=site.haul;
       const present=this.crew.get(site.id);
       if(!worker||distance(worker,at)>90) {
-        if(present){this.world.remove(present.root);this.crew.delete(site.id);}
+        if(present){this.removeModel(present.root);this.crew.delete(site.id);}
         continue;
       }
       const aim=new T.Vector3(worker.x,height(worker.x,worker.z),worker.z);
@@ -677,7 +709,7 @@ export class Scene {
     }
     const toolName=this.game.tool+String(this.game.mods.prestigeKnife);
     if(toolName!==this.toolKind) {
-      if(this.heldTool) toolScene.remove(this.heldTool);
+      if(this.heldTool) this.removeModel(this.heldTool);
       this.heldTool=toolModel(this.game.tool,this.game.mods.prestigeKnife);
       toolScene.add(this.heldTool);
       this.toolKind=toolName;

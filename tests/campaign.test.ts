@@ -309,3 +309,27 @@ test('compute processing requires electricity and physically connected cooling s
   assert.ok(pump.water!==undefined&&pump.water<160);
   assert.ok(gen.fuel<100);
 });
+
+test('every campaign district can finish through playable projects and the completion state stays stable',()=>{
+  const g=new Campaign();
+  g.cash=850000;
+  build(g,'forestry',15,14);
+  build(g,'pump',3,14);
+  build(g,'thermal',-8,11);
+  build(g,'quarry',-12,-7);
+  for(let i=0;i<64;i++) {
+    if(i!==homeDistrict)assert.ok(g.buyDistrict(i));
+    assert.ok(g.startProject(i,['watershed','quarry','thermal'][i%3] as Project['kind']));
+  }
+  for(let n=0;n<1100&&!g.won;n++)g.tick(1);
+  assert.ok(g.won,'all districts must reach stable desert through simulation');
+  assert.equal(g.desertCount,TOTAL);
+  run(g,5);
+  assert.equal(g.projects.filter(p=>p.complete).length,64);
+  const bonds=g.ledger.filter(row=>row.note.includes('completion contract')).length;
+  run(g,10);
+  assert.equal(g.ledger.filter(row=>row.note.includes('completion contract')).length,bonds);
+  const restored=Campaign.restore(validateSave(JSON.parse(JSON.stringify(g.snapshot()))));
+  assert.ok(restored.won);
+  assert.equal(restored.scan().length,0);
+});

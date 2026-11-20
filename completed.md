@@ -1,7 +1,59 @@
 # Completed
 
-Milestone review is in progress.
+Build and verification evidence is listed by milestone. The coverage below is current as of November 20, 2026.
 
-## Review evidence
+## [M0 — Website boot and 3D walking](progress/M0/completed.md)
 
-Repository inspected. The existing LICENSE was the only source file. The supplied specification is committed locally.
+- Vite and TypeScript production build passed.
+- Chromium and Firefox ran the live 3D menu, terrain movement, held tool, starting harvest, pause and resized UI. Menu and field screenshots reviewed.
+- Three geometry quality presets, keyboard and touch input, ambient sound, day/night and rain are wired in.
+
+## [M1 — Butter knife, chopping, falling, dragging, fire sale](progress/M1/completed.md)
+
+- Fresh Chromium and Firefox runs verified the knife at $0, a missed swing, valid trunk damage, falling timber, drag on the ground, delayed single payment, purchase and reload.
+- Simulation review verified the starter damage threshold, cash and persistent removal. Stamina, sapling damage, grip and pit capacity have functional starter purchases.
+
+## [M2 — First profitable refining branch](progress/M2/completed.md)
+
+- Sawbench accepts a physical log and produces two modeled boards. The market, rack and crate workshop carry timed, quality-aware material. Rope, sled and hand cart options are available.
+- Simulation review verified material conservation and greater processed sale value.
+
+## [M3 — Game economy and progression foundation](progress/M3/completed.md)
+
+- All 288 catalog IDs and prerequisite references load. The first five branches expose 55 purchasable upgrades across knife, player handling, primitive logistics, burning and hand-tool forestry.
+- Wallet, receipts, journal, timed contracts, IndexedDB autosave and file import/export work. Upgrade and tool wear persistence is tested.
+
+## [M4 — Vehicles and a real logging operation](progress/M4/completed.md)
+
+- Sled, cart, ATV, pickup, skid steer, truck and bulldozer have meshes, cargo checks and driving models. Motorized vehicles use fuel; work crews reserve and deliver actual logs.
+- A simulation test verified that two workers cannot move the same log and blocked receivers preserve the cargo.
+
+## [M5 — Industrial processing and factory network](progress/M5/completed.md)
+
+- Sixteen recipes cover timber, boards, kiln drying, crates, furniture, engineered beams, pulp/paper, charcoal, pellets, plywood, stone, cement and compute.
+- Output limits, input quality, electrical load, shipments and logging jobs have simulation coverage.
+
+## [M6 — World conversion and map progress](progress/M6/completed.md)
+
+- The fixed 4,096 m world has 65,536 authoritative cells, seven stages, streamed terrain, rain, regrowth suppression, stabilization and survey overlays for water and heat.
+- Simulation tests verified that clearing alone stays below desert, independent district strategies can complete, and exact counts survive restoring a save.
+
+## [M7 — Heavy industry and multiple victory strategies](progress/M7/completed.md)
+
+- Tested independent drainage, quarrying and thermal district campaigns. Data campuses use bounded water from powered pumps and reservoirs plus electricity.
+- A dozer can strip soil, and log crews and heavy cutters operate in the field. Cement, quarry, thermal and grazing production affect district cells.
+
+## [M8 — Massive late-game depth](progress/M8/completed.md)
+
+- Survey overlays, remaining-cell markers, district contracts, achievements and capped opt-in offline progress are implemented.
+- The full catalog is present with unavailable entries clearly marked.
+
+## [M9 — Actual 100% ending and final polish](progress/M9/completed.md)
+
+- A 65,535-cell test stayed at 99.99% and the last cell triggered exactly one victory. A separate campaign test built the projects for all 64 districts, simulated all 65,536 cells, paid each completion bond once and reloaded a completed save.
+- Flyover, lifetime statistics, postgame and archived New Game+ slots are wired to authoritative victory.
+
+## Browser evidence
+
+- [Chromium and Firefox opening review](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions/runs/44776791913).
+- [Latest GitHub Actions runs](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions).

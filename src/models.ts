@@ -14,6 +14,7 @@ const steel = mat('#495653', .57, .65), rubber = mat('#252b28'), timber = mat('#
 const amber = mat('#ddb365', .21), dark = mat('#252f2c', .28), glass = mat('#527f7d', .52, .33);
 const boxGeo = new T.BoxGeometry(1, 1, 1);
 const stoneGeo = new T.IcosahedronGeometry(1, 0);
+const flameGeo = new T.ConeGeometry(.30,.95,5);
 const foliageGeo = new T.IcosahedronGeometry(1, 1);
 const trunkGeo = new T.CylinderGeometry(.7, 1, 1, 8);
 const cylinderGeo = new T.CylinderGeometry(1, 1, 1, 12);
@@ -53,15 +54,16 @@ function batch(group: T.Group) {
   group.clear();
   for (const [material, shapes] of buckets) {
     const merged = mergeGeometries(shapes);
-    if (merged) mesh(group, merged, material, 0,0,0);
+    if (merged) { merged.userData.ownedMerge=true; mesh(group, merged, material, 0,0,0); }
     for (const geometry of shapes) geometry.dispose();
   }
   return group;
 }
 
-export const treeModels = species.map((s, kind) => {
+function forestModels(low=false) {
+return species.map((s, kind) => {
   const group = new T.Group(), wood = mat(s.bark), bare = mat('#9d8059'), leaf = new T.Color(s.leaf);
-  const leaves = [-.14, -.07, 0, .075, .14].map(l => mat('#' + leaf.clone().offsetHSL(l * .12, 0, l).getHexString()));
+  const leaves = (low?[-.08,.07]:[-.14,-.07,0,.075,.14]).map(l => mat('#' + leaf.clone().offsetHSL(l * .12, 0, l).getHexString()));
   const h = s.height, bend = (kind - 1.5) * .13;
   segment(group, wood, new T.Vector3(0,0,0), new T.Vector3(bend,h*.54,0), s.radius);
   segment(group, wood, new T.Vector3(bend,h*.49,0), new T.Vector3(bend*3,h*.88,.1), s.radius*.78);
@@ -70,7 +72,7 @@ export const treeModels = species.map((s, kind) => {
     const root = new T.Vector3(Math.cos(angle)*s.radius*2.65, .06, Math.sin(angle)*s.radius*2.65);
     segment(group,wood,root,new T.Vector3(0,h*.125,0),s.radius*.42);
   }
-  for (let i = 0; i < (kind === 2 ? 10 : 8); i++) {
+  for (let i = 0; i < (kind === 2 ? (low?7:10) : (low?6:8)); i++) {
     const angle = i * 2.39 + kind;
     const radius = h * (kind === 3 ? .31 : kind === 2 ? .27 : .22) * (.65 + hash(6,i,kind)*.44);
     const top = h * (.68 + hash(3,kind,i)*.26), x = Math.cos(angle)*radius + bend*2, z = Math.sin(angle)*radius;
@@ -78,22 +80,25 @@ export const treeModels = species.map((s, kind) => {
     segment(group,kind === 2 ? bare : wood,start,end,s.radius*(kind === 2 ? .33 : .42));
     if (kind === 2) {
       const tip = new T.Vector3(x*1.42,top-h*.19,z*1.42);
-      for (let n = 0; n < 6; n++) {
+      for (let n = 0; n < (low?4:6); n++) {
         const point = start.clone().lerp(tip,(n+1)/7);
-        const geo = mesh(group, foliageGeo, leaves[(i+n)%5],point.x,point.y,point.z,.23+n*.075,.12,.34+n*.06);
+        const geo = mesh(group, low?stoneGeo:foliageGeo, leaves[(i+n)%leaves.length],point.x,point.y,point.z,.23+n*.075,.12,.34+n*.06);
         geo.rotation.y = -angle + n*.12;
         geo.rotation.z = -.35;
       }
     } else {
-      for (let n = 0; n < 3; n++) {
+      for (let n = 0; n < (low?2:3); n++) {
         const spread = h * (.105 + hash(8,n,i)*.055);
-        const cluster = mesh(group,foliageGeo,leaves[(i+n)%5],x + Math.cos(i+n)*spread*.72,top+n*h*.04,z+Math.sin(i+n)*spread*.69,spread*1.32,spread*.66,spread*1.06);
+        const cluster = mesh(group,low?stoneGeo:foliageGeo,leaves[(i+n)%leaves.length],x + Math.cos(i+n)*spread*.72,top+n*h*.04,z+Math.sin(i+n)*spread*.69,spread*1.32,spread*.66,spread*1.06);
         cluster.rotation.set(n*.21,i*2.1,n*.18);
       }
     }
   }
   return batch(group);
 });
+}
+export const treeModels=forestModels();
+export const distantTrees=forestModels(true);
 
 export function stumpModel(kind: number, scale: number) {
   const node = new T.Group(), spec = species[kind];
@@ -113,8 +118,8 @@ export function logModel(length: number, kind: number, diameterScale = 1) {
     cylinder(model,mat('#d2a972'),0,sign*(length*.5+.024),0,r*.36,.017);
   }
   for (let n = 0; n < 5; n++) {
-    const angle = n * 2.4, ridge = box(model,mat(species[kind].bark).clone(),Math.cos(angle)*r,.07,Math.sin(angle)*r,.02,length*.78,.024);
-    (ridge.material as T.MeshStandardMaterial).color.multiplyScalar(.68);
+    const darkBark = '#'+new T.Color(species[kind].bark).multiplyScalar(.68).getHexString();
+    const angle = n * 2.4, ridge = box(model,mat(darkBark),Math.cos(angle)*r,.07,Math.sin(angle)*r,.02,length*.78,.024);
     ridge.rotation.y = -angle;
   }
   return model;
@@ -168,7 +173,7 @@ export function siteModel(kind: Facility): SiteModel {
     }
     sign(fixed,'ASH','EXCHANGE',-.1,-2.45,mat('#3c5140'),.13);
     for (let n=0;n<10;n++) {
-      const flame = mesh(root,new T.ConeGeometry(.30,.95,5),new T.MeshBasicMaterial({color: ['#ffe3a3','#ffbc61','#f38333','#fba347'][n%4], transparent:true, opacity:.76}), Math.sin(n*2.4)*.52,.35,Math.cos(n*2.4)*.52);
+      const flame = mesh(root,flameGeo,new T.MeshBasicMaterial({color: ['#ffe3a3','#ffbc61','#f38333','#fba347'][n%4], transparent:true, opacity:.76}), Math.sin(n*2.4)*.52,.35,Math.cos(n*2.4)*.52);
       flame.castShadow = false;
       moving.push(flame);
     }

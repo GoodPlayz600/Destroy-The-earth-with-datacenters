@@ -15,7 +15,7 @@ export type Site = Point & {
 export type Ride = Point & { id: string; kind: VehicleType; yaw: number; fuel: number; wear: number };
 export type Ledger = { date: number; note: string; amount: number };
 export type Contract = { good: Good; quantity: number; deadline: number; payout: number; done: boolean; failed: boolean };
-export type Project = { kind: 'watershed' | 'quarry' | 'thermal'; district: number; phase: number };
+export type Project = { kind: 'watershed' | 'quarry' | 'thermal'; district: number; phase: number; complete?: boolean };
 type RecordRow = { hits: number; harvest: number; fire: number; sold: number; produced: number; earned: number; spent: number; miles: number };
 export type Save = ReturnType<Campaign['snapshot']>;
 
@@ -122,7 +122,8 @@ export class Campaign {
     this.ownedUpgrades.add(id);
     const previousDurability = this.mods.knifeDurability;
     this.mods = modifiers(this.ownedUpgrades);
-    this.wear += this.mods.knifeDurability - previousDurability;
+    if(this.tool==='knife')this.wear+=this.mods.knifeDurability-previousDurability;
+    else if(this.toolWear.knife!==undefined)this.toolWear.knife+=this.mods.knifeDurability-previousDurability;
     for (const [tool, node] of Object.entries(forestryUnlocks)) if (node===id) this.ownedTools.add(tool as Tool);
     this.finance(-item.price, item.name);
     this.notice(item.name + ' installed');
@@ -153,9 +154,9 @@ export class Campaign {
     const powered = this.tool === 'electric' || this.tool === 'chainsaw' || this.tool === 'harvester';
     const energy = powered ? (this.tool === 'harvester' ? 4.6 : this.tool === 'chainsaw' ? 2.75 : 2.1) * this.mods.chain : 0;
     if (this.battery < energy) return { damage: 0, felled: false, ratio: 0 };
-    this.battery -= energy;
     const effort = (isKnife ? 4 * this.mods.knifeStamina : powered ? 2.5 : 5) * this.mods.handStamina;
     if (this.stamina < effort) return { damage: 0, felled: false, ratio: 0 };
+    this.battery -= energy;
     this.stamina -= effort;
     this.stats.hits++;
     let damage = config.power * (this.wear <= 0 ? .46 : 1);
@@ -268,7 +269,16 @@ export class Campaign {
     this.notice(`+$${payout} · ${goods[stack.good][0]}`);
   }
 
-  sellInventory(good: Good, quantity: number) {
+  sellInventory(good: Good, quantity: number, lot?:Stack) {
+    if(lot) {
+      const index=this.stock.indexOf(lot);
+      if(index<0||lot.good!==good||!Number.isInteger(quantity)||quantity<=0||quantity>lot.quantity) return false;
+      const shipped={...lot,quantity};
+      lot.quantity-=quantity;
+      if(!lot.quantity)this.stock.splice(index,1);
+      this.sellStack(shipped);
+      return true;
+    }
     const stack = take(this.stock, good, quantity);
     if (!stack) return false;
     this.sellStack(stack);
@@ -604,6 +614,13 @@ export class Campaign {
       }
     }
     for (const project of this.projects) {
+      if(project.complete)continue;
+      if(this.desertByDistrict[project.district]===1024) {
+        project.complete=true;
+        this.finance(5500,'Completed regional conversion contract');
+        this.notice('District converted · completion bond paid');
+        continue;
+      }
       project.phase += dt;
       const dx = project.district % DISTRICTS * 32, dz = Math.floor(project.district / DISTRICTS) * 32;
       for (let z = dz; z < dz + 32; z++) for (let x = dx; x < dx + 32; x++) {
@@ -618,8 +635,11 @@ export class Campaign {
     }
     for (const i of this.landQueue) {
       const soil = this.getSoil(i), before = desertified(soil);
-      const p = pressure.get(i) ?? noPressure();
-      if (applyLand(soil, p, dt, this.rain, 1, this.clock)) this.landRevision++;
+      const current=pressure.get(i);
+      if(!current&&before&&soil.fertility<=.24&&soil.substrate>=.85)continue;
+      const p = current ?? noPressure();
+      const hadCanopy=soil.vegetation>.03;
+      if (applyLand(soil, p, dt, this.rain, 1, this.clock)||hadCanopy!==(soil.vegetation>.03)) this.landRevision++;
       const now = desertified(soil);
       if (before !== now) {
         this.desertCount += now ? 1 : -1;
@@ -637,7 +657,7 @@ export class Campaign {
         if (cx < 0 || cx >= 256 || cz < 0 || cz >= 256) continue;
         const i = cz * 256 + cx;
         if (!this.districts.has(districtAt(i))) continue;
-        const tree = treesIn(this.seed, i).find(t => !this.removed.has(t.id));
+        const tree = treesIn(this.seed, i).find(t => this.isStanding(t));
         if (tree) return tree;
       }
     }
@@ -659,6 +679,22 @@ export class Campaign {
       ['First Shave', this.stats.harvest > 0], ['Smoke Signal', this.stats.fire > 0], ['Value Added', this.stats.produced > 0],
       ['Fleet Service', this.rides.length >= 3], ['First Dry Cell', this.desertCount > 0], ['The Last Jungle', this.won],
     ] as const) if (checked && !this.achievements.has(key)) { this.achievements.add(key); this.notice(`Award · ${key}`); }
+  }
+
+  stripGround(at:Point,seconds:number) {
+    const i=indexAt(at.x,at.z);
+    if(i<0||!this.districts.has(districtAt(i)))return false;
+    const soil=this.getSoil(i);
+    const before=desertified(soil);
+    const wasVisible=soil.vegetation>.03;
+    if(applyLand(soil,{clearing:2.4,drainage:.7,removal:4.5,heat:0,grazing:0,pollution:.18},seconds,this.rain,1,this.clock)
+      ||wasVisible!==(soil.vegetation>.03))this.landRevision++;
+    if(!before&&desertified(soil)) {
+      this.desertCount++;
+      this.desertByDistrict[districtAt(i)]++;
+    }
+    this.landQueue.add(i);
+    return true;
   }
 
   scan(district?: number, limit = 64) {
