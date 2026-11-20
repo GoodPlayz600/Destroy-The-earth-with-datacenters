@@ -163,6 +163,31 @@ try{
   assert.ok(refined.cash>75);
   assert.equal(refined.stock.length,0);
   assert.equal(refined.stats.produced,2);
+  console.log('Reviewing standing board order with newer closed orders');
+  await click('Close panel');
+  await press('Escape');
+  await click('Settings');
+  const boardOrder=await inspect();
+  boardOrder.player={x:7.2,z:0,yaw:0,pitch:-.03};
+  boardOrder.ownedUpgrades.push(...Array.from({length:12},(_,i)=>'14-'+String(i+1).padStart(2,'0')));
+  boardOrder.stock.push({good:'boards',quantity:27,quality:.86,moisture:.4});
+  boardOrder.contracts=Array.from({length:5},()=>({good:'paper',quantity:8,received:8,payout:350,deadline:boardOrder.clock+360,done:true,failed:false}));
+  boardOrder.contracts.push({good:'boards',quantity:27,payout:1701,deadline:boardOrder.clock+1100,done:false,failed:false,plan:'supply'});
+  await p.locator('input[type=file]').setInputFiles({name:'order-test.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(boardOrder))});
+  await p.getByText('Campaign imported',{exact:true}).waitFor();
+  await click('Close panel');
+  await press('KeyE');
+  await p.getByRole('heading',{name:'Timber Exchange'}).waitFor();
+  for(let delivery=1;delivery<=3;delivery++){
+    await click('Deliver 9 · $567');
+    const delivered=await inspect();
+    assert.equal(delivered.cash,boardOrder.cash+567*delivery);
+    const order=delivered.contracts.find(deal=>deal.plan==='supply');
+    assert.equal(order.received,9*delivery);
+    assert.equal(order.done,delivery===3);
+  }
+  assert.equal((await inspect()).stock.length,0);
+  await screenshot(p,'standing-order');
   console.log('Reviewing vehicle loading, driving, and delivery');
   await click('Close panel');
   await press('Escape');
@@ -190,6 +215,112 @@ try{
   await wait(()=>window.clearcutReview().logs.length===0);
   await wait(()=>window.clearcutReview().stats.produced===4);
   await press('KeyF');
+  console.log('Reviewing wheelbarrow, sled, and cart delivery in one campaign');
+  await press('Escape');
+  await click('Settings');
+  const manual=await inspect();
+  manual.player={x:-8.2,z:5.1,yaw:0,pitch:-.03};
+  manual.ownedUpgrades.push(...Array.from({length:7},(_,i)=>'03-0'+(i+1)));
+  const equipment=[['wheelbarrow','Logging Wheelbarrow',5.1],['sled','Skid Sled',9.45],['cart','Hand Cart',13.5]];
+  for(const [kind,,z] of equipment){
+    manual.rides.push({id:'v'+manual.nextId++,kind,x:-8.2,z,yaw:0,fuel:100,wear:0});
+    manual.logs.push({id:manual.nextId++,x:-8.2,y:.35,z:z+.7,q:[Math.SQRT1_2,0,0,Math.SQRT1_2],
+      kind:0,length:2.6,kilograms:22,units:1,moisture:.65,quality:.76});
+  }
+  await p.locator('input[type=file]').setInputFiles({name:'manual-hauling-test.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(manual))});
+  await wait(()=>window.clearcutReview().rides.some(v=>v.kind==='cart'));
+  await click('Close panel');
+  for(const [index,[kind,name,z]] of equipment.entries()){
+    if(index>0){
+      await move('x',-8.15);
+      await move('z',z-.1);
+    }
+    const before=(await inspect()).stats.fire;
+    const vehicle=manual.rides.find(ride=>ride.kind===kind);
+    await press('KeyL');
+    await wait(id=>window.clearcutReview().logs.some(log=>log.cargo===id),vehicle.id);
+    await press('KeyF');
+    await p.getByText('Manual transport',{exact:true}).waitFor();
+    await p.locator('.tool-details').getByText(name,{exact:true}).waitFor();
+    await move('z',.8);
+    await press('KeyL');
+    await wait(previous=>window.clearcutReview().stats.fire===previous+1,before);
+    await press('KeyF');
+  }
+  await screenshot(p,'manual-hauling');
+  console.log('Reviewing trailer coupling, driving, and loaded rig recovery');
+  await press('Escape');
+  await click('Settings');
+  const towingTest=await inspect();
+  towingTest.player={x:-1.7,z:12,yaw:0,pitch:-.03};
+  towingTest.ownedUpgrades.push(...Array.from({length:6},(_,i)=>'06-0'+(i+1)));
+  const tow={id:'v'+towingTest.nextId++,kind:'truck',x:-1.7,z:12,yaw:0,fuel:100,wear:0};
+  const unhitched={id:'v'+towingTest.nextId++,kind:'trailer',x:-1.7,z:16.7,yaw:0,fuel:100,wear:0};
+  towingTest.rides.push(tow,unhitched);
+  const trailerLog=towingTest.nextId++;
+  towingTest.logs.push({id:trailerLog,x:unhitched.x,y:.79,z:unhitched.z,q:[Math.SQRT1_2,0,0,Math.SQRT1_2],
+    kind:0,length:2.6,kilograms:22,units:1,moisture:.65,quality:.76,cargo:unhitched.id});
+  await p.locator('input[type=file]').setInputFiles({name:'loaded-trailer-test.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(towingTest))});
+  await wait(id=>window.clearcutReview().rides.some(v=>v.id===id),unhitched.id);
+  await click('Close panel');
+  await press('KeyF');
+  await press('KeyH');
+  await wait(({tow,trailer})=>{
+    const save=window.clearcutReview();
+    const vehicle=save.rides.find(v=>v.id===trailer);
+    return vehicle.hitch===tow&&save.clock>=vehicle.hitchReady;
+  },{tow:tow.id,trailer:unhitched.id});
+  await move('z',8.4);
+  const driven=await inspect();
+  assert.ok(driven.rides.find(v=>v.id===unhitched.id).z<unhitched.z-.5);
+  assert.equal(driven.logs.find(l=>l.id===trailerLog).cargo,unhitched.id);
+  await press('KeyQ');
+  await p.locator('.row').filter({hasText:'Timber Trailer'}).filter({hasText:'Coupled to Logging Truck'})
+    .getByRole('button',{name:'Recover rig · $18',exact:true}).click();
+  await p.getByText('Recovered Logging Truck and trailer to Timber Exchange',{exact:true}).waitFor();
+  const recovered=await inspect();
+  const loadedTrailer=recovered.rides.find(v=>v.id===unhitched.id);
+  const recoveredTruck=recovered.rides.find(v=>v.id===tow.id);
+  const wood=recovered.logs.find(l=>l.id===trailerLog);
+  assert.equal(recovered.cash,driven.cash-18);
+  assert.equal(loadedTrailer.hitch,tow.id);
+  assert.ok(Math.abs(Math.hypot(recoveredTruck.x-loadedTrailer.x,recoveredTruck.z-loadedTrailer.z)-5)<.001);
+  assert.ok(Math.hypot(wood.x-loadedTrailer.x,wood.z-loadedTrailer.z)<1);
+  await click('Close panel');
+  console.log('Reviewing independent factory lanes with an occupied depot');
+  await press('Escape');
+  await click('Settings');
+  const sorting=await inspect();
+  sorting.player={x:1,z:12.3,yaw:0,pitch:-.03};
+  sorting.ownedUpgrades.push(...Array.from({length:6},(_,i)=>'15-0'+(i+1)));
+  const addSite=(kind,x,z,output=[])=>{
+    const site={id:'s'+sorting.nextId++,kind,x,z,input:[],output,jobs:[],on:true,fuel:100,status:'Idle'};
+    sorting.sites.push(site);
+    return site;
+  };
+  const storage=addSite('depot',-12,11,[{good:'timber',quantity:260,quality:.75,moisture:.5}]);
+  addSite('generator',11,12);
+  const sorter=addSite('sortGate',1,10,[
+    {good:'boards',quantity:60,moisture:.32,quality:.88},
+    {good:'chips',quantity:12,moisture:.44,quality:.73},
+  ]);
+  sorter.link=sorting.sites.find(s=>s.kind==='market').id;
+  sorter.secondary=storage.id;
+  sorter.sortGood='chips';
+  sorting.logs=sorting.logs.filter(l=>l.cargo);
+  await p.locator('input[type=file]').setInputFiles({name:'factory-routing-test.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(sorting))});
+  await wait(id=>window.clearcutReview().sites.some(site=>site.id===id),sorter.id);
+  await click('Close panel');
+  await wait(id=>window.clearcutReview().sites.find(s=>s.id===id).shipped>=4,sorter.id);
+  await press('KeyE');
+  await p.getByRole('heading',{name:'Material Sorting Gate',exact:true}).waitFor();
+  await p.locator('.row').filter({hasText:'Primary · Timber Exchange'}).getByText('Moved 4 × Green boards',{exact:true}).waitFor();
+  await p.locator('.row').filter({hasText:'Alternate · Freight Depot'}).getByText('Blocked · receiver full',{exact:true}).waitFor();
+  await screenshot(p,'factory-lanes');
+  await click('Disconnect primary');
+  assert.equal((await inspect()).sites.find(s=>s.id===sorter.id).link,undefined);
+  assert.equal((await inspect()).sites.find(s=>s.id===sorter.id).secondary,storage.id);
+  await click('Close panel');
   console.log('Reviewing excavation in the streamed 3D world');
   await press('Escape');
   await click('Settings');
@@ -272,6 +403,20 @@ try{
     await mobile.getByText('Pioneer sapling',{exact:true}).waitFor();
     await hold('Swing',()=>window.clearcutReview().stats.harvest===1);
     assert.equal(await mobile.evaluate(()=>window.clearcutReview().logs.length),1);
+    const rope=mobile.getByRole('button',{name:'Rope',exact:true});
+    assert.equal(await rope.isVisible(),false);
+    const ropeTest=await mobile.evaluate(()=>window.clearcutReview());
+    ropeTest.ownedUpgrades.push('03-01');
+    ropeTest.player.z=-6.95;
+    await mobile.getByRole('button',{name:/Pause$/}).tap();
+    await mobile.getByRole('button',{name:'Settings',exact:true}).tap();
+    await mobile.locator('input[type=file]').setInputFiles({name:'touch-rope-test.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(ropeTest))});
+    await mobile.getByText('Campaign imported',{exact:true}).waitFor();
+    await mobile.getByRole('button',{name:'Close panel',exact:true}).tap();
+    await rope.tap();
+    await mobile.locator('.hold-context').waitFor();
+    await mobile.getByRole('button',{name:'Drop',exact:true}).tap();
+    await mobile.locator('.hold-context').waitFor({state:'hidden'});
     assert.equal(await mobile.evaluate(()=>document.documentElement.scrollWidth),430);
     await screenshot(mobile,'touch');
     await mobile.close();

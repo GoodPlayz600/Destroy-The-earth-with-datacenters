@@ -285,6 +285,7 @@ kbd { display: inline-flex; align-items: center; justify-content: center; min-wi
 .dpad button:nth-child(3) { grid-row: 2; }
 .dpad button:nth-child(4) { grid-row: 2; }
 .touch-actions { position: absolute; right: 14px; bottom: 7.4rem; display: grid; grid-template-columns: repeat(2,2.8rem); gap: 6px; }
+.touch-actions:has(.touch-rope:not([hidden])) { grid-template-columns: repeat(3,2.8rem); }
 .touch-button { min-height: 2.65rem; border: 1px solid #efdb9d7c; background: #28372abe; font-weight: 700; font-size: .72rem; touch-action: none; }
 .touch-button:active { background: #97774b; }
 @media (max-width: 710px) {

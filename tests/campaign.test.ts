@@ -4,7 +4,7 @@ import { Campaign, canWin, getQuantity, priceFor, put, take } from '../src/campa
 import type { Log, Project } from '../src/campaign';
 import { CELLS, TOTAL, facilities, recipes, species, vehicleTypes } from '../src/catalog';
 import type { Facility } from '../src/catalog';
-import { applyLand, conversionLabel, defaultSoil, desertified, districtAt, height, homeDistrict, indexAt, noPressure, treesIn } from '../src/land';
+import { applyLand, conversionLabel, defaultSoil, desertified, distance, districtAt, height, homeDistrict, indexAt, noPressure, treesIn } from '../src/land';
 import { validateSave } from '../src/storage';
 import { forestryUnlocks, modifiers, upgradeFacility, upgrades } from '../src/upgrades';
 const upgradePrerequisiteFacilities=Object.values(upgradeFacility);
@@ -583,19 +583,65 @@ test('standing delivery contracts lock a rate and credit each shipment once',()=
   for(let n=1;n<=9;n++)assert.ok(game.buyUpgrade('14-'+String(n).padStart(2,'0')));
   assert.ok(game.acceptContract('boards',false,'supply'));
   const order=game.contracts[0], starting=game.cash;
+  const bench=build(game,'bench',1,4), productionBudget=game.cash;
   assert.ok(order.deadline>game.clock+900);
   for(let batch=0;batch<3;batch++) {
-    put(game.stock,{good:'boards',quantity:9,quality:.86,moisture:.40});
+    while(getQuantity(bench.output,'boards')<9){
+      const log=baseLog(game,bench.x,bench.z);
+      game.logs.set(log.id,log);
+      assert.ok(game.acceptLog(bench,log));
+      run(game,6);
+    }
+    assert.ok(game.transfer(bench,'boards',9,true));
+    const quote=game.deliveryQuote(order)!;
+    const expected=Math.floor(order.payout*(batch+1)/3)-Math.floor(order.payout*batch/3);
+    assert.deepEqual(quote,{quantity:9,payout:expected,available:9});
+    const balance=game.cash;
     assert.ok(game.fulfill(order));
+    assert.equal(game.cash,balance+expected);
     assert.equal(order.received,(batch+1)*9);
     assert.equal(order.done,batch===2);
     assert.equal(game.fulfill(order),false);
     run(game,40);
   }
-  assert.equal(game.cash,starting+order.payout);
+  assert.equal(productionBudget,starting-facilities.bench.price);
+  assert.equal(game.cash,productionBudget+order.payout);
   assert.equal(getQuantity(game.stock),0);
   const save=Campaign.restore(validateSave(JSON.parse(JSON.stringify(game.snapshot()))));
   assert.equal(save.contracts[0].received,27);
+});
+
+test('contract history retains a standing order after newer orders close',()=>{
+  const game=new Campaign();
+  game.ownedUpgrades.add('14-09');
+  game.ownedUpgrades.add('14-12');
+  game.mods=modifiers(game.ownedUpgrades);
+  assert.ok(game.acceptContract('boards',false,'supply'));
+  const order=game.contracts[0];
+  for(let n=0;n<27;n++){
+    assert.ok(game.acceptContract('paper'));
+    const recent=game.contracts[0];
+    put(game.stock,{good:'paper',quantity:recent.quantity,quality:.88,moisture:.4});
+    assert.ok(game.fulfill(recent));
+  }
+  assert.equal(game.contracts.length,25);
+  assert.equal(game.contracts.at(-1),order);
+  const restored=Campaign.restore(validateSave(JSON.parse(JSON.stringify(game.snapshot()))));
+  assert.deepEqual(restored.contracts.at(-1),JSON.parse(JSON.stringify(order)));
+});
+
+test('manual hauling equipment unlocks from its listed construction research',()=>{
+  const game=new Campaign();
+  game.cash=3000;
+  const point={x:0,z:11};
+  assert.ok(game.acquireRide('wheelbarrow',point));
+  assert.equal(game.acquireRide('sled',point),undefined);
+  assert.equal(game.acquireRide('cart',point),undefined);
+  for(let n=1;n<=5;n++)assert.ok(game.buyUpgrade(`03-0${n}`));
+  assert.ok(game.acquireRide('sled',point));
+  assert.equal(game.acquireRide('cart',point),undefined);
+  for(let n=6;n<=7;n++)assert.ok(game.buyUpgrade(`03-0${n}`));
+  assert.ok(game.acquireRide('cart',point));
 });
 
 test('water cart transfers conserve the finite volume drawn from a manual pump',()=>{
@@ -711,18 +757,55 @@ test('powered sorting splits actual material lots without duplicating grade or r
   assert.equal(g.capacity(rack),52);
   assert.ok(g.connect(gate,market));
   assert.ok(g.connectAlternate(gate,warehouse,'chips'));
+  assert.equal(g.connect(gate,warehouse),false);
+  assert.equal(g.connectAlternate(gate,market,'chips'),false);
+  put(warehouse.output,{good:'timber',quantity:g.capacity(warehouse),quality:.74,moisture:.45});
   put(gate.output,{good:'chips',quantity:7,quality:.78,moisture:.40});
   put(gate.output,{good:'boards',quantity:8,quality:.90,moisture:.28});
   generator.on=false;
   run(g,2);
   assert.equal(getQuantity(gate.output),15);
+  assert.match(g.routeStatus.get(gate.id+':'+market.id)!,/no power/);
   generator.on=true;
-  run(g,5);
+  run(g,1);
+  assert.equal(g.routeStatus.get(gate.id+':'+market.id),'Moved 4 × Green boards');
+  assert.match(g.routeStatus.get(gate.id+':'+warehouse.id)!,/receiver full/);
+  assert.equal(getQuantity(gate.output,'chips'),7);
+  run(g,1);
+  assert.equal(g.stats.sold,8);
+  assert.ok(g.transfer(warehouse,'timber',8,true));
+  g.disconnectRoute(gate);
+  run(g,3);
   assert.equal(getQuantity(gate.output),0);
   assert.equal(getQuantity(warehouse.output,'chips'),7);
   assert.equal(g.stats.sold,8);
   assert.equal(gate.shipped,15);
   assert.doesNotThrow(()=>validateSave(JSON.parse(JSON.stringify(g.snapshot()))));
+  g.disconnectRoute(gate,true);
+  assert.equal(gate.sortGood,undefined);
+});
+
+test('freight dispatch reserves the exact lot a specialty buyer accepts',()=>{
+  const g=new Campaign();
+  g.cash=15000;
+  build(g,'depot',-10,10);
+  const rail=build(g,'railDepot',0,13);
+  g.ownedUpgrades.add('14-06');
+  const buyer=build(g,'specialistBuyer',9,10);
+  assert.ok(g.connect(rail,buyer));
+  const low={good:'boards',quantity:8,quality:.66,moisture:.51} as const;
+  const high={good:'boards',quantity:6,quality:.95,moisture:.19} as const;
+  assert.ok(put(rail.output,low));
+  assert.ok(put(rail.output,high));
+  run(g,1);
+  assert.deepEqual(rail.shipment?.load,high);
+  assert.deepEqual(rail.output,[low]);
+  g.disconnectRoute(rail);
+  assert.equal(rail.link,buyer.id);
+  run(g,8);
+  assert.equal(rail.shipment,undefined);
+  assert.equal(g.stats.sold,high.quantity);
+  assert.deepEqual(rail.output,[low]);
 });
 
 test('staffing reserves one paid position and shortens actual processing time',()=>{
@@ -925,8 +1008,56 @@ test('stranded vehicle recovery preserves the original log and cargo reservation
   assert.ok(ride.fuel>=20&&ride.wear<=65);
   assert.equal(g.logs.size,1);
   assert.equal(g.logs.get(wood.id)?.cargo,ride.id);
+  assert.ok(distance(wood,ride)<1);
   const saved=Campaign.restore(validateSave(JSON.parse(JSON.stringify(g.snapshot()))));
   assert.equal(saved.logs.get(wood.id)?.cargo,saved.rides[0].id);
+});
+
+test('recovering a loaded trailer moves the hitched rig to the next usable yard',()=>{
+  const g=new Campaign();
+  g.cash=50000;
+  for(let n=1;n<=6;n++)assert.ok(g.buyUpgrade('06-0'+n));
+  const depot=build(g,'depot',-10,10), market=g.sites[1];
+  const tow=g.acquireRide('pickup',{x:0,z:12})!;
+  const trailer=g.acquireRide('trailer',{x:0,z:17})!;
+  assert.ok(g.toggleTrailer(tow));
+  for (let n=0;n<12;n++){
+    const angle=n*Math.PI/6, radius=facilities.depot.size+3.2;
+    assert.ok(g.acquireRide('wheelbarrow',{x:depot.x+Math.cos(angle)*radius,z:depot.z+Math.sin(angle)*radius}));
+  }
+  Object.assign(tow,{x:-160,z:90,fuel:0,wear:100});
+  Object.assign(trailer,{x:-160,z:94});
+  const cargo=[tow,trailer].map(vehicle=>{
+    const wood=baseLog(g,vehicle.x,vehicle.z);
+    wood.cargo=vehicle.id;
+    g.logs.set(wood.id,wood);
+    return wood;
+  });
+  const money=g.cash;
+  assert.ok(g.recoverRide(trailer));
+  assert.equal(g.cash,money-18);
+  assert.equal(trailer.hitch,tow.id);
+  assert.equal(trailer.hitchReady,undefined);
+  assert.ok(distance(tow,market)<6&&distance(tow,depot)>7.2);
+  assert.ok(distance(trailer,tow)>3.8&&distance(trailer,tow)<3.9);
+  assert.equal(tow.fuel,20);
+  assert.equal(g.logs.size,2);
+  assert.ok(distance(cargo[0],tow)<1&&distance(cargo[1],trailer)<1);
+  const saved=Campaign.restore(validateSave(JSON.parse(JSON.stringify(g.snapshot()))));
+  assert.equal(saved.rides.find(v=>v.id===trailer.id)?.hitch,tow.id);
+  assert.equal(saved.logs.get(cargo[1].id)?.cargo,trailer.id);
+});
+
+test('barren terrain refreshes when erosion exposes cracks within the same stage',()=>{
+  const game=new Campaign();
+  const at={x:8,z:8};
+  const cell=indexAt(at.x,at.z);
+  game.soil.set(cell,{...defaultSoil(),stage:5,vegetation:0,clearedFor:100,moisture:.17,substrate:.6,erosion:.485});
+  const revision=game.landRevision;
+  assert.ok(game.stripGround(at,1));
+  assert.equal(game.soil.get(cell)?.stage,5);
+  assert.ok(game.soil.get(cell)!.erosion>=.49);
+  assert.equal(game.landRevision,revision+1);
 });
 
 test('manual sawbench mode keeps a workpiece available until the player cranks it',()=>{

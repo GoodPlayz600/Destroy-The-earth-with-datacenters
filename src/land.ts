@@ -60,6 +60,7 @@ export type Soil = {
 };
 export const defaultSoil = (): Soil => ({ vegetation: 1, moisture: .68, groundwater: .85, fertility: .9, heat: .12, pollution: 0, erosion: 0, substrate: 0, stable: 0, stage: 0, clearedFor: 0, lastTick: 0 });
 export const desertRules = { vegetation: .03, moisture: .12, groundwater: .18, fertility: .22, heat: .76, substrate: .7, stabilization: 60 };
+export const showsGroundCracks=(soil:Soil)=>soil.stage>=5&&soil.erosion>=.49;
 export type Pressure = { clearing: number; drainage: number; removal: number; heat: number; grazing: number; pollution: number; runoff?: number };
 export const noPressure = (): Pressure => ({ clearing: 0, drainage: 0, removal: 0, heat: 0, grazing: 0, pollution: 0 });
 
@@ -85,6 +86,7 @@ export function desertified(s: Soil) {
 
 export function applyLand(s: Soil, p: Pressure, seconds: number, rain: number, standing: number, tick: number) {
   const oldStage = s.stage;
+  const hadCracks=showsGroundCracks(s);
   const irreversible = s.substrate >= .85 && s.fertility <= .24;
   const stressed = p.clearing || p.grazing || p.removal || p.heat || p.drainage;
   s.groundwater = clamp(s.groundwater + seconds * (rain * .00035 * (irreversible ? 0 : 1) - p.drainage * .0028 - p.removal * .0005));
@@ -109,7 +111,7 @@ export function applyLand(s: Soil, p: Pressure, seconds: number, rain: number, s
     : s.substrate > .55 && s.moisture < .21 ? 5 : s.moisture < .30 ? 4
     : s.moisture < .49 || s.fertility < .52 ? 3 : 2;
   s.lastTick = tick;
-  return s.stage !== oldStage;
+  return s.stage !== oldStage || showsGroundCracks(s)!==hadCracks;
 }
 
 export function conversionLabel(count: number) {

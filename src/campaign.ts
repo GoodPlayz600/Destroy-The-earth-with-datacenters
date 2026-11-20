@@ -41,8 +41,19 @@ export type Site = Point & {
   mechanic?:{ride:string;time:number}; crane?:{log:number;ride:string;remaining:number;x:number;y:number;z:number}; winch?:{log:number; ready:number}; planted?:number; fertilizer?:boolean; intensive?:boolean; water?: number; climate?:ClimateSample[]; waterMode?:'all'|'farm'|'industry'; waterRate?:'normal'|'conserve'|'deplete'; reserve?:number; priority?:boolean; gridFlow?:number; gridCapacity?:number; uptime?:number; service?:number; yieldCarry?:number; layout?: 'quality'|'volume'; sortHigh?:boolean; link?: string; haul?: Haul; shipment?:Shipment; mode?: 'sell' | 'charcoal';
 };
 export type Ride = Point & { id: string; kind: VehicleType; yaw: number; fuel: number; wear: number; hitch?:string; hitchReady?:number; attachment?:'saw'|'tow'; water?:number; freight?:Stack };
+export const trailerGap=(tow:Ride)=>tow.kind==='truck'?5:3.85;
+export function cargoPosition(ride:Ride,index:number,ground:number) {
+  const def=vehicleTypes[ride.kind], slot=(index%3-1)*.34;
+  const reach=def.forks?-2.06:def.trailer?.35:.68;
+  return {
+    x:ride.x+Math.cos(ride.yaw)*slot+Math.sin(ride.yaw)*reach,
+    z:ride.z-Math.sin(ride.yaw)*slot+Math.cos(ride.yaw)*reach,
+    y:ground+(def.forks?1.03:.79)+Math.floor(index/3)*.32,
+  };
+}
 export type Ledger = { date: number; note: string; amount: number };
 export type Contract = { good: Good; quantity: number; deadline: number; payout: number; done: boolean; failed: boolean; dense?:boolean; grade?:number; received?:number; plan?:'quick'|'supply'|'export' };
+export const isOpenContract=(contract:Contract,clock:number)=>!contract.done&&!contract.failed&&contract.deadline>clock;
 export type Project = { kind: 'watershed' | 'quarry' | 'thermal' | 'dryland' | 'integrated' | 'continental'; district: number; phase: number; complete?: boolean };
 type RecordRow = { hits: number; harvest: number; fire: number; sold: number; produced: number; earned: number; spent: number; miles: number };
 export type Save = ReturnType<Campaign['snapshot']>;
@@ -85,6 +96,14 @@ export function take(stacks: Stack[], good: Good, quantity: number, minQuality =
     if (!needed) break;
   }
   return { good, quantity, quality: quality / quantity, moisture: moisture / quantity };
+}
+function takeLot(stacks:Stack[],lot:Stack,quantity:number) {
+  const index=stacks.indexOf(lot);
+  if(index<0||quantity<=0||quantity>lot.quantity)return;
+  const removed={...lot,quantity};
+  lot.quantity-=quantity;
+  if(!lot.quantity)stacks.splice(index,1);
+  return removed;
 }
 export const priceFor = (stack: Stack) => Math.round(goods[stack.good][1] * stack.quantity * (.64 + stack.quality * .45 + (1 - stack.moisture) * .18));
 export const canWin = (desertCount: number) => desertCount === TOTAL;
@@ -141,6 +160,7 @@ export class Campaign {
   private pressures=new Float64Array(TOTAL*pressureFields.length);
   private pressureTracked=new Uint8Array(TOTAL);
   readonly routePackets=new Map<string,{at:number;good:Good;from:Point;to:Point}>();
+  readonly routeStatus=new Map<string,string>();
   private roadPower = new Map<string, boolean>();
 
   constructor(seed=20831,challenge:Challenge='standard') {
@@ -446,11 +466,15 @@ export class Campaign {
     return Math.round(priceFor(stack)*rate*premium*(certified?1.26:1));
   }
 
-  private creditDelivery(contract:Contract,quantity:number) {
+  private deliveryValue(contract:Contract,quantity:number) {
     const before=contract.received??0;
-    contract.received=before+quantity;
+    return Math.floor(contract.payout*(before+quantity)/contract.quantity)-Math.floor(contract.payout*before/contract.quantity);
+  }
+
+  private creditDelivery(contract:Contract,quantity:number) {
+    const paid=this.deliveryValue(contract,quantity);
+    contract.received=(contract.received??0)+quantity;
     contract.done=contract.received>=contract.quantity;
-    const paid=Math.floor(contract.payout*contract.received/contract.quantity)-Math.floor(contract.payout*before/contract.quantity);
     this.finance(paid,`${contract.done?'Contract fulfilled':'Contract shipment'} · ${goods[contract.good][0]}`);
     this.notice(`${contract.done?'Contract complete':'Shipment accepted'} · +$${paid}`);
   }
@@ -458,7 +482,7 @@ export class Campaign {
   private sellAt(site:Site,stack:Stack) {
     if(site.kind==='tradeHub'&&this.mods.tradeOptimizer) {
       for(const c of this.contracts){
-        if(c.good!==stack.good||c.done||c.failed||stack.quality<(c.grade??0))continue;
+        if(c.good!==stack.good||!isOpenContract(c,this.clock)||stack.quality<(c.grade??0))continue;
         const delivered=Math.min(stack.quantity,c.quantity-(c.received??0));
         if(delivered<=0)continue;
         this.creditDelivery(c,delivered);
@@ -480,11 +504,8 @@ export class Campaign {
     if(good==='compute'||!Number.isInteger(quantity)||quantity<=0)return false;
     const acceptable=(stack:Stack)=>stack.good===good&&(!site||this.buyerAccepts(site,stack));
     if(lot) {
-      const index=this.stock.indexOf(lot);
-      if(index<0||!acceptable(lot)||quantity>lot.quantity)return false;
-      const shipped={...lot,quantity};
-      lot.quantity-=quantity;
-      if(!lot.quantity)this.stock.splice(index,1);
+      const shipped=acceptable(lot)?takeLot(this.stock,lot,quantity):undefined;
+      if(!shipped)return false;
       if(site)this.sellAt(site,shipped);
       else this.sellStack(shipped);
       return true;
@@ -498,7 +519,15 @@ export class Campaign {
   }
 
   canTakeContract() {
-    return this.contracts.filter(c=>!c.done&&!c.failed).length<(this.mods.tradeOptimizer?3:1);
+    return this.contracts.filter(c=>isOpenContract(c,this.clock)).length<(this.mods.tradeOptimizer?3:1);
+  }
+
+  private recordContract(contract:Contract) {
+    this.contracts.unshift(contract);
+    if(this.contracts.length>25) {
+      const oldestClosed=this.contracts.map(item=>isOpenContract(item,this.clock)).lastIndexOf(false);
+      this.contracts.splice(oldestClosed,1);
+    }
   }
 
   acceptContract(good:Good,dense=false,plan?:Contract['plan']) {
@@ -509,27 +538,32 @@ export class Campaign {
       good==='packed'?48:good==='timber'?32:['briquettes','pellets'].includes(good)?24:['finished','treated'].includes(good)?16:8;
     const expires=plan==='quick'?160:plan==='supply'?1100:plan==='export'?1350:dense||good==='packed'?1200:good==='compute'?480:360;
     const rate=dense?2.5:plan==='export'?2.2:plan==='supply'?1.7:1.5;
-    this.contracts.unshift({good,quantity,deadline:this.clock+expires,payout:Math.round(goods[good][1]*quantity*rate),done:false,failed:false,dense,
+    this.recordContract({good,quantity,deadline:this.clock+expires,payout:Math.round(goods[good][1]*quantity*rate),done:false,failed:false,dense,
       grade:plan==='export'?.83:undefined,plan});
-    this.contracts.length=Math.min(this.contracts.length,25);
     return true;
   }
 
   acceptCommission(good:Good,premium=false) {
     if(!this.mods.commissions||!['finishedCabinet','floors','modular'].includes(good)||!this.canTakeContract()) return false;
     const quantity=premium?25:12;
-    this.contracts.unshift({good,quantity,deadline:this.clock+(premium?990:570),payout:Math.round(goods[good][1]*quantity*(premium?2.15:1.65)),
+    this.recordContract({good,quantity,deadline:this.clock+(premium?990:570),payout:Math.round(goods[good][1]*quantity*(premium?2.15:1.65)),
       done:false,failed:false,grade:premium?.92:.81});
-    this.contracts.length=Math.min(this.contracts.length,25);
     return true;
   }
 
-  fulfill(contract:Contract) {
-    if(contract.done||contract.failed||contract.deadline<=this.clock)return false;
+  deliveryQuote(contract:Contract) {
+    if(!isOpenContract(contract,this.clock))return;
     const need=contract.quantity-(contract.received??0);
-    const batch=contract.plan==='supply'?Math.min(9,need):need;
-    if(!take(this.stock,contract.good,batch,contract.grade))return false;
-    this.creditDelivery(contract,batch);
+    const quantity=contract.plan==='supply'?Math.min(9,need):need;
+    if(quantity<=0)return;
+    const available=getQuantity(this.stock.filter(lot=>lot.quality>=(contract.grade??0)),contract.good);
+    return {quantity,payout:this.deliveryValue(contract,quantity),available};
+  }
+
+  fulfill(contract:Contract) {
+    const quote=this.deliveryQuote(contract);
+    if(!quote||!take(this.stock,contract.good,quote.quantity,contract.grade))return false;
+    this.creditDelivery(contract,quote.quantity);
     return true;
   }
 
@@ -566,7 +600,7 @@ export class Campaign {
   acquireRide(kind: VehicleType, point: Point) {
     const vehicle = vehicleTypes[kind];
     if(vehicle.research&&!this.ownedUpgrades.has(vehicle.research))return;
-    if (this.cash < vehicle.cost || (kind === 'sled' && !this.mods.sled) || (kind === 'cart' && !this.mods.cart)
+    if (this.cash < vehicle.cost
       || indexAt(point.x, point.z) < 0 || (Math.hypot(point.x, point.z) > 29 && !this.districts.has(districtAt(indexAt(point.x, point.z))))) return;
     const ride: Ride = { ...point, id: 'v' + this.nextId++, kind, yaw: this.player.yaw, fuel: 100, wear: 0 };
     this.rides.push(ride);
@@ -585,10 +619,12 @@ export class Campaign {
   }
 
   toggleTrailer(tow:Ride) {
-    if(!this.mods.hitch||vehicleTypes[tow.kind].trailer||tow.kind==='sled'||tow.kind==='cart')return false;
+    if(!this.rides.includes(tow)||!this.mods.hitch||vehicleTypes[tow.kind].trailer||['sled','cart','wheelbarrow'].includes(tow.kind)
+      ||this.sites.some(s=>s.dedicatedRide===tow.id))return false;
     const attached=this.rides.find(v=>v.hitch===tow.id);
     if(attached){attached.hitch=undefined;attached.hitchReady=undefined;return true;}
-    const trailer=this.rides.find(v=>vehicleTypes[v.kind].trailer&&!v.hitch&&distance(tow,v)<5.9);
+    const trailer=this.rides.filter(v=>vehicleTypes[v.kind].trailer&&!v.hitch&&distance(tow,v)<5.9)
+      .sort((a,b)=>distance(tow,a)-distance(tow,b))[0];
     if(!trailer)return false;
     trailer.hitch=tow.id;
     trailer.hitchReady=this.clock+this.mods.couplerTime;
@@ -622,28 +658,47 @@ export class Campaign {
     return true;
   }
 
-  recoverRide(ride:Ride) {
-    if(!this.rides.includes(ride)||this.cash<18||this.sites.some(s=>s.dedicatedRide===ride.id&&s.shipment))return false;
+  private canPark(at:Point,rig:Ride[]) {
+    const tile=indexAt(at.x,at.z);
+    const radius=2.5;
+    if(tile<0||Math.max(Math.abs(at.x),Math.abs(at.z))>SIZE/2-radius
+      ||Math.hypot(at.x,at.z)>29&&!this.districts.has(districtAt(tile))
+      ||this.rides.some(other=>!rig.includes(other)&&distance(other,at)<2.8)
+      ||this.sites.some(site=>!lineKinds.includes(site.kind)&&distance(site,at)<facilities[site.kind].size+1.4))return false;
+    const cells=new Set<number>();
+    for(const dx of [-radius,radius])for(const dz of [-radius,radius])cells.add(indexAt(at.x+dx,at.z+dz));
+    for(const cell of cells)if(cell>=0&&treesIn(this.seed,cell).some(tree=>this.isStanding(tree)&&distance(tree,at)<radius))return false;
+    return true;
+  }
+
+  recoverRide(selected:Ride) {
+    if(!this.rides.includes(selected)||this.cash<18)return false;
+    const ride=this.rides.find(v=>v.id===selected.hitch)??selected;
+    const trailer=this.rides.find(v=>v.hitch===ride.id);
+    const rig=trailer?[ride,trailer]:[ride];
+    if(this.sites.some(s=>s.shipment&&rig.some(v=>s.dedicatedRide===v.id)))return false;
     const depots=this.sites.filter(s=>s.kind==='serviceBay'||s.kind==='depot'||s.kind==='market')
       .sort((a,b)=>distance(a,ride)-distance(b,ride));
-    const yard=depots[0];
-    if(!yard)return false;
-    let position:Point|undefined;
-    for(let n=0;n<12;n++){
+    for(const yard of depots)for(let n=0;n<12;n++){
       const angle=n*Math.PI/6, radius=facilities[yard.kind].size+3.2;
-      const candidate={x:yard.x+Math.cos(angle)*radius,z:yard.z+Math.sin(angle)*radius};
-      const tile=indexAt(candidate.x,candidate.z);
-      if(tile<0||this.rides.some(other=>other!==ride&&distance(other,candidate)<2.8)
-        ||treesIn(this.seed,tile).some(tree=>this.isStanding(tree)&&distance(tree,candidate)<2.5))continue;
-      position=candidate;break;
+      const position={x:yard.x+Math.cos(angle)*radius,z:yard.z+Math.sin(angle)*radius};
+      const gap=trailerGap(ride);
+      const behind={x:position.x+Math.sin(ride.yaw)*gap,z:position.z+Math.cos(ride.yaw)*gap};
+      if(!this.canPark(position,rig)||trailer&&!this.canPark(behind,rig))continue;
+      this.finance(-18,'Recover stranded vehicle');
+      const placements=trailer?[[ride,position],[trailer,behind]] as const:[[ride,position]] as const;
+      for(const [vehicle,at] of placements){
+        Object.assign(vehicle,at,{yaw:ride.yaw});
+        const ground=this.ground(at.x,at.z);
+        let slot=0;
+        for(const log of this.logs.values())if(log.cargo===vehicle.id)Object.assign(log,cargoPosition(vehicle,slot++,ground));
+      }
+      if(vehicleTypes[ride.kind].motor){ride.fuel=Math.max(20,ride.fuel);ride.wear=Math.min(65,ride.wear);}
+      if(trailer)trailer.hitchReady=undefined;
+      this.notice('Recovered '+vehicleTypes[ride.kind].name+(trailer?' and trailer':'')+' to '+facilities[yard.kind].name);
+      return true;
     }
-    if(!position)return false;
-    this.finance(-18,'Recover stranded vehicle');
-    const trailer=this.rides.find(v=>v.hitch===ride.id);
-    if(trailer){trailer.hitch=undefined;trailer.hitchReady=undefined;}
-    Object.assign(ride,position,{fuel:Math.max(20,ride.fuel),wear:Math.min(65,ride.wear)});
-    this.notice('Recovered '+vehicleTypes[ride.kind].name+' to '+facilities[yard.kind].name);
-    return true;
+    return false;
   }
 
   refuel(ride: Ride) {
@@ -668,6 +723,7 @@ export class Campaign {
 
   connectAlternate(site:Site,target:Site,good:Good) {
     if(!this.mods.sortGate||!['sortGate','robotSorter'].includes(site.kind)||site===target
+      ||!this.sites.includes(site)||!this.sites.includes(target)||site.link===target.id
       ||!this.reachable(site,target,lineKinds,26))return false;
     site.secondary=target.id;site.sortGood=good;
     return true;
@@ -695,7 +751,7 @@ export class Campaign {
   }
 
   connect(source: Site, target: Site) {
-    if (source === target || !this.sites.includes(source) || !this.sites.includes(target) || source.shipment) return false;
+    if (source === target || !this.sites.includes(source) || !this.sites.includes(target) || source.shipment || source.secondary===target.id) return false;
     const mode=this.freightMode(source);
     const route=mode==='rail'?this.findPath(source,target,['rail'],source.kind==='railTerminal'?16:12):
       mode==='air'?distance(source,target)<=320:
@@ -704,6 +760,16 @@ export class Campaign {
     if (!route) return false;
     source.link = target.id;
     return true;
+  }
+
+  disconnectRoute(site:Site,alternate=false) {
+    if(alternate){
+      this.routeStatus.delete(site.id+':'+site.secondary);
+      site.secondary=undefined;site.sortGood=undefined;
+    }else if(!site.shipment){
+      this.routeStatus.delete(site.id+':'+site.link);
+      site.link=undefined;
+    }
   }
 
   private findPath(from:Point,to:Point,kinds:Facility[],span:number) {
@@ -765,7 +831,6 @@ export class Campaign {
       distance(site,target)<=320?[site,target]:undefined;
     if(!path){site.status=rail?'Freight blocked · broken track':mode==='road'?'Freight blocked · no road link':'Freight blocked · out of range';return;}
     const length=path.slice(1).reduce((n,p,index)=>n+distance(p,path[index]),0);
-    const recipe: Recipe | undefined = isRecipe(target.kind) ? recipes[target.kind] : undefined;
     const lot=site.output.find(l=>this.cargoAllowed(target,l));
     if(!lot){site.status=site.output.length?'Freight blocked · incompatible cargo':'Waiting for freight';return;}
     const available=buyerSite(target.kind)?capacity:this.capacity(target)-getQuantity(storageSite(target.kind)?target.output:target.input);
@@ -778,7 +843,7 @@ export class Campaign {
       site.status='Vehicle unavailable · assign or service a parked vehicle';return;
     }
     if(this.cash<fee){site.status='Freight blocked · dispatch costs';return;}
-    const load=take(site.output,lot.good,amount);
+    const load=takeLot(site.output,lot,amount);
     if(!load)return;
     this.finance(-fee,rail?'Rail freight dispatch':mode==='road'?'Truck freight dispatch':'Drone freight dispatch');
     if(vehicle){vehicle.fuel-=travelFuel;vehicle.wear=Math.min(100,vehicle.wear+length*.013);}
@@ -971,7 +1036,7 @@ export class Campaign {
   }
 
   private computeRemaining() {
-    const ordered=this.contracts.reduce((sum,c)=>sum+(c.good==='compute'&&!c.done&&!c.failed?c.quantity-(c.received??0):0),0);
+    const ordered=this.contracts.reduce((sum,c)=>sum+(c.good==='compute'&&isOpenContract(c,this.clock)?c.quantity-(c.received??0):0),0);
     if(!ordered)return 0;
     const pledged=getQuantity(this.stock,'compute')+this.sites.reduce((n,site)=>n+getQuantity(site.output,'compute')
       +site.jobs.reduce((total,job)=>total+(job.good==='compute'?job.quantity:0),0)
@@ -1008,7 +1073,7 @@ export class Campaign {
     const cargo=site.output.find(lot=>legallyCarried.includes(lot.good)&&(!ride.freight||ride.freight.good===lot.good));
     if(!cargo)return 0;
     const held=ride.freight?.quantity??0;
-    const lot=take(site.output,cargo.good,Math.min(cargo.quantity,(ride.kind==='palletJack'?16:ride.kind==='mixer'?24:ride.kind==='regionalTruck'?72:ride.kind==='flatbed'?90:42)-held));
+    const lot=takeLot(site.output,cargo,Math.min(cargo.quantity,(ride.kind==='palletJack'?16:ride.kind==='mixer'?24:ride.kind==='regionalTruck'?72:ride.kind==='flatbed'?90:42)-held));
     if(!lot)return 0;
     if(ride.freight){
       const previous=ride.freight,total=previous.quantity+lot.quantity;
@@ -1198,11 +1263,16 @@ export class Campaign {
     }
     for(const source of supply)source.site.gridFlow=(source.site.gridCapacity??0)-source.free;
     for(const [id,packet] of this.routePackets)if(this.clock-packet.at>2)this.routePackets.delete(id);
+    this.routeStatus.clear();
     for(const site of this.sites){
-      if(!site.on||!site.link)continue;
+      if(!site.link&&!site.secondary)continue;
       const primary=this.sites.find(s=>s.id===site.link);
-      if(primary&&this.freightMode(site)){this.freight(site,primary,dt);continue;}
-      if(site.kind==='rollerIntake'&&this.roadPower.get(site.id)&&primary?.on){
+      if(primary&&this.freightMode(site)){
+        if(site.on)this.freight(site,primary,dt);
+        this.routeStatus.set(site.id+':'+primary.id,site.on?site.status:'Dispatch paused · sender offline');
+        continue;
+      }
+      if(site.on&&site.kind==='rollerIntake'&&this.roadPower.get(site.id)&&primary?.on){
         const raw=Array.from(this.logs.values()).find(l=>!l.cargo&&!l.carrier&&l.length<4.5&&distance(site,l)<2.1);
         if(raw&&distance(site,primary)<7){
           const span=distance(raw,primary);
@@ -1210,35 +1280,34 @@ export class Campaign {
           if(this.acceptLog(primary,raw))site.status='Physical log forwarded';
         }
       }
-      if(!site.output.length)continue;
-      const secondary=site.secondary&&this.sites.find(s=>s.id===site.secondary);
-      const routes=secondary?[primary,secondary]:[primary];
-      for(const target of routes){
-        if(!target?.on){site.status='Route blocked · receiver offline';continue;}
-        if(distance(site,target)>26&&!this.reachable(site,target,lineKinds,26)){site.status='Route blocked · disconnected';continue;}
-        if(target.kind==='fire'&&this.mods.stoker)continue;
-        const alternate=target===secondary;
-        const gradeGate=site.sortHigh&&(this.mods.sortingCamera||this.mods.roboticSort);
-        const lot=site.output.find(l=>this.cargoAllowed(target,l)&&
-          (!site.sortGood||(alternate?l.good===site.sortGood:l.good!==site.sortGood))&&(!gradeGate||l.quality>=.84));
-        if(!lot){site.status='Route waiting · no compatible cargo';continue;}
-        const swift=this.sites.some(s=>s.kind==='poweredBelt'&&this.roadPower.get(s.id)&&distance(site,s)<16);
-        const motorized=['picker','sortGate','robotSorter'].includes(site.kind);
-        if(motorized&&!this.roadPower.get(site.id)){site.status='Route blocked · no power';continue;}
-        const hub=this.mods.logistics&&this.sites.some(s=>s.kind==='logisticsHub'&&s.on&&distance(s,site)<40);
-        const max=hub?16:site.kind==='fuelSilo'||swift?12:site.kind==='picker'?10:4;
-        const receiver=storageSite(target.kind)?target.output:target.input;
-        const amount=Math.min(max,lot.quantity,buyerSite(target.kind)?max:this.capacity(target)-getQuantity(receiver));
-        if(amount<=0){site.status='Route blocked · receiver full';continue;}
-        const index=site.output.indexOf(lot), shipment={...lot,quantity:amount};
-        lot.quantity-=amount;
-        if(!lot.quantity)site.output.splice(index,1);
-        if(buyerSite(target.kind))this.sellAt(target,shipment);
-        else put(receiver,shipment);
-        site.shipped=(site.shipped??0)+amount;
-        this.routePackets.set(site.id+':'+target.id,{at:this.clock,good:shipment.good,from:site,to:target});
-      }
+      const secondary=site.secondary!==site.link?this.sites.find(s=>s.id===site.secondary):undefined;
+      if(primary)this.routeStatus.set(site.id+':'+primary.id,this.forwardRoute(site,primary,secondary?site.sortGood:undefined));
+      if(secondary)this.routeStatus.set(site.id+':'+secondary.id,this.forwardRoute(site,secondary,site.sortGood,true));
     }
+  }
+
+  private forwardRoute(site:Site,target:Site,sort?:Good,alternate=false) {
+    if(!site.on)return 'Blocked · sender offline';
+    if(!target.on)return 'Blocked · receiver offline';
+    if(distance(site,target)>26&&!this.reachable(site,target,lineKinds,26))return 'Blocked · disconnected';
+    if(target.kind==='fire'&&this.mods.stoker)return 'Waiting · fire needs physical logs';
+    const motorized=['picker','sortGate','robotSorter'].includes(site.kind);
+    if(motorized&&!this.roadPower.get(site.id))return 'Blocked · no power';
+    const gradeGate=site.sortHigh&&(this.mods.sortingCamera||this.mods.roboticSort);
+    const lot=site.output.find(l=>this.cargoAllowed(target,l)&&(!sort||(l.good===sort)===alternate)&&(!gradeGate||l.quality>=.84));
+    if(!lot)return site.output.length?'Waiting · no compatible cargo':'Waiting · buffer empty';
+    const swift=this.sites.some(s=>s.kind==='poweredBelt'&&this.roadPower.get(s.id)&&distance(site,s)<16);
+    const hub=this.mods.logistics&&this.sites.some(s=>s.kind==='logisticsHub'&&s.on&&distance(s,site)<40);
+    const max=hub?16:site.kind==='fuelSilo'||swift?12:site.kind==='picker'?10:4;
+    const receiver=storageSite(target.kind)?target.output:target.input;
+    const amount=Math.min(max,lot.quantity,buyerSite(target.kind)?max:this.capacity(target)-getQuantity(receiver));
+    if(amount<=0)return 'Blocked · receiver full';
+    const shipment=takeLot(site.output,lot,amount)!;
+    if(buyerSite(target.kind))this.sellAt(target,shipment);
+    else put(receiver,shipment);
+    site.shipped=(site.shipped??0)+amount;
+    this.routePackets.set(site.id+':'+target.id,{at:this.clock,good:shipment.good,from:site,to:target});
+    return `Moved ${amount} × ${goods[shipment.good][0]}`;
   }
 
   assignHauler(base:Site,target:Site) {
@@ -1607,7 +1676,7 @@ export class Campaign {
         if(first&&this.dispatchCleanup(first.i))break;
       }
     } else if(this.policy==='revenue') {
-      const active=this.contracts.find(c=>!c.done&&!c.failed);
+      const active=this.contracts.find(c=>isOpenContract(c,this.clock));
       for(const site of this.sites) if(site.staffed)site.priority=site.jobs.some(job=>job.good===active?.good)||
         (isRecipe(site.kind)&&recipes[site.kind].output[0]===active?.good);
     }

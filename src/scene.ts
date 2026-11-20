@@ -1,14 +1,16 @@
 import * as T from 'three';
 import R from '@dimforge/rapier3d-compat';
 import { CELL, SIZE, facilities, species, vehicleTypes } from './catalog';
-import { computeSites, utilityNodes, waterPipes, waterSites } from './campaign';
+import { cargoPosition, computeSites, utilityNodes, waterPipes, waterSites } from './campaign';
 import type { Campaign, Log, Ride, Site } from './campaign';
-import { clamp, distance, hash, indexAt, soilColors, treesIn } from './land';
+import { clamp, distance, hash, indexAt, showsGroundCracks, soilColors, treesIn } from './land';
 import type { Point, Tree } from './land';
 import { box, distantTrees, freightModel, helperModel, leafBlade, logModel, mat, productModel, ropeModel, siteModel, stone, stumpModel, toolModel, treeModels, vehicleModel } from './models';
 
 const CHUNK = 32;
 const terrainMaterial = new T.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: T.DoubleSide });
+const crackGeometry=new T.BoxGeometry(1,1,1);
+const crackMaterial=mat('#6e5940');
 const toolScene = new T.Scene();
 const treeAxis = new T.Vector3(0,1,0);
 const buildTint = new T.MeshBasicMaterial({ color:'#ecd49d', wireframe:true, transparent:true, opacity:.68 });
@@ -289,20 +291,20 @@ export class Scene {
     leaves.count=used;
     leaves.receiveShadow=true;
     chunk.cover.add(leaves);
-    const cracks=new T.InstancedMesh(new T.BoxGeometry(1,1,1),mat('#6e5940'),96);
+    let cracks:T.InstancedMesh|undefined;
     let etched=0;
     for(let n=0;n<96;n++) {
       const x=chunk.x+hash(this.game.seed+n,chunk.x,chunk.z+3)*CHUNK,z=chunk.z+hash(this.game.seed-n,chunk.z,chunk.x-3)*CHUNK;
       const cell=this.game.soil.get(indexAt(x,z));
-      if(!cell || cell.stage<5 || cell.erosion<.49) continue;
+      if(!cell || !showsGroundCracks(cell))continue;
+      cracks??=new T.InstancedMesh(crackGeometry,crackMaterial,96);
       this.painter.position.set(x,this.game.ground(x,z)+.016,z);
       this.painter.rotation.set(0,n*2.4,0);
       this.painter.scale.set(n%3===0?.055:.031,.016,.22+n%11*.065);
       this.painter.updateMatrix();
       cracks.setMatrixAt(etched++,this.painter.matrix);
     }
-    if(etched) { cracks.count=etched; cracks.receiveShadow=true; chunk.cover.add(cracks); }
-    else cracks.dispose();
+    if(cracks) { cracks.count=etched; cracks.receiveShadow=true; chunk.cover.add(cracks); }
     const rocks = new T.InstancedMesh(new T.IcosahedronGeometry(1,0),mat('#777466'),16);
     rocks.geometry.userData.landRock=true;
     const ferns = new T.InstancedMesh(leafBlade,mat('#7d9c61'),80);
@@ -363,7 +365,7 @@ export class Scene {
       for(let dz=0;dz<CHUNK;dz+=CELL) for(let dx=0;dx<CHUNK;dx+=CELL) {
         const i=indexAt(x+dx+.1,z+dz+.1);
         const soil=this.game.soil.get(i);
-        cellStates.push(String(soil?.stage??0));
+        cellStates.push(String(soil?.stage??0)+(soil&&showsGroundCracks(soil)?'c':''));
         local.push(...treesIn(this.game.seed,i));
       }
       const actual=local.filter(t=>t.x>=x&&t.x<x+CHUNK&&t.z>=z&&t.z<z+CHUNK);
@@ -611,25 +613,26 @@ export class Scene {
   }
 
   private syncRoute(site:Site,at:Point) {
-    const reverse=this.game.freightMode(site)?undefined:this.game.sites.find(s=>s.id===site.link);
-    if(!reverse || distance(site,at)>80) {
-      const route=this.routes.get(site.id);
-      if(route) { this.world.remove(route); this.routes.delete(site.id); }
-      return;
-    }
-    if(this.routes.get(site.id)?.userData.target===reverse.id) return;
+    const targets=this.game.freightMode(site)||distance(site,at)>80?[]:
+      this.game.sites.filter(target=>(target.id===site.link||target.id===site.secondary)&&distance(site,target)<=110);
+    const signature=targets.map(target=>target.id+(target.id===site.link?'p':'a')).join('|');
     const old=this.routes.get(site.id);
-    if(old) this.world.remove(old);
+    if(old?.userData.signature===signature)return;
+    if(old){this.world.remove(old);this.routes.delete(site.id);}
+    if(!targets.length)return;
     const path=new T.Group();
-    path.userData.target=reverse.id;
-    const length=distance(site,reverse), segments=Math.floor(length/2.3);
-    if(length>110) return;
-    for(let n=1;n<segments;n++) {
-      const p=n/segments,x=site.x+(reverse.x-site.x)*p,z=site.z+(reverse.z-site.z)*p;
-      const slat=box(path,mat('#777763'),x,this.game.ground(x,z)+.13,z,1.0,.12,2.2);
-      slat.rotation.y=Math.atan2(reverse.x-site.x,reverse.z-site.z);
-      const wire=box(path,mat('#c8a26c'),x,this.game.ground(x,z)+.20,z,.08,.03,2.2);
-      wire.rotation.y=slat.rotation.y;
+    path.userData.signature=signature;
+    for(const target of targets){
+      const segments=Math.floor(distance(site,target)/2.3);
+      const guide=mat(target.id===site.link?'#c8a26c':'#81b5a0');
+      for(let n=1;n<segments;n++) {
+        const p=n/segments,x=site.x+(target.x-site.x)*p,z=site.z+(target.z-site.z)*p;
+        const ground=this.game.ground(x,z);
+        const slat=box(path,mat('#777763'),x,ground+.13,z,1.0,.12,2.2);
+        slat.rotation.y=Math.atan2(target.x-site.x,target.z-site.z);
+        const wire=box(path,guide,x,ground+.20,z,.08,.03,2.2);
+        wire.rotation.y=slat.rotation.y;
+      }
     }
     this.world.add(path);
     this.routes.set(site.id,path);
@@ -682,11 +685,7 @@ export class Scene {
         hitch.visible=true;
       } else if(hitch){hitch.removeFromParent();this.hitches.delete(ride.id);}
       for(let n=0;n<shipment.length;n++) {
-        const log=shipment[n],slot=(n%3-1)*.34;
-        const reach=def.forks?-2.06:def.trailer?.35:.68;
-        const x=ride.x+Math.cos(ride.yaw)*slot+Math.sin(ride.yaw)*reach;
-        const z=ride.z-Math.sin(ride.yaw)*slot+Math.cos(ride.yaw)*reach;
-        const y=this.game.ground(ride.x,ride.z)+(def.forks?1.03:.79)+Math.floor(n/3)*.32;
+        const log=shipment[n],{x,y,z}=cargoPosition(ride,n,visual.root.position.y);
         const slide=Math.min(1,dt*11.5);
         log.x+=(x-log.x)*slide;log.z+=(z-log.z)*slide;log.y+=(y-log.y)*slide;
         const rotation=new T.Quaternion().setFromEuler(new T.Euler(Math.PI*.5,ride.yaw+(def.forks?Math.PI*.5:0)+(log.roll??0),0,'YXZ'));
