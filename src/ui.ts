@@ -323,7 +323,7 @@ export class UI {
   private build() {
     const g=this.c.game();
     this.panel('Construction','Choose a facility, then aim at a clear footprint and swing to place it.',el('div','panel-content',
-      section('Facilities',...Object.entries(facilities).map(([k,item])=>{
+      section('Facilities',...Object.entries(facilities).filter(([id])=>id!=='ruin').map(([k,item])=>{
         const kind=k as Facility,recipe:Recipe|undefined=Object.hasOwn(recipes,kind)?recipes[kind as keyof typeof recipes]:undefined;
         const missing=item.requires&&!g.sites.some(s=>s.kind===item.requires);
         const unresearched=item.research&&!g.ownedUpgrades.has(item.research);
@@ -404,9 +404,9 @@ export class UI {
         g.districts.has(district)?sub('Permit active'):btn('Purchase permit · $950',()=>{if(g.buyDistrict(district))this.map();},g.cash<950),
         ...Object.entries(projectPrices).map(([key,price])=>{
           const kind=key as Project['kind'], built=g.projects.find(p=>p.district===district);
-          const ready=g.sites.some(s=>s.kind==='forestry')&&g.sites.some(s=>s.kind===(kind==='watershed'?'pump':kind==='quarry'?'quarry':kind==='dryland'?'soilRecovery':kind==='integrated'?'stormTower':'thermal'))
-            &&(kind!=='dryland'||g.mods.drylandOffice)&&(kind!=='integrated'||g.mods.megaPlan);
-          const display={watershed:'Watershed drawdown',quarry:'Regional stripping',thermal:'Thermal exhaustion',dryland:'Dryland farming and extraction',integrated:'Integrated conversion program'}[kind];
+          const ready=g.sites.some(s=>s.kind==='forestry')&&g.sites.some(s=>s.kind===(kind==='watershed'?'pump':kind==='quarry'?'quarry':kind==='dryland'?'soilRecovery':kind==='integrated'?'stormTower':kind==='continental'?'urbanBlock':'thermal'))
+            &&(kind!=='dryland'||g.mods.drylandOffice)&&(kind!=='integrated'||g.mods.megaPlan)&&(kind!=='continental'||g.mods.continent);
+          const display={watershed:'Watershed drawdown',quarry:'Regional stripping',thermal:'Thermal exhaustion',dryland:'Dryland farming and extraction',integrated:'Integrated conversion program',continental:'Continental extraction program'}[kind];
           return row(display,built?.kind===kind?(built.complete?'Bond paid · all district cells stable':`Commissioned · ${duration(built.phase)}`):'Requires local industrial expertise and a district permit',
             btn(cash(price),()=>{if(g.startProject(district,kind))this.map();},Boolean(built)||!ready||!g.districts.has(district)||g.cash<price));
         })),
@@ -442,6 +442,8 @@ export class UI {
             if(g.claimQuest(id))this.c.refresh();
           },accomplished||progress<objective.target));
       })),
+      g.mods.opsPolicy?section('Operations policy',row('Dispatch modes',g.policy,...(['manual','revenue','land'] as const).map(mode=>
+        btn(mode,()=>{g.policy=mode;this.c.refresh();},g.policy===mode)))):undefined,
       section('Operations',
         row('Earnings per field minute',g.clock>2?cash(g.stats.earned/(g.clock/60)):'Begin field work'),
         row('Average swings per harvest',g.stats.harvest?String(Math.round(g.stats.hits/g.stats.harvest)):'No harvest recorded'),
@@ -491,6 +493,11 @@ export class UI {
         btn('Premium',()=>{g.acceptCommission(good,true);this.site();},!g.canTakeContract())))):el('span'));
     } else {
       content.append(section('Operation',row('Run schedule',s.on?'Enabled while in the field':'Stopped',btn(s.on?'Stop':'Start',()=>{s.on=!s.on;this.site();})),
+        g.mods.staffing&&(Boolean(recipe)||s.kind==='crewDepot')?row('Machine operator',s.staffed?'On shift · $9 wages per 65 field seconds':'Available · $40 to hire',
+          btn(s.staffed?'End shift':'Hire',()=>{if(g.staff(s))this.site();},!s.staffed&&g.cash<40)):undefined,
+        g.mods.buffer&&Boolean(recipe)?row('Output buffer',`${g.capacity(s)} units`,btn(s.enlarged?'Extended':'Install · $65',()=>{
+          if(g.enlarge(s))this.site();
+        },Boolean(s.enlarged)||g.cash<65)):undefined,
         g.mods.emissions&&def.effect==='thermal'?row('Emissions policy',s.scrubbers?'Scrubbers on · lower output and emissions':'Full power · higher heat and emissions',
           btn('Switch',()=>{s.scrubbers=!s.scrubbers;this.site();})):undefined,
         g.mods.meter?row('Grid meter',def.supply?`${Math.round(s.gridFlow??0)} / ${Math.round(s.gridCapacity??0)} kW delivered`:
@@ -511,7 +518,7 @@ export class UI {
           btn('Crank saw',()=>{if(g.crankBench(s))this.site();},Boolean(s.jobs.length)||getQuantity(s.input,'timber')===0)):undefined,
         g.mods.cutPatterns&&mills.includes(s.kind)?row('Cut pattern',s.layout==='volume'?'Maximize volume':s.layout==='quality'?'Select high-grade cuts':'Standard throughput',
           btn('Cycle',()=>{s.layout=s.layout==='volume'?'quality':s.layout==='quality'?undefined:'volume';this.site();})):undefined,
-        g.mods.sortingCamera?row('Sorting gate',s.sortHigh?'Route high-grade batches only':'Route all compatible stock',
+        (g.mods.sortingCamera||g.mods.roboticSort)?row('Sorting gate',s.sortHigh?'Route high-grade batches only':'Route all compatible stock',
           btn('Change',()=>{s.sortHigh=!s.sortHigh;this.site();})):undefined,
         def.supply&&!['solar','wind',...biomassSites].includes(s.kind)?row('Fuel',Math.floor(s.fuel)+'%',btn('Refuel · $25',()=>{if(g.cash>=25){g.finance(-25,'Generator fuel');s.fuel=100;this.site();}},g.cash<25||s.fuel===100)):undefined,
         waterSites.includes(s.kind)?row('Water storage',Math.floor(s.water??0)+' / '+waterCapacity(s.kind)+' L'):undefined,
@@ -534,7 +541,7 @@ export class UI {
       section('Feed from your bag',...g.stock.filter(lot=>storageSite(s.kind)&&(s.kind!=='fuelSilo'||fuelGood(lot.good))||consumes(recipe,lot.good)||biomassSites.includes(s.kind)&&fuelGood(lot.good)).map(lot=>row(goods[lot.good][0],`${lot.quantity} units available`,
         btn('Feed one',()=>{g.transfer(s,lot.good,1,false);this.site();}),btn('Feed batch',()=>{g.transfer(s,lot.good,lot.quantity,false);this.site();})))),
       section('Freight route',
-        s.shipment?row('Shipment on the move',`${s.shipment.load.quantity} × ${goods[s.shipment.load.good][0]} · ${Math.max(0,Math.ceil(s.shipment.duration-s.shipment.elapsed))}s`):undefined,
+        s.shipment?row(s.shipment.returning?'Returning to the garage':'Shipment on the move',`${s.shipment.returning?0:s.shipment.load.quantity} × ${goods[s.shipment.load.good][0]} · ${Math.max(0,Math.ceil(s.shipment.duration-s.shipment.elapsed))}s`):undefined,
         sub(!s.link&&s.kind==='railDepot'?'Lay connected track between the depot and its destination.':
           !s.link&&s.kind==='dronePad'?'Power the charger, then choose a destination up to 320 m away.':s.link?`Connected to ${facilities[g.sites.find(t=>t.id===s.link)!.kind].name}`:'Choose a compatible facility within 16 m or bridge the gap with freight infrastructure.'),
         ...g.sites.filter(target=>target!==s && (buyerSite(target.kind)||storageSite(target.kind)||Object.hasOwn(recipes,target.kind)||biomassSites.includes(target.kind)||target.kind==='fire')).map(target=>
@@ -543,6 +550,66 @@ export class UI {
             this.site();
           },s.link===target.id)))));
     }
+    if(s.kind==='clearingCrew'){
+      const choices=g.scan(this.district,10,'vegetation');
+      content.append(section('Clearing work order',s.clearingTarget===undefined?sub('Choose a cell in the selected survey district.'):
+        sub(`Working cell ${s.clearingTarget}`),
+        ...choices.map(({i,at})=>row('Cell '+i,`${Math.round(at.x)}, ${Math.round(at.z)}`,btn('Assign',()=>{
+          s.clearingTarget=i;this.site();
+        },!g.districts.has(this.district)||s.clearingTarget===i)))));
+    }
+    if(s.kind==='craneYard'){
+      const ground=[...g.logs.values()].filter(log=>!log.cargo&&!log.carrier&&Math.hypot(log.x-s.x,log.z-s.z)<11);
+      const nearby=g.rides.filter(v=>Math.hypot(v.x-s.x,v.z-s.z)<10);
+      content.append(section('Crane orders',s.crane?sub(`Lifting log ${s.crane.log} · ${Math.ceil(s.crane.remaining)}s left`):
+        sub('Park a vehicle and stage logs within reach of the crane. The lift uses grid power.'),
+        ...ground.slice(0,8).map(log=>row('Log '+log.id,`${Math.round(log.kilograms)} kg`,...nearby.map(v=>
+          btn('Load '+vehicles[v.kind].name,()=>{
+            if(!g.loadByCrane(s,log,v))this.notice('The load does not fit or the crane is busy');
+            this.site();
+          },Boolean(s.crane)))))));
+    }
+    if(s.kind==='serviceBay')content.append(section('Fleet service',
+      s.mechanic?sub(`Service running · ${Math.ceil(s.mechanic.time)}s remaining`):sub('Repair and refuel nearby fleet vehicles.'),
+      ...g.rides.filter(v=>Math.hypot(v.x-s.x,v.z-s.z)<10).map(v=>row(vehicles[v.kind].name,
+        `${Math.ceil(v.wear)}% wear · ${Math.floor(v.fuel)}% fuel`,btn('Service · $18',()=>{
+          if(g.scheduleService(s,v))this.site();
+        },Boolean(s.mechanic)||g.cash<18||v.fuel===100&&v.wear===0)))));
+    if(s.kind==='intermodal')content.append(section('Transfer mode',
+      row('Dispatch by',s.freightPlan??'rail',btn('Switch',()=>{
+        if(s.shipment)return;
+        s.freightPlan=s.freightPlan==='road'?'rail':'road';s.link=undefined;this.site();
+      },Boolean(s.shipment)))));
+    if(s.kind==='autoGarage')content.append(section('Owned freight fleet',
+      sub('Assign a parked, empty vehicle and connect a receiver on the road network.'),
+      ...g.rides.filter(v=>['pickup','truck','regionalTruck','flatbed'].includes(v.kind)&&Math.hypot(v.x-s.x,v.z-s.z)<12)
+        .map(v=>row(vehicles[v.kind].name,`${Math.floor(v.fuel)}% fuel`,btn(s.dedicatedRide===v.id?'Release vehicle':'Assign vehicle',()=>{
+          if(s.dedicatedRide===v.id&&!s.shipment)s.dedicatedRide=undefined;
+          else if(!g.assignDriverless(s,v))this.notice('Vehicle must be parked, empty and free of other assignments');
+          this.site();
+        },Boolean(s.shipment))))));
+    if(g.mods.sortGate&&['sortGate','robotSorter'].includes(s.kind)) {
+      const good=el('select','input'),receiver=el('select','input');
+      for(const [id,spec]of Object.entries(goods)){
+        const option=el('option','',spec[0]);option.value=id;good.append(option);
+      }
+      for(const target of g.sites.filter(v=>v!==s&&v.id!==s.link)){
+        const option=el('option','',facilities[target.kind].name+' · '+target.id);
+        option.value=target.id;receiver.append(option);
+      }
+      good.value=s.sortGood??'boards';
+      if(s.secondary)receiver.value=s.secondary;
+      content.append(section('Material sorting',
+        row('Alternate lane','Send the selected material to a separate receiver while the primary lane handles the rest.',
+          good,receiver,btn('Apply',()=>{
+            const target=g.sites.find(v=>v.id===receiver.value);
+            if(!target||!g.connectAlternate(s,target,good.value as Good))this.notice('The alternate route needs a connected receiver');
+            this.site();
+          }))));
+    }
+    if(s.kind==='logisticsHub')content.append(section('Factory throughput',
+      ...g.sites.filter(v=>v.link||v.secondary).map(v=>row(facilities[v.kind].name,
+        `${v.shipped??0} units moved · ${getQuantity(v.output)} in buffer · ${v.status}`))));
     if(s.kind==='climateTower')content.append(section('Climate history',
       s.climate?.length?undefined:sub('Resume play with grid power to record regional readings.'),
       ...(s.climate??[]).map(sample=>row(duration(sample.time),`${sample.desert} stable cells · ${Math.round(sample.moisture*100)}% soil moisture · ${Math.round(sample.heat*100)}% heat index`))));
@@ -556,14 +623,25 @@ export class UI {
             this.site();
           },s.winch?.log===log.id)))));
     }
-    if(s.kind==='forestry'||(g.mods.yardmaster&&storageSite(s.kind))) {
+    if(['forestry','helperPost','crewDepot'].includes(s.kind)||(g.mods.yardmaster&&storageSite(s.kind))) {
+      if(g.mods.jobBoards)content.append(section('Work orders',
+        row('Current assignment',s.order??'Open operations',...(['harvest','haul','clear'] as const).map(task=>
+          btn(task,()=>{s.order=task;this.site();},s.order===task))),
+        g.mods.scheduling?row('Crew schedule',s.shift??'continuous',btn('Change shift',()=>{
+          s.shift=s.shift==='day'?'continuous':'day';this.site();
+        })):undefined));
       const options=g.sites.filter(target=>buyerSite(target.kind)||storageSite(target.kind)||(Object.hasOwn(recipes,target.kind)&&(recipes[target.kind as keyof typeof recipes] as Recipe).input?.[0]==='timber'));
-      content.append(section('Log hauler',sub(s.haul?.status??'Hire a worker to collect physical fallen logs within 85 m.'),
+      content.append(section('Log hauler',sub(s.haul?.status??'Hire a worker to collect physical fallen logs within range.'),
+        s.mechanic?row('Maintenance dispatch',`Vehicle ${s.mechanic.ride.toUpperCase()} · ${Math.ceil(s.mechanic.time)}s`):undefined,
         ...options.filter(target=>target!==s&&Math.hypot(s.x-target.x,s.z-target.z)<=110).map(target=>
           row(facilities[target.kind].name,'Timber receiving station',btn(s.haul?'Assign':'Hire · $340',()=>{
             if(!g.assignHauler(s,target))this.notice('The worker is assigned to a load or funds are insufficient.');
+            else s.order='haul';
             this.site();
-          },s.haul?.target===target.id||(!s.haul&&g.cash<340))))));
+          },s.haul?.target===target.id||(!s.haul&&g.cash<340)),
+          g.mods.fleetController&&s.haul?.target!==target.id&&s.haul?btn(s.haul.alternate===target.id?'Alternate set':'Alternate',()=>{
+            if(s.haul){s.haul.alternate=target.id;this.site();}
+          },s.haul.alternate===target.id):undefined))));
     }
     this.panel(def.name,'Station · '+s.id.toUpperCase(),content);
   }

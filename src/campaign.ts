@@ -1,4 +1,4 @@
-import { CELL, DISTRICTS, TOTAL, facilities, goods, recipes, species, tools, vehicles, vehicleTypes } from './catalog';
+import { CELL, DISTRICTS, SIZE, TOTAL, facilities, goods, recipes, species, tools, vehicles, vehicleTypes } from './catalog';
 import type { Facility, Good, Recipe, Stack, Tool, VehicleType } from './catalog';
 import { applyLand, blockers, cellPoint, clamp, defaultSoil, desertified, distance, districtAt, hash, height, homeDistrict, indexAt, noPressure, treesIn } from './land';
 import type { Blocker, Point, Pressure, Soil, Tree } from './land';
@@ -7,17 +7,19 @@ import type { QuestId } from './quests';
 import { forestryUnlocks, modifiers, upgradeFacility, upgradesById } from './upgrades';
 
 export const VERSION = 1;
-export type Log = Point & { id: number; y: number; q: [number, number, number, number]; kind: number; length: number; kilograms: number; units: number; moisture: number; quality: number; cargo?: string; carrier?: string; part?:'branch' };
-export type Haul = Point & { target: string; log?: number; phase: 'waiting'|'pickup'|'delivery'|'return'; status: string; };
+export type Log = Point & { id: number; y: number; q: [number, number, number, number]; kind: number; length: number; kilograms: number; units: number; moisture: number; quality: number; cargo?: string; carrier?: string; part?:'branch'; roll?:number };
+export type Haul = Point & { target: string; alternate?:string; due?:number; log?: number; phase: 'waiting'|'pickup'|'delivery'|'return'; status: string; };
 export const buyerSite=(kind:Facility)=>['market','timberBuyer','specialistBuyer','tradeHub'].includes(kind);
-export const storageSite = (kind:Facility) => kind==='depot'||kind==='railDepot'||kind==='dronePad'||kind==='fuelSilo';
+export const storageSite = (kind:Facility) => kind==='depot'||kind==='railDepot'||kind==='dronePad'||['fuelSilo','urbanBlock','stackRack','sortGate','loadingHopper','warehouse','picker','robotSorter','logisticsHub','loadingPad','roadDepot','railTerminal','intermodal','autoGarage','shippingHub','recycler'].includes(kind);
 export type ClimateSample={time:number;desert:number;moisture:number;heat:number};
 export type CleanupJob={cell:number;crew:string;travel:number};
 export type Prototype='edge'|'motor';
-export type Shipment = { mode:'rail'|'air'; load:Stack; target:string; path:Point[]; duration:number; elapsed:number; };
+export type Shipment = { mode:'rail'|'air'|'road'; returning?:boolean; load:Stack; target:string; path:Point[]; duration:number; elapsed:number; };
 type Batch = Stack & { remaining: number; payout?: number; offcut?: number; residue?:Good };
 export const mills: Facility[] = ['bench','bandsaw','mill','speedMill','millComplex'];
 export const biomassSites:Facility[]=['biopower','cogeneration','wastePower'];
+export const lineKinds:Facility[]=['belt','poweredBelt','rollerIntake','rail','road','serviceRoad','pavedRoad'];
+export const freightVehicles:VehicleType[]=['oreTruck','mixer','palletJack','forkliftPro','deliveryVan','regionalTruck','flatbed','scoopLoader'];
 export const fuelGood=(good:Good)=>['chips','driedChips','briquettes','pellets','charcoal','wastePaper'].includes(good);
 const paperLines:Facility[]=['paper','reelPress','rollFinish','exportPaper','corrugator'];
 const pulpLines:Facility[]=['screenedPulper','bulkPulp'];
@@ -34,12 +36,13 @@ export const consumes = (recipe: Recipe | undefined, good: Good) => recipe?.inpu
 export const takesLogs=(kind:Facility) => storageSite(kind)||kind==='fire'||buyerSite(kind)||(isRecipe(kind)&&(recipes[kind] as Recipe).input?.[0]&&['timber','branches'].includes((recipes[kind] as Recipe).input![0]));
 export type Site = Point & {
   id: string; kind: Facility; yaw?:number; input: Stack[]; output: Stack[]; jobs: Batch[];
-  on: boolean; fuel: number; status: string; scrubbers?:boolean; winch?:{log:number; ready:number}; planted?:number; fertilizer?:boolean; intensive?:boolean; water?: number; climate?:ClimateSample[]; waterMode?:'all'|'farm'|'industry'; waterRate?:'normal'|'conserve'|'deplete'; reserve?:number; priority?:boolean; gridFlow?:number; gridCapacity?:number; uptime?:number; service?:number; yieldCarry?:number; layout?: 'quality'|'volume'; sortHigh?:boolean; link?: string; haul?: Haul; shipment?:Shipment; mode?: 'sell' | 'charcoal';
+  on: boolean; fuel: number; status: string; enlarged?:boolean; sortGood?:Good; secondary?:string; shipped?:number; freightPlan?:'road'|'rail'; dedicatedRide?:string; scrubbers?:boolean; staffed?:boolean; clearingTarget?:number; payroll?:number; shift?:'day'|'continuous'; order?:'harvest'|'haul'|'clear';
+  mechanic?:{ride:string;time:number}; crane?:{log:number;ride:string;remaining:number;x:number;y:number;z:number}; winch?:{log:number; ready:number}; planted?:number; fertilizer?:boolean; intensive?:boolean; water?: number; climate?:ClimateSample[]; waterMode?:'all'|'farm'|'industry'; waterRate?:'normal'|'conserve'|'deplete'; reserve?:number; priority?:boolean; gridFlow?:number; gridCapacity?:number; uptime?:number; service?:number; yieldCarry?:number; layout?: 'quality'|'volume'; sortHigh?:boolean; link?: string; haul?: Haul; shipment?:Shipment; mode?: 'sell' | 'charcoal';
 };
-export type Ride = Point & { id: string; kind: VehicleType; yaw: number; fuel: number; wear: number; hitch?:string; hitchReady?:number; water?:number };
+export type Ride = Point & { id: string; kind: VehicleType; yaw: number; fuel: number; wear: number; hitch?:string; hitchReady?:number; attachment?:'saw'|'tow'; water?:number; freight?:Stack };
 export type Ledger = { date: number; note: string; amount: number };
 export type Contract = { good: Good; quantity: number; deadline: number; payout: number; done: boolean; failed: boolean; dense?:boolean; grade?:number; received?:number; plan?:'quick'|'supply'|'export' };
-export type Project = { kind: 'watershed' | 'quarry' | 'thermal' | 'dryland' | 'integrated'; district: number; phase: number; complete?: boolean };
+export type Project = { kind: 'watershed' | 'quarry' | 'thermal' | 'dryland' | 'integrated' | 'continental'; district: number; phase: number; complete?: boolean };
 type RecordRow = { hits: number; harvest: number; fire: number; sold: number; produced: number; earned: number; spent: number; miles: number };
 export type Save = ReturnType<Campaign['snapshot']>;
 
@@ -47,7 +50,7 @@ const baseSites: [Facility, number, number][] = [['fire', -6.5, 0], ['market', 7
 const rootStats = (): RecordRow => ({ hits: 0, harvest: 0, fire: 0, sold: 0, produced: 0, earned: 0, spent: 0, miles: 0 });
 const isRecipe = (kind: Facility): kind is keyof typeof recipes => Object.hasOwn(recipes, kind);
 const allDistricts = DISTRICTS ** 2;
-export const projectPrices = { watershed: 6200, quarry: 8200, thermal: 9500, dryland: 12500, integrated: 24000 };
+export const projectPrices = { watershed: 6200, quarry: 8200, thermal: 9500, dryland: 12500, integrated: 24000, continental:32000 };
 export const fields:Facility[]=['pasture','crop','megaFarm','soilRecovery'];
 
 export function getQuantity(stacks: Stack[], good?: Good) {
@@ -90,6 +93,12 @@ export class Campaign {
   cash = 0;
   treeDamage = new Map<number, number>();
   removed = new Set<number>();
+  brokenRocks=new Set<number>();
+  groundStumps=new Set<number>();
+  elevation=new Map<number,number>();
+  recycledCells=new Set<number>();
+  terrainRevision=0;
+  rockVersion=0;
   logs = new Map<number, Log>();
   soil = new Map<number, Soil>();
   sites: Site[] = [];
@@ -109,6 +118,7 @@ export class Campaign {
   cleanup:CleanupJob[]=[];
   prototypes=new Set<Prototype>();
   scienceSpent=0;
+  policy:'manual'|'revenue'|'land'='manual';
   ledger: Ledger[] = [];
   contracts: Contract[] = [];
   stats = rootStats();
@@ -124,11 +134,15 @@ export class Campaign {
   claimed = new Set<QuestId>();
   private tickTime = 0;
   private landQueue = new Set<number>();
+  readonly routePackets=new Map<string,{at:number;good:Good;from:Point;to:Point}>();
   private roadPower = new Map<string, boolean>();
 
   constructor(seed = 20831) {
     this.seed = seed;
-    for (const [kind, x, z] of baseSites) this.sites.push(this.makeSite(kind, x, z));
+    for (const [kind,x,z] of baseSites)this.sites.push(this.makeSite(kind,x,z));
+    for(const [x,z]of [[18,-20],[-24,13]]){
+      const ruin=this.makeSite('ruin',x,z);ruin.on=false;ruin.status='Abandoned';this.sites.push(ruin);
+    }
   }
 
   private makeSite(kind: Facility, x: number, z: number): Site {
@@ -219,6 +233,18 @@ export class Campaign {
     return { damage, felled: progress >= total - Number.EPSILON, ratio: clamp(progress / total) };
   }
 
+  harvesterHit(tree:Tree,vehicle:Ride) {
+    if(!this.isStanding(tree)||vehicle.fuel<=0)return {ratio:0,felled:false};
+    const machine=vehicle.kind==='giantRig'?105:vehicle.kind==='treeHarvester'?57:vehicle.kind==='tractor'?22:0;
+    const damage=machine*(this.mods.harvesterHead?1.65:1);
+    const progress=(this.treeDamage.get(tree.id)??0)+damage;
+    const need=species[tree.kind].health*tree.scale;
+    this.treeDamage.set(tree.id,progress);
+    if(damage)this.stats.hits++;
+    vehicle.fuel=Math.max(0,vehicle.fuel-(vehicle.kind==='giantRig'?3.8:1.4));
+    return {ratio:clamp(progress/need),felled:progress>=need};
+  }
+
   isStanding(tree: Tree) {
     const land = this.soil.get(indexAt(tree.x, tree.z));
     return !this.removed.has(tree.id) && (land?.vegetation ?? 1) > .03;
@@ -239,16 +265,86 @@ export class Campaign {
     return true;
   }
 
-  cutLog(id: number, next: Point, slice = .5) {
+  cutLog(id: number, next: Point, slice = .5, machine=false) {
     const log = this.logs.get(id);
-    if (!log || log.cargo || log.carrier || log.units < 2 || this.tool === 'knife') return false;
+    if (!log || log.cargo || log.carrier || log.units < 2 || this.tool === 'knife'&&!machine) return false;
     const units = Math.max(1,Math.min(log.units-1,Math.round(log.units * slice))), ratio = units / log.units;
     if(indexAt(next.x,next.z)<0)return false;
-    const second = { ...log, id: this.nextId++, ...next, y: height(next.x, next.z) + .52, units, length: log.length * ratio, kilograms: log.kilograms * ratio };
+    const second = { ...log, id: this.nextId++, ...next, y: this.ground(next.x,next.z) + .52, units, length: log.length * ratio, kilograms: log.kilograms * ratio };
     this.logs.set(second.id, second);
     log.units -= units;
     log.kilograms *= 1 - ratio;
     log.length *= 1 - ratio;
+    return true;
+  }
+
+  cutHarvestedLog(id:number,point:Point) { return this.cutLog(id,point,.5,true); }
+
+  ground(x:number,z:number) {
+    if(!this.elevation.size)return height(x,z);
+    const left=Math.floor((x+SIZE/2-8)/CELL)*CELL-SIZE/2+8, front=Math.floor((z+SIZE/2-8)/CELL)*CELL-SIZE/2+8;
+    const at=(a:number,b:number)=>this.elevation.get(indexAt(a,b))??0;
+    const tx=(x-left)/CELL,tz=(z-front)/CELL;
+    const delta=(at(left,front)*(1-tx)+at(left+CELL,front)*tx)*(1-tz)
+      +(at(left,front+CELL)*(1-tx)+at(left+CELL,front+CELL)*tx)*tz;
+    return height(x,z)+delta;
+  }
+
+  clearBrush(at:Point) {
+    const i=indexAt(at.x,at.z);
+    if(i<0||this.stamina<4)return false;
+    const cell=this.getSoil(i), trees=treesIn(this.seed,i).filter(tree=>this.isStanding(tree)).length;
+    const before=cell.vegetation;
+    const floor=Math.min(.79,trees*.15);
+    cell.vegetation=Math.max(Math.min(floor,before),before-.065);
+    if(cell.vegetation===before)return false;
+    this.stamina-=4;this.landQueue.add(i);this.landRevision++;
+    return true;
+  }
+
+  grind(tree:Tree,mechanized=false) {
+    if(!this.removed.has(tree.id)||this.groundStumps.has(tree.id)||(!mechanized&&(this.tool!=='grinder'||this.stamina<4)))return false;
+    if(!mechanized&&!put(this.stock,{good:'chips',quantity:1,quality:.65,moisture:.52},150))return false;
+    if(!mechanized)this.stamina-=4;
+    this.groundStumps.add(tree.id);
+    const tile=indexAt(tree.x,tree.z),soil=this.getSoil(tile);
+    soil.fertility=clamp(soil.fertility-(this.mods.rootRipper?.12:.038));
+    soil.erosion=clamp(soil.erosion+.10);
+    this.landQueue.add(tile);this.landRevision++;
+    return true;
+  }
+
+  mulch(log:Log) {
+    if(this.tool!=='mulcher'||log.cargo||log.carrier||!this.logs.has(log.id)||log.kilograms>110)return false;
+    if(!put(this.stock,{good:'chips',quantity:log.units*2,quality:.68,moisture:log.moisture},150))return false;
+    this.logs.delete(log.id);
+    return true;
+  }
+
+  excavate(at:Point,vehicle:Ride) {
+    const i=indexAt(at.x,at.z);
+    if((vehicle.kind!=='excavator'&&vehicle.kind!=='scoopLoader')||i<0||!this.districts.has(districtAt(i))||vehicle.fuel<1)return false;
+    if(vehicle.freight&&vehicle.freight.good!=='ore')return false;
+    const old=this.elevation.get(i)??0;
+    if((vehicle.freight?.quantity??0)>=42||old<=-3)return false;
+    const cut=vehicle.kind==='scoopLoader'?.18:.39;
+    this.elevation.set(i,Math.max(-3,old-cut));
+    this.terrainRevision++;
+    vehicle.fuel=Math.max(0,vehicle.fuel-1.1);
+    vehicle.freight={good:'ore',quality:.69,moisture:.25,quantity:(vehicle.freight?.quantity??0)+1};
+    this.stripGround(at,4);
+    if(vehicle.kind==='excavator')for(const tree of treesIn(this.seed,i))if(distance(tree,at)<4.3)this.grind(tree,true);
+    return true;
+  }
+
+  demolish(site:Site,vehicle:Ride) {
+    if(vehicle.kind!=='demolisher'||site.kind!=='ruin'||distance(vehicle,site)>7||vehicle.fuel<3)return false;
+    const i=this.sites.indexOf(site);
+    if(i<0||!put(this.stock,{good:'salvage',quantity:5,quality:.70,moisture:.12},150))return false;
+    vehicle.fuel-=3;
+    this.sites.splice(i,1);
+    this.landRevision++;
+    this.notice('Abandoned structure dismantled · recovered metal added');
     return true;
   }
 
@@ -285,7 +381,7 @@ export class Campaign {
     } else {
       const recipe: Recipe | undefined = isRecipe(site.kind) ? recipes[site.kind] : undefined;
       if (!storageSite(site.kind) && !consumes(recipe,this.logStack(log).good)) return false;
-      if(site.kind==='fuelSilo')return false;
+      if(!this.allowedStorage(site,this.logStack(log).good))return false;
       if (!put(storageSite(site.kind) ? site.output : site.input, this.logStack(log), this.capacity(site))) return false;
     }
     this.logs.delete(log.id);
@@ -293,7 +389,17 @@ export class Campaign {
   }
 
   capacity(site: Site) {
-    return storageSite(site.kind) ? 260 : computeSites.includes(site.kind)&&this.mods.rackManagement?76 : site.kind === 'fire' ? 32 : site.kind === 'bench' || site.kind === 'rack' ? 20 : 42;
+    const capacity=site.kind==='logisticsHub'?1200:site.kind==='warehouse'?850:site.kind==='stackRack'?45:
+      site.kind==='loadingHopper'?175:storageSite(site.kind)?260:computeSites.includes(site.kind)&&this.mods.rackManagement?76:
+      site.kind==='fire'?32:site.kind==='bench'||site.kind==='rack'?20:42;
+    return capacity+(site.enlarged?32:0);
+  }
+
+  enlarge(site:Site) {
+    if(!this.mods.buffer||site.enlarged||this.cash<65)return false;
+    this.finance(-65,'Install enlarged output buffer');
+    site.enlarged=true;
+    return true;
   }
 
   transfer(site: Site, good: Good, quantity: number, retrieve: boolean) {
@@ -301,7 +407,7 @@ export class Campaign {
     const destination = retrieve ? this.stock : storageSite(site.kind) ? site.output : site.input;
     const capacity = retrieve ? 150 : this.capacity(site);
     const recipe: Recipe | undefined = isRecipe(site.kind) ? recipes[site.kind] : undefined;
-    if(!retrieve&&site.kind==='fuelSilo'&&!fuelGood(good))return false;
+    if(!retrieve&&!this.allowedStorage(site,good))return false;
     if (!retrieve && !storageSite(site.kind) && !consumes(recipe,good) && !(biomassSites.includes(site.kind)&&fuelGood(good))) return false;
     if (getQuantity(destination) + quantity > capacity) return false;
     const stack = take(source, good, quantity);
@@ -414,8 +520,11 @@ export class Campaign {
     const def = facilities[kind], i = indexAt(at.x, at.z);
     if (i < 0 || (Math.hypot(at.x, at.z) > 29 && !this.districts.has(districtAt(i)))) return 'Purchase this district first';
     if (this.cash < def.price) return 'Insufficient funds';
+    if(kind==='ruin')return 'Only abandoned world structures can be reclaimed';
+    if(kind==='pavedRoad'&&getQuantity(this.stock,'asphalt')<1)return 'Bring one unit of paving aggregate';
+    if(kind==='urbanBlock'&&getQuantity(this.stock,'foundation')<4)return 'Bring four cured foundation sections';
     if(def.research&&!this.ownedUpgrades.has(def.research)) return 'Requires facility research';
-    if(kind==='heatIsland'&&this.sites.filter(s=>s.kind==='road'&&distance(s,at)<60).length<3)return 'Connect three nearby paved segments first';
+    if(kind==='heatIsland'&&this.sites.filter(s=>(s.kind==='road'||s.kind==='pavedRoad')&&distance(s,at)<60).length<3)return 'Connect three nearby paved segments first';
     if(kind==='deepPump'&&!this.sites.some(s=>s.kind==='flowPipe'&&distance(s,at)<65))return 'Connect a high-flow pipeline first';
     if (def.requires && !this.sites.some(s => s.kind === def.requires)) return `Requires ${facilities[def.requires].name}`;
     if (this.sites.some(s => distance(s, at) < Math.max(2, facilities[s.kind].size + def.size - 1.4))) return 'Leave room around equipment';
@@ -429,6 +538,8 @@ export class Campaign {
     const site = this.makeSite(kind, at.x, at.z);
     site.yaw=this.player.yaw;
     this.sites.push(site);
+    if(kind==='pavedRoad')take(this.stock,'asphalt',1);
+    if(kind==='urbanBlock')take(this.stock,'foundation',4);
     this.finance(-facilities[kind].price, facilities[kind].name);
     this.notice(facilities[kind].name + ' installed');
     return site;
@@ -476,8 +587,8 @@ export class Campaign {
   startProject(district: number, kind: Project['kind']) {
     if (!this.districts.has(district) || this.projects.some(p => p.district === district) || this.cash < projectPrices[kind]) return false;
     if (!this.sites.some(s => s.kind === 'forestry')) return false;
-    if(kind==='dryland'&&!this.mods.drylandOffice||kind==='integrated'&&!this.mods.megaPlan)return false;
-    const required = kind === 'watershed' ? 'pump' : kind === 'quarry' ? 'quarry' : kind==='dryland'?'soilRecovery':kind==='integrated'?'stormTower':'thermal';
+    if(kind==='dryland'&&!this.mods.drylandOffice||kind==='integrated'&&!this.mods.megaPlan||kind==='continental'&&!this.mods.continent)return false;
+    const required = kind === 'watershed' ? 'pump' : kind === 'quarry' ? 'quarry' : kind==='dryland'?'soilRecovery':kind==='integrated'?'stormTower':kind==='continental'?'urbanBlock':'thermal';
     if (!this.sites.some(s => s.kind === required)) return false;
     this.finance(-projectPrices[kind], kind + ' district deployment');
     this.projects.push({ district, kind, phase: 0 });
@@ -501,12 +612,53 @@ export class Campaign {
     return true;
   }
 
+  private allowedStorage(site:Site,good:Good) {
+    if(site.kind==='fuelSilo')return fuelGood(good);
+    if(site.kind==='stackRack')return good==='timber'||good==='branches';
+    if(site.kind==='loadingHopper')return ['chips','driedChips','pellets','ore','mixedOre','sand','ash'].includes(good);
+    return true;
+  }
+
+  private cargoAllowed(site:Site,stack:Stack) {
+    return this.buyerAccepts(site,stack)||storageSite(site.kind)&&this.allowedStorage(site,stack.good)
+      ||consumes(isRecipe(site.kind)?recipes[site.kind]:undefined,stack.good)||biomassSites.includes(site.kind)&&fuelGood(stack.good);
+  }
+
+  connectAlternate(site:Site,target:Site,good:Good) {
+    if(!this.mods.sortGate||!['sortGate','robotSorter'].includes(site.kind)||site===target
+      ||!this.reachable(site,target,lineKinds,26))return false;
+    site.secondary=target.id;site.sortGood=good;
+    return true;
+  }
+
+  freightMode(site:Site):Shipment['mode']|undefined {
+    if(site.kind==='dronePad')return 'air';
+    if(site.kind==='intermodal')return site.freightPlan??'rail';
+    if(site.kind==='railDepot'||site.kind==='railTerminal')return 'rail';
+    if(['roadDepot','autoGarage','shippingHub'].includes(site.kind))return 'road';
+  }
+
+  assignDriverless(garage:Site,vehicle:Ride) {
+    if(garage.kind!=='autoGarage'||garage.shipment||!['pickup','truck','regionalTruck','flatbed'].includes(vehicle.kind)
+      ||distance(garage,vehicle)>9||vehicle.freight||cargoMass(this.logs.values(),vehicle.id)>0
+      ||this.sites.some(s=>s!==garage&&s.dedicatedRide===vehicle.id))return false;
+    garage.dedicatedRide=vehicle.id;
+    return true;
+  }
+
+  paveAt(at:Point) {
+    if(!this.ownedUpgrades.has('16-07')||this.siteIssue('pavedRoad',at))return false;
+    if(!this.build('pavedRoad',at))return false;
+    return true;
+  }
+
   connect(source: Site, target: Site) {
     if (source === target || !this.sites.includes(source) || !this.sites.includes(target) || source.shipment) return false;
-    const route=source.kind==='railDepot'
-      ?this.findPath(source,target,['rail'],12)
-      :source.kind==='dronePad'?distance(source,target)<=320
-      :distance(source,target)<=16||this.reachable(source,target,['belt','rail','road'],26);
+    const mode=this.freightMode(source);
+    const route=mode==='rail'?this.findPath(source,target,['rail'],source.kind==='railTerminal'?16:12):
+      mode==='air'?distance(source,target)<=320:
+      mode==='road'?this.findPath(source,target,['road','serviceRoad','pavedRoad'],this.mods.regionalShipping?35:22):
+      distance(source,target)<=16||this.reachable(source,target,lineKinds,26);
     if (!route) return false;
     source.link = target.id;
     return true;
@@ -539,14 +691,16 @@ export class Campaign {
   }
 
   private freight(site:Site,target:Site,dt:number) {
-    const rail=site.kind==='railDepot', capacity=rail?30:8;
+    const mode=this.freightMode(site)!;
+    const rail=mode==='rail', capacity=rail?(this.mods.longTrain&&site.kind!=='railDepot'?78:30):mode==='road'?(site.kind==='shippingHub'?82:56):8;
     const now=site.shipment;
     if(now) {
       if(now.elapsed<now.duration) {
         now.elapsed+=dt;
-        site.status=`${rail?'Train':'Drone'} en route · ${Math.ceil(now.duration-now.elapsed)}s remaining`;
+        site.status=now.returning?'Vehicle returning':`${rail?'Train':mode==='road'?'Truck':'Drone'} en route · ${Math.ceil(now.duration-now.elapsed)}s remaining`;
         return;
       }
+      if(now.returning){site.shipment=undefined;site.status='Vehicle back at garage';return;}
       if(!target.on){site.status='Freight held · receiver offline';return;}
       if(buyerSite(target.kind)) {
         if(!this.buyerAccepts(target,now.load)){site.status='Freight held · buyer rejected grade';return;}
@@ -556,27 +710,37 @@ export class Campaign {
         site.status='Freight held · receiver full';
         return;
       }
-      site.shipment=undefined;
+      if(site.kind==='autoGarage'){
+        now.returning=true;now.path.reverse();now.elapsed=0;
+      }else site.shipment=undefined;
       site.status='Shipment delivered';
       return;
     }
     if(!target.on){site.status='Freight blocked · receiver offline';return;}
-    if(!rail&&!this.roadPower.get(site.id)){site.status='Drone charger needs grid power';return;}
-    const path=rail?this.findPath(site,target,['rail'],12):distance(site,target)<=320?[site,target]:undefined;
-    if(!path){site.status=rail?'Freight blocked · broken track':'Freight blocked · out of range';return;}
+    if(mode==='air'&&!this.roadPower.get(site.id)){site.status='Drone charger needs grid power';return;}
+    const path=rail?this.findPath(site,target,['rail'],site.kind==='railTerminal'?16:12):
+      mode==='road'?this.findPath(site,target,['road','serviceRoad','pavedRoad'],this.mods.regionalShipping?35:22):
+      distance(site,target)<=320?[site,target]:undefined;
+    if(!path){site.status=rail?'Freight blocked · broken track':mode==='road'?'Freight blocked · no road link':'Freight blocked · out of range';return;}
     const length=path.slice(1).reduce((n,p,index)=>n+distance(p,path[index]),0);
     const recipe: Recipe | undefined = isRecipe(target.kind) ? recipes[target.kind] : undefined;
-    const lot=site.output.find(l=>storageSite(target.kind)&&(target.kind!=='fuelSilo'||fuelGood(l.good))||this.buyerAccepts(target,l)||consumes(recipe,l.good)||biomassSites.includes(target.kind)&&fuelGood(l.good));
+    const lot=site.output.find(l=>this.cargoAllowed(target,l));
     if(!lot){site.status=site.output.length?'Freight blocked · incompatible cargo':'Waiting for freight';return;}
     const available=buyerSite(target.kind)?capacity:this.capacity(target)-getQuantity(storageSite(target.kind)?target.output:target.input);
     const amount=Math.min(lot.quantity,capacity,available);
     if(amount<=0){site.status='Freight blocked · receiver full';return;}
-    const fee=Math.max(2,Math.round(length*(rail?.021:.055)*(this.mods.freightDiscount&&amount>=16?.66:1)));
+    const fee=Math.max(2,Math.round(length*(rail?.021:mode==='road'?.034:.055)*(this.mods.freightDiscount&&amount>=16?.66:1)*(this.mods.regionalShipping?.73:1)));
+    const vehicle=site.kind==='autoGarage'?this.rides.find(v=>v.id===site.dedicatedRide):undefined;
+    const travelFuel=length*.09;
+    if(site.kind==='autoGarage'&&(!vehicle||vehicle.fuel<travelFuel||vehicle.wear>=100||distance(vehicle,site)>12)){
+      site.status='Vehicle unavailable · assign or service a parked vehicle';return;
+    }
     if(this.cash<fee){site.status='Freight blocked · dispatch costs';return;}
     const load=take(site.output,lot.good,amount);
     if(!load)return;
-    this.finance(-fee,rail?'Rail freight dispatch':'Drone freight dispatch');
-    site.shipment={mode:rail?'rail':'air',target:target.id,load,path:path.map(({x,z})=>({x,z})),duration:Math.max(3,length/(rail?12:22)),elapsed:0};
+    this.finance(-fee,rail?'Rail freight dispatch':mode==='road'?'Truck freight dispatch':'Drone freight dispatch');
+    if(vehicle){vehicle.fuel-=travelFuel;vehicle.wear=Math.min(100,vehicle.wear+length*.013);}
+    site.shipment={mode,target:target.id,load,path:path.map(({x,z})=>({x,z})),duration:Math.max(3,length/(rail?12:mode==='road'?10:22)),elapsed:0};
     site.status='Shipment dispatched';
   }
 
@@ -695,10 +859,11 @@ export class Campaign {
     const carry=mill&&this.mods.bladeGuide?(site.yieldCarry??0)+baseQuantity*.10:0;
     quantity+=Math.floor(carry+1e-8);
     if(mill&&this.mods.cutPatterns&&site.layout==='volume')quantity+=1;
-    const residue=mill&&site.kind!=='bench'&&this.mods.offcuts?'chips':this.mods.recovery&&paperLines.includes(site.kind)?'wastePaper':
+    const residue=site.kind==='crusher'?'sand':mill&&site.kind!=='bench'&&this.mods.offcuts?'chips':this.mods.recovery&&paperLines.includes(site.kind)?'wastePaper':
       this.mods.barkSorter&&site.kind==='charcoalDrum'?'chips':site.kind==='charcoal'||site.kind==='charcoalDrum'?'ash':undefined;
     const offcut=residue?1:0;
     if(pulpLines.includes(site.kind)&&this.mods.chipScreen)quantity++;
+    if(this.mods.oreScreen&&['licensedQuarry','stripMine','bucketMine'].includes(site.kind))quantity+=Math.ceil(baseQuantity*.17);
     const queued=site.jobs.reduce((sum,job)=>sum+job.quantity+(job.offcut??0),0);
     if(getQuantity(site.output)+queued+quantity+offcut>this.capacity(site)) {site.status='Output full';return false;}
     const first=recipe.input,second=recipe.secondary;
@@ -733,8 +898,10 @@ export class Campaign {
       if(this.mods.smartKiln){remaining*=.72;moisture*=.85;}
     }
     if(paperLines.includes(site.kind)&&this.mods.paperDryer){remaining*=.72;quality+=.13;moisture=Math.min(moisture,.17);}
+    if(site.staffed)remaining*=.76;
     if(this.mods.nailer&&['workshop','carpentry','pallet'].includes(site.kind))remaining*=.63;
     if(site.kind==='finishBooth')quality+=.17;
+    if(site.kind==='crusher'&&this.mods.oreScreen)quality+=.11;
     if(site.kind==='joinery'&&this.mods.surfaceSander)quality+=.19;
     if(computeSites.includes(site.kind)) {
       if(this.mods.rackManagement)remaining*=.87;
@@ -765,8 +932,49 @@ export class Campaign {
     if(!ordered)return 0;
     const pledged=getQuantity(this.stock,'compute')+this.sites.reduce((n,site)=>n+getQuantity(site.output,'compute')
       +site.jobs.reduce((total,job)=>total+(job.good==='compute'?job.quantity:0),0)
-      +(site.shipment?.load.good==='compute'?site.shipment.load.quantity:0),0);
+      +(site.shipment?.load.good==='compute'&&!site.shipment.returning?site.shipment.load.quantity:0),0);
     return Math.max(0,ordered-pledged);
+  }
+
+  breakRock(id:number,point:Point) {
+    if(this.tool!=='breaker'||this.brokenRocks.has(id)||distance(this.player,point)>tools.breaker.range||this.stamina<6)return false;
+    if(!put(this.stock,{good:'ore',quantity:2,quality:.73,moisture:.18},150))return false;
+    this.stamina-=6;
+    this.wear=Math.max(0,this.wear-tools.breaker.wear);
+    this.brokenRocks.add(id);
+    this.rockVersion++;
+    this.landRevision++;
+    this.notice('Surface aggregate collected');
+    return true;
+  }
+
+  freightBed(ride:Ride,site:Site,unload=false) {
+    if(!freightVehicles.includes(ride.kind)||distance(ride,site)>6.5)return 0;
+    if(unload){
+      const stack=ride.freight;
+      if(!stack)return 0;
+      if(buyerSite(site.kind)){
+        if(!this.buyerAccepts(site,stack))return 0;
+        this.sellAt(site,stack);
+      }else if(!this.cargoAllowed(site,stack)||!put(storageSite(site.kind)?site.output:site.input,stack,this.capacity(site)))return 0;
+      ride.freight=undefined;
+      return stack.quantity;
+    }
+    const legallyCarried=ride.kind==='mixer'?['concrete']:['palletJack','forkliftPro','deliveryVan','regionalTruck','flatbed'].includes(ride.kind)?
+      Object.keys(goods).filter(g=>g!=='compute'):['ore','mixedOre','sand','foundation','asphalt','ashAggregate'];
+    const cargo=site.output.find(lot=>legallyCarried.includes(lot.good)&&(!ride.freight||ride.freight.good===lot.good));
+    if(!cargo)return 0;
+    const held=ride.freight?.quantity??0;
+    const lot=take(site.output,cargo.good,Math.min(cargo.quantity,(ride.kind==='palletJack'?16:ride.kind==='mixer'?24:ride.kind==='regionalTruck'?72:ride.kind==='flatbed'?90:42)-held));
+    if(!lot)return 0;
+    if(ride.freight){
+      const previous=ride.freight,total=previous.quantity+lot.quantity;
+      lot.quality=(lot.quality*lot.quantity+previous.quality*previous.quantity)/total;
+      lot.moisture=(lot.moisture*lot.quantity+previous.moisture*previous.quantity)/total;
+      lot.quantity=total;
+    }
+    ride.freight=lot;
+    return lot.quantity-held;
   }
 
   private hasHeatSink(at:Point,range:number) {
@@ -823,10 +1031,15 @@ export class Campaign {
     const supply=this.gridSources();
     this.roadPower.clear();
     let computeNeeded=this.computeRemaining();
-    const plan=this.mods.priority?[...this.sites].sort((a,b)=>Number(Boolean(b.priority))-Number(Boolean(a.priority))):this.sites;
+    const policyWeight=(site:Site)=>(site.priority?300:0)+(site.staffed?25:0)+Math.min(20,getQuantity(site.input))-(getQuantity(site.output)>=this.capacity(site)?35:0);
+    const plan=this.mods.foreman||this.mods.priority?[...this.sites].sort((a,b)=>policyWeight(b)-policyWeight(a)):this.sites;
     for (const site of plan) {
       site.gridFlow=0;
       if (!site.on) { site.status = 'Paused'; continue; }
+      if(site.staffed&&(site.payroll??0)<=this.clock){
+        if(this.cash>=9){this.finance(-9,'Machine operator wages');site.payroll=this.clock+65;}
+        else {site.staffed=false;this.notice('Machine operator off shift · insufficient funds');}
+      }
       if (site.kind === 'fire') {
         site.status = site.jobs.length ? 'Burning' : 'Ready for physical delivery';
         if (!site.jobs.length && this.mods.stoker) {
@@ -938,39 +1151,57 @@ export class Campaign {
       if(source.site.kind!=='solar'&&source.site.kind!=='wind')source.site.fuel=Math.max(0,source.site.fuel-draw*dt*.00065*(biomassSites.includes(source.site.kind)?this.mods.biomassEfficiency:1));
     }
     for(const source of supply)source.site.gridFlow=(source.site.gridCapacity??0)-source.free;
-    for (const site of this.sites) {
-      if (!site.on || !site.link) continue;
-      const target = this.sites.find(s => s.id === site.link);
-      if(target&&(site.kind==='railDepot'||site.kind==='dronePad')){this.freight(site,target,dt);continue;}
+    for(const [id,packet] of this.routePackets)if(this.clock-packet.at>2)this.routePackets.delete(id);
+    for(const site of this.sites){
+      if(!site.on||!site.link)continue;
+      const primary=this.sites.find(s=>s.id===site.link);
+      if(primary&&this.freightMode(site)){this.freight(site,primary,dt);continue;}
+      if(site.kind==='rollerIntake'&&this.roadPower.get(site.id)&&primary?.on){
+        const raw=Array.from(this.logs.values()).find(l=>!l.cargo&&!l.carrier&&l.length<4.5&&distance(site,l)<2.1);
+        if(raw&&distance(site,primary)<7){
+          const span=distance(raw,primary);
+          if(span>.8){raw.x+=(primary.x-raw.x)*Math.min(.82,1.2/span);raw.z+=(primary.z-raw.z)*Math.min(.82,1.2/span);raw.y=height(raw.x,raw.z)+.34;}
+          if(this.acceptLog(primary,raw))site.status='Physical log forwarded';
+        }
+      }
       if(!site.output.length)continue;
-      if (!target?.on) { site.status = 'Route blocked · receiver offline'; continue; }
-      if (distance(site, target) > 26 && !this.reachable(site, target, ['belt','rail','road'], 26)) { site.status = 'Route blocked · disconnected'; continue; }
-      if (target.kind === 'fire' && this.mods.stoker) continue;
-      const recipe: Recipe | undefined = isRecipe(target.kind) ? recipes[target.kind] : undefined;
-      const lot = site.output.find(s => (!site.sortHigh||!this.mods.sortingCamera||s.quality>=.84)
-        &&(storageSite(target.kind) && (target.kind!=='fuelSilo'||fuelGood(s.good)) || this.buyerAccepts(target,s) || consumes(recipe,s.good)));
-      if (!lot) { site.status = 'Route blocked · incompatible cargo'; continue; }
-      if (buyerSite(target.kind)) {
-        const shipped = take(site.output, lot.good, Math.min(4, lot.quantity));
-        if (shipped) this.sellAt(target,shipped);
-      } else {
-        const buffer = storageSite(target.kind) ? target.output : target.input;
-        const n = Math.min(site.kind==='fuelSilo'?12:4, lot.quantity, this.capacity(target) - getQuantity(buffer));
-        if (n <= 0) { site.status = 'Route blocked · receiver full'; continue; }
-        const shipped = take(site.output, lot.good, n);
-        if (shipped) put(buffer, shipped);
+      const secondary=site.secondary&&this.sites.find(s=>s.id===site.secondary);
+      const routes=secondary?[primary,secondary]:[primary];
+      for(const target of routes){
+        if(!target?.on){site.status='Route blocked · receiver offline';continue;}
+        if(distance(site,target)>26&&!this.reachable(site,target,lineKinds,26)){site.status='Route blocked · disconnected';continue;}
+        if(target.kind==='fire'&&this.mods.stoker)continue;
+        const alternate=target===secondary;
+        const gradeGate=site.sortHigh&&(this.mods.sortingCamera||this.mods.roboticSort);
+        const lot=site.output.find(l=>this.cargoAllowed(target,l)&&
+          (!site.sortGood||(alternate?l.good===site.sortGood:l.good!==site.sortGood))&&(!gradeGate||l.quality>=.84));
+        if(!lot){site.status='Route waiting · no compatible cargo';continue;}
+        const swift=this.sites.some(s=>s.kind==='poweredBelt'&&this.roadPower.get(s.id)&&distance(site,s)<16);
+        const motorized=['picker','sortGate','robotSorter'].includes(site.kind);
+        if(motorized&&!this.roadPower.get(site.id)){site.status='Route blocked · no power';continue;}
+        const max=site.kind==='fuelSilo'||swift?12:site.kind==='picker'?10:4;
+        const receiver=storageSite(target.kind)?target.output:target.input;
+        const amount=Math.min(max,lot.quantity,buyerSite(target.kind)?max:this.capacity(target)-getQuantity(receiver));
+        if(amount<=0){site.status='Route blocked · receiver full';continue;}
+        const index=site.output.indexOf(lot), shipment={...lot,quantity:amount};
+        lot.quantity-=amount;
+        if(!lot.quantity)site.output.splice(index,1);
+        if(buyerSite(target.kind))this.sellAt(target,shipment);
+        else put(receiver,shipment);
+        site.shipped=(site.shipped??0)+amount;
+        this.routePackets.set(site.id+':'+target.id,{at:this.clock,good:shipment.good,from:site,to:target});
       }
     }
   }
 
   assignHauler(base:Site,target:Site) {
     const supported=buyerSite(target.kind)||storageSite(target.kind)||(isRecipe(target.kind)&&(recipes[target.kind] as Recipe).input?.[0]==='timber');
-    if((base.kind!=='forestry'&&!(this.mods.yardmaster&&storageSite(base.kind)))||!supported||distance(base,target)>110||base.haul?.log) return false;
+    if((!['forestry','helperPost','crewDepot'].includes(base.kind)&&!(this.mods.yardmaster&&storageSite(base.kind)))||!supported||distance(base,target)>110||base.haul?.log) return false;
     if(!base.haul) {
       if(this.cash<340) return false;
       this.finance(-340,'Hire local log hauler');
     }
-    base.haul={x:base.x,z:base.z,target:target.id,phase:'waiting',status:'Awaiting a fallen log'};
+    base.haul={x:base.x,z:base.z,target:target.id,phase:'waiting',status:'Awaiting a fallen log',due:this.clock+65};
     return true;
   }
 
@@ -978,13 +1209,22 @@ export class Campaign {
     const reservations=new Set(this.sites.flatMap(site=>site.haul?.log===undefined?[]:[site.haul.log]));
     for(const base of this.sites) {
       const truck=base.haul;
-      if(!truck||!base.on) continue;
+      if(!truck||!base.on||base.order&&base.order!=='haul') continue;
+      if(base.shift==='day'&&this.clock%180>=140){truck.status='Crew on break';continue;}
+      if(base.kind==='helperPost'||this.mods.scheduling) {
+        if((truck.due??0)<=this.clock) {
+          const wages=base.kind==='helperPost'?6:13;
+          if(this.cash<wages){truck.status='Crew waiting for wages';continue;}
+          this.finance(-wages,'Logging crew wages');
+          truck.due=this.clock+65;
+        }
+      }
       const target=this.sites.find(site=>site.id===truck.target);
       if(!target) continue;
       const log=truck.log===undefined?undefined:this.logs.get(truck.log);
       if(truck.phase==='waiting') {
         const available=Array.from(this.logs.values()).filter(wood=>wood.id!==heldId&&!wood.cargo&&!wood.carrier
-          &&!reservations.has(wood.id)&&wood.kilograms<=600&&distance(wood,base)<85)
+          &&!reservations.has(wood.id)&&wood.kilograms<=(base.kind==='helperPost'?78:base.kind==='crewDepot'?850:600)&&distance(wood,base)<(base.kind==='crewDepot'?125:85))
           .sort((a,b)=>distance(a,base)-distance(b,base))[0];
         if(!available) continue;
         truck.log=available.id;
@@ -1001,13 +1241,18 @@ export class Campaign {
         continue;
       }
       const next=truck.phase==='pickup'&&log?log:truck.phase==='delivery'?target:base;
-      const travel=distance(truck,next),step=Math.min(travel,dt*(truck.phase==='delivery'?3.4:5.5));
-      if(travel>.2) {
-        truck.x+=(next.x-truck.x)*step/travel;
-        truck.z+=(next.z-truck.z)*step/travel;
+      const travel=distance(truck,next);
+      const route=this.mods.markers&&travel>19?this.findPath(truck,next,['road','pavedRoad'],23):undefined;
+      const mark=route&&route.length>2&&distance(truck,route[1])>2.2?route[1]:next;
+      const remaining=distance(truck,mark);
+      const pace=base.kind==='helperPost'?2.4:truck.phase==='delivery'?3.4:5.5;
+      const step=Math.min(remaining,dt*pace*(this.mods.crewToolkit?1.28:1));
+      if(remaining>.2){
+        truck.x+=(mark.x-truck.x)*step/remaining;
+        truck.z+=(mark.z-truck.z)*step/remaining;
       }
       if(truck.phase==='delivery'&&log) {
-        log.x=truck.x;log.z=truck.z;log.y=height(truck.x,truck.z)+.83;
+        log.x=truck.x;log.z=truck.z;log.y=this.ground(truck.x,truck.z)+.83;
         log.q=[Math.SQRT1_2,0,0,Math.SQRT1_2];
       }
       if(travel>.92) continue;
@@ -1020,6 +1265,14 @@ export class Campaign {
         if(!this.acceptLog(target,log)) {
           log.carrier=base.id;
           truck.status='Delivery blocked · receiver closed or full';
+          if(truck.alternate&&this.mods.fleetController){
+            const second=this.sites.find(s=>s.id===truck.alternate);
+            if(second?.on){
+              truck.alternate=truck.target;
+              truck.target=second.id;
+              truck.status='Rerouting to alternate receiver';
+            }
+          }
           continue;
         }
         truck.log=undefined;
@@ -1043,10 +1296,10 @@ export class Campaign {
     for (const site of this.sites) {
       const def = facilities[site.kind], center = indexAt(site.x, site.z);
       if (!site.on || !def.effect || center < 0 || (def.power && !this.roadPower.get(site.id))) continue;
-      if (site.kind === 'fire' && !site.jobs.length) continue;
+      if (def.effect==='fire' && !site.jobs.length) continue;
       if (def.effect==='thermal' && site.fuel <= 0) continue;
       if(def.effect==='duct'&&!this.hasHeatSink(site,site.kind==='heatRelay'?115:58))continue;
-      const paved=def.effect==='island'?this.sites.filter(s=>s.kind==='road'&&distance(site,s)<60).length:0;
+      const paved=def.effect==='island'?this.sites.filter(s=>(s.kind==='road'||s.kind==='pavedRoad')&&distance(site,s)<60).length:0;
       const cx = center % 256, cz = Math.floor(center / 256), radius = def.reach!;
       for (let z = Math.max(0, cz - radius); z <= Math.min(255, cz + radius); z++) {
         for (let x = Math.max(0, cx - radius); x <= Math.min(255, cx + radius); x++) {
@@ -1091,7 +1344,8 @@ export class Campaign {
           }
         }
       }
-      if (site.kind === 'forestry' && this.clock % 8 < dt && getQuantity(site.output) < this.capacity(site)) {
+      const harvesting=site.kind==='forestry'||site.kind==='crewDepot'||site.kind==='helperPost'&&this.mods.jobBoards;
+      if(harvesting&&site.order!=='haul'&&this.clock%(site.kind==='crewDepot'?5:this.mods.crewToolkit?6:8)<dt && getQuantity(site.output) < this.capacity(site)) {
         const tree = this.nextForestryTree(center, radius);
         if (tree) {
           this.removed.add(tree.id);
@@ -1104,6 +1358,47 @@ export class Campaign {
           put(site.output, { good: 'timber', quantity: species[tree.kind].yield, quality: .74, moisture: .65 }, this.capacity(site));
         }
       }
+    }
+    for(const site of this.sites){
+      if(!site.on)continue;
+      if(site.kind==='clearingCrew'&&site.clearingTarget!==undefined){
+        const target=site.clearingTarget;
+        if(!this.districts.has(districtAt(target)))continue;
+        add(target,'clearing',1.3);add(target,'grazing',.88);
+        if(this.clock%6<dt){
+          const tree=treesIn(this.seed,target).find(t=>this.isStanding(t)&&t.kind===0);
+          if(tree){
+            this.removed.add(tree.id);this.treeDamage.delete(tree.id);
+            this.landRevision++;this.stats.harvest++;
+            put(site.output,{good:'chips',quantity:2,quality:.65,moisture:.57},this.capacity(site));
+          }
+        }
+      }
+      if(site.kind==='recycler'&&this.roadPower.get(site.id)&&this.clock%5<dt){
+        const branch=[...this.logs.values()].find(l=>l.part==='branch'&&!l.cargo&&!l.carrier&&distance(l,site)<20);
+        if(branch&&put(site.output,{good:'chips',quantity:branch.units*2,quality:.69,moisture:branch.moisture},this.capacity(site)))this.logs.delete(branch.id);
+        const cell=indexAt(site.x,site.z),soil=this.soil.get(cell);
+        if(soil&&soil.erosion>.36&&!this.recycledCells.has(cell)&&put(site.output,{good:'ore',quantity:3,quality:.54,moisture:.28},this.capacity(site)))
+          this.recycledCells.add(cell);
+      }
+    }
+    for(const station of this.sites){
+      if(station.kind==='helperPost'&&station.order==='harvest'&&station.on&&this.clock%(this.mods.crewToolkit?8:11)<dt&&getQuantity(station.output)<32){
+        const i=indexAt(station.x,station.z);
+        const tree=this.nextForestryTree(i,3);
+        if(tree){
+          this.removed.add(tree.id);
+          this.treeDamage.delete(tree.id);
+          const tile=indexAt(tree.x,tree.z);
+          const land=this.getSoil(tile);
+          land.vegetation=Math.min(land.vegetation,this.standingFraction(tile));
+          this.landQueue.add(tile);this.landRevision++;this.stats.harvest++;
+          put(station.output,{good:'timber',quantity:species[tree.kind].yield,quality:.73,moisture:.62},this.capacity(station));
+        }
+      }
+      if(station.kind!=='helperPost'||station.order!=='clear'||!station.on)continue;
+      const center=indexAt(station.x,station.z);
+      if(center>=0)add(center,'grazing',1.25);
     }
     const dispatched=new Set<string>();
     for(let i=0;i<this.cleanup.length;){
@@ -1133,6 +1428,7 @@ export class Campaign {
         add(i, 'clearing', 1.1);
         if (project.kind === 'watershed') { add(i, 'drainage', 3.2); add(i, 'grazing', 2.6); }
         if (project.kind === 'quarry') { add(i, 'removal', 2.1); add(i, 'drainage', .8); }
+        if(project.kind==='continental'){add(i,'removal',2.45);add(i,'heat',1.3);add(i,'drainage',1.1);}
         if (project.kind === 'integrated') {add(i,'heat',2.2);add(i,'removal',1.5);add(i,'drainage',1.8);add(i,'pollution',.48);}
         if (project.kind === 'dryland') {add(i,'grazing',2.3);add(i,'removal',1.25);add(i,'drainage',1.6);}
         if (project.kind === 'thermal') { add(i, 'heat', 2.7); add(i, 'removal', .58); }
@@ -1169,6 +1465,99 @@ export class Campaign {
     return;
   }
 
+  staff(site:Site) {
+    if(!this.mods.staffing||!isRecipe(site.kind)&&site.kind!=='crewDepot')return false;
+    if(site.staffed){site.staffed=false;return true;}
+    if(this.cash<40)return false;
+    this.finance(-40,'Hire machine operator');
+    site.staffed=true;
+    site.payroll=this.clock+65;
+    return true;
+  }
+
+  loadByCrane(site:Site,log:Log,ride:Ride) {
+    const reserved=this.sites.reduce((mass,station)=>mass+(station.crane?.ride===ride.id?this.logs.get(station.crane.log)?.kilograms??0:0),0);
+    if(site.kind!=='craneYard'||site.crane||log.cargo||log.carrier||distance(log,site)>11||distance(ride,site)>10
+      ||cargoMass(this.logs.values(),ride.id)+reserved+log.kilograms>vehicleTypes[ride.kind].capacity||!this.logs.has(log.id))return false;
+    log.carrier=site.id;
+    site.crane={log:log.id,ride:ride.id,remaining:5,x:log.x,y:log.y,z:log.z};
+    return true;
+  }
+
+  scheduleService(site:Site,ride:Ride){
+    if(site.kind!=='serviceBay'||site.mechanic||distance(site,ride)>10||this.cash<18)return false;
+    this.finance(-18,'Book fleet service');
+    site.mechanic={ride:ride.id,time:7};
+    return true;
+  }
+
+  private updateYardTools(dt:number) {
+    for(const site of this.sites){
+      if(!site.on)continue;
+      if(site.kind==='serviceBay'&&site.mechanic){
+        const car=this.rides.find(v=>v.id===site.mechanic!.ride);
+        if(!car){site.mechanic=undefined;continue;}
+        if(distance(car,site)>11)continue;
+        site.mechanic.time=Math.max(0,site.mechanic.time-dt);
+        if(site.mechanic.time===0){car.fuel=100;car.wear=0;site.mechanic=undefined;this.notice('Fleet service complete');}
+      }
+      if(site.kind!=='craneYard'||!site.crane||!this.roadPower.get(site.id))continue;
+      const job=site.crane,log=this.logs.get(job.log),vehicle=this.rides.find(v=>v.id===job.ride);
+      if(!log||!vehicle||distance(vehicle,site)>11){
+        if(log)log.carrier=undefined;
+        site.crane=undefined;continue;
+      }
+      job.remaining=Math.max(0,job.remaining-dt);
+      const mix=1-job.remaining/5;
+      log.x=job.x+(vehicle.x-job.x)*mix;log.z=job.z+(vehicle.z-job.z)*mix;
+      log.y=this.ground(log.x,log.z)+.5+Math.sin(mix*Math.PI)*3.2;
+      if(!job.remaining){log.carrier=undefined;log.cargo=vehicle.id;site.crane=undefined;this.notice('Crane loaded the vehicle');}
+    }
+  }
+
+  private maintainFleet(dt:number){
+    if(!this.mods.maintenance)return;
+    for(const base of this.sites){
+      if(!base.on||base.kind!=='crewDepot')continue;
+      const active=base.mechanic;
+      if(active){
+        active.time=Math.max(0,active.time-dt);
+        const vehicle=this.rides.find(v=>v.id===active.ride);
+        if(!vehicle){base.mechanic=undefined;continue;}
+        if(active.time<=0&&this.cash>=22){
+          this.finance(-22,'Dispatch maintenance mechanic');
+          vehicle.wear=Math.max(0,vehicle.wear-60);
+          vehicle.fuel=Math.min(100,vehicle.fuel+30);
+          base.mechanic=undefined;
+        }
+        continue;
+      }
+      const vehicle=this.rides.find(v=>v.wear>45&&distance(v,base)<110&&
+        !this.sites.some(s=>s.mechanic?.ride===v.id));
+      if(vehicle)base.mechanic={ride:vehicle.id,time:5+distance(vehicle,base)/4};
+    }
+  }
+
+  private runPolicies(){
+    if(this.mods.regionalAutopilot)for(const site of this.sites){
+      if(site.kind!=='crewDepot'||!site.on||!site.staffed||site.link)continue;
+      const receiver=this.sites.find(s=>s!==site&&['bench','mill','bandsaw','speedMill','millComplex'].includes(s.kind)&&
+        distance(s,site)<48&&this.reachable(site,s,['road','pavedRoad','belt'],26));
+      if(receiver)this.connect(site,receiver);
+    }
+    if(!this.mods.opsPolicy||this.policy==='manual'||this.clock%14>=1)return;
+    if(this.policy==='land'&&!this.cleanup.length&&this.cash>=400) {
+      for(const region of this.districts){
+        const first=this.scan(region,1,'moisture')[0];
+        if(first&&this.dispatchCleanup(first.i))break;
+      }
+    } else if(this.policy==='revenue') {
+      const active=this.contracts.find(c=>!c.done&&!c.failed);
+      for(const site of this.sites) if(site.staffed)site.priority=site.jobs.some(job=>job.good===active?.good)||
+        (isRecipe(site.kind)&&recipes[site.kind].output[0]===active?.good);
+    }
+  }
+
   tick(dt: number, rest = true, heldId?:number) {
     this.clock += dt;
     if (rest) this.stamina = Math.min(this.mods.stamina, this.stamina + dt * 16 * this.mods.recover * this.mods.athlete);
@@ -1179,6 +1568,9 @@ export class Campaign {
     for (const contract of this.contracts) if (!contract.done && this.clock >= contract.deadline) contract.failed = true;
     this.simulateMachinery(1);
     this.simulateHaulers(1,heldId);
+    this.maintainFleet(1);
+    this.updateYardTools(1);
+    this.runPolicies();
     this.simulateLand(1);
     for (const [key, checked] of [
       ['First Shave', this.stats.harvest > 0], ['Smoke Signal', this.stats.fire > 0], ['Value Added', this.stats.produced > 0],
@@ -1215,20 +1607,21 @@ export class Campaign {
   snapshot() {
     return {
       version: VERSION, seed: this.seed, clock: this.clock, cash: this.cash, player: { ...this.player }, savedAt: Date.now(),
-      treeDamage: [...this.treeDamage], removed: [...this.removed], soil: [...this.soil], logs: [...this.logs.values()],
+      treeDamage: [...this.treeDamage], brokenRocks:[...this.brokenRocks],groundStumps:[...this.groundStumps],elevation:[...this.elevation],recycledCells:[...this.recycledCells], removed: [...this.removed], soil: [...this.soil], logs: [...this.logs.values()],
       sites: this.sites, rides: this.rides, stock: this.stock, ownedTools: [...this.ownedTools], ownedUpgrades: [...this.ownedUpgrades],
       tool: this.tool, wear: this.wear, toolWear: this.toolWear, battery: this.battery, districts: [...this.districts], ledger: this.ledger, contracts: this.contracts,
-      stats: this.stats, won: this.won, completionTime: this.completionTime, nextId: this.nextId, projects: this.projects, cleanup:this.cleanup, prototypes:[...this.prototypes],scienceSpent:this.scienceSpent, achievements: [...this.achievements], claimed: [...this.claimed],
+      stats: this.stats, won: this.won, completionTime: this.completionTime, nextId: this.nextId, projects: this.projects, policy:this.policy,cleanup:this.cleanup, prototypes:[...this.prototypes],scienceSpent:this.scienceSpent, achievements: [...this.achievements], claimed: [...this.claimed],
     };
   }
 
   static restore(s: Save) {
     const game = new Campaign(s.seed);
     Object.assign(game, {
-      clock: s.clock, cash: s.cash, player: s.player, treeDamage: new Map(s.treeDamage), removed: new Set(s.removed), soil: new Map(s.soil),
+      clock: s.clock, cash: s.cash, player: s.player, treeDamage: new Map(s.treeDamage), removed: new Set(s.removed), brokenRocks:new Set(s.brokenRocks??[]),groundStumps:new Set(s.groundStumps??[]),
+      elevation:new Map(s.elevation??[]),recycledCells:new Set(s.recycledCells??[]),soil: new Map(s.soil),
       sites: s.sites, rides: s.rides, stock: s.stock, ownedTools: new Set(s.ownedTools), ownedUpgrades: new Set(s.ownedUpgrades),
       tool: s.tool, wear: s.wear, toolWear: s.toolWear ?? {}, battery: s.battery, districts: new Set(s.districts), ledger: s.ledger, contracts: s.contracts,
-      cleanup:s.cleanup??[], prototypes:new Set(s.prototypes??[]),scienceSpent:s.scienceSpent??0,stats: s.stats, completionTime: s.completionTime, nextId: s.nextId, projects: s.projects,
+      policy:s.policy??'manual',cleanup:s.cleanup??[], prototypes:new Set(s.prototypes??[]),scienceSpent:s.scienceSpent??0,stats: s.stats, completionTime: s.completionTime, nextId: s.nextId, projects: s.projects,
       logs: new Map(s.logs.map(l => [l.id, l])), achievements: new Set(s.achievements), claimed: new Set(s.claimed??[]),
     });
     game.mods = modifiers(game.ownedUpgrades);

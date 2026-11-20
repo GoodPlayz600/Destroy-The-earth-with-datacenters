@@ -183,7 +183,7 @@ export function siteModel(kind: Facility): SiteModel {
     batch(fixed);
     return { root, moving, glow };
   }
-  if (['market','timberBuyer','specialistBuyer','tradeHub','depot','railDepot'].includes(kind)) {
+  if (['market','timberBuyer','specialistBuyer','tradeHub','depot','railDepot','warehouse','urbanBlock','logisticsHub','loadingPad','roadDepot','railTerminal','intermodal','autoGarage','shippingHub'].includes(kind)) {
     box(fixed,timber,0,.14,0,size*1.68,.28,size*1.4);
     for(let n=-1;n<=1;n+=2) for(let m=-1;m<=1;m+=2) box(fixed,timber,n*size*.71,1.45,m*size*.6,.14,2.65,.14);
     box(fixed,paint,0,2.85,0,size*1.87,.16,size*1.62).rotation.x = -.10;
@@ -198,6 +198,41 @@ export function siteModel(kind: Facility): SiteModel {
       for(const x of [-.70,.70])box(fixed,steel,x,.09,size*1.1,.13,.13,5.3);
       for(let i=0;i<7;i++)box(fixed,timber,0,.05,size*1.1+(i-3)*.75,2.1,.11,.17);
     }
+  } else if(kind==='ruin'){
+    box(fixed,steel,0,.19,0,4.23,.38,3.73);
+    box(fixed,paint,-1.73,1.24,0,.16,2.08,3.49);
+    box(fixed,paint,0,1.24,-1.59,3.52,2.08,.13);
+    for(let i=0;i<5;i++)box(fixed,timber,i*.41-1.2,2.18+i*.035,-.60,.06,.07,2.21);
+    box(fixed,dark,.39,.32,.14,1.01,.41,.84).rotation.y=.6;
+  } else if(kind==='burnZone'){
+    box(fixed,dark,0,.09,0,7.6,.16,7.6);
+    for(const x of [-3.65,3.65])for(const z of [-3.65,3.65])stone(fixed,mat('#928371'),x,.24,z,.47,.29,.47);
+    for(let i=0;i<10;i++)for(const sign of [-1,1]){
+      stone(fixed,mat('#928371'),(i-4.5)*.68,.19,sign*3.50,.48,.27,.37);
+      stone(fixed,mat('#928371'),sign*3.50,.19,(i-4.5)*.68,.37,.27,.48);
+    }
+    const conduit=cylinder(fixed,paint,0,.47,0,.48,.90);
+    conduit.rotation.x=Math.PI*.5;
+    for(let n=0;n<7;n++){
+      const flame=mesh(root,flameGeo,new T.MeshBasicMaterial({color:'#f59150',transparent:true,opacity:.62}),Math.cos(n*2.3)*1.26,.38,Math.sin(n*2.3)*1.24);
+      moving.push(flame);
+    }
+  } else if(kind==='craneYard'){
+    box(fixed,steel,0,.22,0,3.63,.43,2.55);
+    for(const x of [-.47,.47])for(const z of [-.47,.47])box(fixed,paint,x,2.48,z,.14,4.66,.147);
+    const boom=new T.Group();
+    boom.position.set(0,4.75,0);
+    box(boom,paint,0,.18,-2.5,.51,.37,7.6);
+    box(boom,steel,0,-.23,-5.9,.31,.51,.31);
+    box(boom,dark,0,-.56,-5.9,.16,.40,.14);
+    batch(boom);
+    root.add(boom);
+    moving.push(boom);
+  } else if(kind==='serviceBay'){
+    box(fixed,steel,0,.15,0,size*1.66,.31,size*1.32);
+    for(const x of [-size*.61,size*.61])for(const z of [-size*.51,size*.51])box(fixed,paint,x,2.20,z,.22,4.1,.24);
+    box(fixed,paint,0,4.32,0,size*1.65,.27,size*1.29);
+    for(const x of [-1.12,1.12])box(fixed,steel,x,.42,0,.25,.60,3.61);
   } else if(kind==='winch') {
     for(const x of [-.73,.73])box(fixed,steel,x,.41,0,.16,.81,1.25);
     box(fixed,paint,0,.12,0,1.78,.23,1.32);
@@ -394,14 +429,22 @@ export function siteModel(kind: Facility): SiteModel {
         for(const y of [.77,1.65,2.32])cylinder(fixed,steel,x,y,.24,.96,.10);
       }
     }
-  } else if (kind === 'road' || kind === 'rail' || kind === 'belt') {
-    const rail = kind === 'rail', belt = kind === 'belt';
-    box(fixed,kind === 'road' ? mat('#726f61') : dark,0,belt?.34:.04,0,4.05,belt?.24:.08,5.05);
+  } else if(['road','serviceRoad','pavedRoad','rail','belt','poweredBelt','rollerIntake'].includes(kind)) {
+    const rail=kind==='rail',belt=kind==='belt'||kind==='poweredBelt'||kind==='rollerIntake';
+    box(fixed,(kind === 'road' ? mat('#726f61') : kind==='pavedRoad'?mat('#555950'):kind==='serviceRoad'?mat('#847961'):dark),0,belt?.34:.04,0,4.05,belt?.24:.08,5.05);
     for (let n=-2;n<=2;n++) {
       if (rail || belt) box(fixed,rail?timber:steel,0,belt?.49:.09,n*.96,4,.11,.17);
       else box(fixed,amber,0,.087,n*.97,.085,.013,.45);
     }
     if (rail || belt) for (const x of [-1.45,1.45]) box(fixed,steel,x,belt?.53:.16,0,.11,.13,5.05);
+  } else if(kind==='stackRack'){
+    for(const x of [-1.26,1.26])for(const z of [-.76,.76])box(fixed,timber,x,.72,z,.14,1.44,.14);
+    for(const x of [-.85,.85])box(fixed,steel,x,.43,0,1.19,.15,1.85);
+  } else if(kind==='loadingHopper'){
+    for(const x of [-.79,.79])for(const z of [-.70,.70])box(fixed,steel,x,.75,z,.13,1.50,.13);
+    cylinder(fixed,paint,0,1.6,0,1.14,.78);
+    cylinder(fixed,dark,0,1.99,0,1.08,.061);
+    cylinder(fixed,steel,0,.89,0,.47,.68);
   } else if (kind === 'rack' || kind === 'workshop' || kind === 'carpentry' || kind === 'bench') {
     for(const x of [-1.1,1.1]) for(const z of [-.6,.6]) box(fixed,steel,x,.48,z,.14,.96,.15);
     box(fixed,timber,0,.99,0,2.8,.19,1.5);
@@ -478,10 +521,13 @@ export function productModel(good: Good, quantity: number) {
     } else if (good === 'paper' || good === 'pulp'||good==='premiumPaper') {
       const bale = cylinder(root,material,z,.23+j*.10,0,.19,.54);
       bale.rotation.z = Math.PI*.5;
-    } else if (['chips','driedChips','briquettes','ash','ashAggregate','ore','charcoal','pellets','cement'].includes(good)) {
+    } else if (['chips','driedChips','briquettes','ash','ashAggregate','mixedOre','sand','concrete','asphalt','ore','charcoal','pellets','cement'].includes(good)) {
       stone(root,material,(j%4-.7)*.23,.17+Math.floor(j/4)*.15,z,.18,.18,.17);
+    } else if(good==='timber'||good==='branches'){
+      const wood=cylinder(root,material,(j%4-1.5)*.27,.22+Math.floor(j/4)*.26,0,good==='branches'?.065:.14,1.38);
+      wood.rotation.x=Math.PI*.5;
     } else {
-      box(root,material,0,y,z,good === 'beams' ? 1.85 : 1.18,good === 'plywood'?.06:.11,.29);
+      box(root,material,0,y,z,good === 'beams'||good==='foundation' ? 1.85 : 1.18,good === 'plywood'?.06:.11,.29);
     }
   }
   return batch(root);
@@ -489,7 +535,7 @@ export function productModel(good: Good, quantity: number) {
 
 export function vehicleModel(type: VehicleType) {
   const def=vehicleTypes[type], root=new T.Group(), fixed=new T.Group(), wheels:T.Object3D[]=[];
-  const scale = type === 'truck'||type==='trailer' ? 1.6 : type === 'pickup'||type==='towPickup'||type==='dozer' ? 1.25 :
+  const scale = type==='giantRig'?2.3:['truck','trailer','regionalTruck','flatbed','heavyTruck','forwarder','treeHarvester'].includes(type)?1.6 : type === 'pickup'||type==='towPickup'||type==='dozer' ? 1.25 :
     type === 'atv'||type==='towAtv'||type==='trike' ? .83 : 1;
   const paint = mat(def.color,.32), motor=def.motor;
   let forks:T.Group|undefined;
@@ -508,6 +554,19 @@ export function vehicleModel(type: VehicleType) {
       box(fixed,glass,.666,1.43,-.61,.075,.33,.44);
       box(fixed,paint,0,1.70,-.58,1.42,.11,.76);
     }
+    if(type==='mixer'){
+      const drum=cylinder(fixed,paint,0,1.02,.32,.65,1.41);
+      drum.rotation.x=Math.PI*.42;
+      for(const z of [-.10,.58]){
+        const rim=cylinder(fixed,steel,0,1.05,z,.65,.060);
+        rim.rotation.x=Math.PI*.42;
+      }
+      box(fixed,steel,0,.70,1.13,.34,.17,.74).rotation.x=.54;
+    }
+    if(type==='oreTruck')for(const x of [-.72,.72]){
+      box(fixed,paint,x,.84,.42,.085,.54,1.59);
+      box(fixed,steel,x,.44,.90,.16,.17,.44);
+    }
     if(type==='waterCart'){
       const tank=cylinder(fixed,paint,0,.91,.33,.53,1.43);
       tank.rotation.x=Math.PI*.5;
@@ -523,9 +582,20 @@ export function vehicleModel(type: VehicleType) {
       for(const x of [-.82,.82])box(fixed,paint,x,.62,-1.21,.16,.31,.82);
       box(fixed,amber,0,.95,-1.44,.94,.15,.19);
     }
-    if (type === 'dozer') {
+    if (type === 'dozer'||type==='trackDozer') {
       box(fixed,amber,0,.46,-1.82,1.93,.53,.19).rotation.x = -.19;
       for (const x of [-.64,.64]) box(fixed,steel,x,.53,-1.6,.16,.16,.64);
+    }
+    if(['trackSkid','trackDozer','giantRig','excavator','demolisher'].includes(type))for(const x of [-.72,.72]){
+      box(fixed,dark,x,.31,0,.47,.43,2.62);
+      for(let i=0;i<10;i++)box(fixed,steel,x,.56,(i-4.5)*.236,.50,.076,.085);
+    }
+    if(type==='tractor')box(fixed,steel,0,.64,1.54,.44,.18,.55);
+    if(type==='forwarder'||type==='treeHarvester'||type==='giantRig'){
+      cylinder(fixed,steel,0,1.14,.54,.24,.67);
+      const main=box(fixed,paint,0,2.12,.09,.21,.25,2.02);
+      main.rotation.x=-.24;
+      box(fixed,steel,0,2.21,-.90,.18,.17,.56).rotation.x=.31;
     }
     if(def.forks) {
       forks=new T.Group();
@@ -536,6 +606,13 @@ export function vehicleModel(type: VehicleType) {
         box(forks,dark,x,-.59,-1.78,.16,.11,.71);
       }
       box(forks,steel,0,-.44,-1.53,1.21,.21,.16);
+      if(type==='frontLoader'||type==='scoopLoader'||type==='excavator'){
+        box(forks,paint,0,-.62,-1.55,1.57,.16,.67);
+        box(forks,steel,0,-.37,-1.24,1.58,.42,.09).rotation.x=-.30;
+      } else if(type==='treeHarvester'||type==='giantRig'||type==='shear'||type==='demolisher'){
+        cylinder(forks,steel,0,-.50,-1.92,.40,.11).rotation.x=Math.PI*.45;
+        for(const x of [-.43,.43])box(forks,paint,x,-.43,-1.81,.18,.27,.57).rotation.y=x;
+      }
       batch(forks);
       root.add(forks);
     }
@@ -585,6 +662,10 @@ export function toolModel(tool: Tool, golden = false) {
     const tip=mesh(root,new T.SphereGeometry(.050,9,5),mat(golden?'#e8ce88':'#efead5'),0,.595,0,1,1,.27);
     tip.rotation.z=.12;
     for(let i=0;i<8;i++) box(root,body,.057,.39+i*.026,0,.016,.011,.028).rotation.z=.3;
+  } else if(tool==='breaker'){
+    box(root,body,0,.30,0,.097,.60,.081);
+    box(root,steel,0,.592,0,.31,.145,.141);
+    box(root,dark,.17,.595,0,.055,.094,.108);
   } else if (tool === 'axe') {
     box(root,body,0,.27,0,.087,.61,.064);
     box(root,steel,.073,.58,0,.26,.193,.067);
@@ -613,9 +694,17 @@ export function ropeModel() {
   return shape;
 }
 
-export function freightModel(mode:'rail'|'air',good:Good,quantity:number) {
+export function freightModel(mode:'rail'|'air'|'road',good:Good,quantity:number) {
   const root=new T.Group(), solid=new T.Group(), motion:T.Object3D[]=[];
   root.add(solid);
+  if(mode==='road'){
+    const truck=vehicleModel('regionalTruck');
+    root.add(truck.root);
+    const payload=productModel(good,Math.min(quantity,8));
+    payload.position.set(-.22,.65,.54);
+    truck.root.add(payload);
+    return {root,motion:truck.wheels};
+  }
   if(mode==='air') {
     box(solid,steel,0,0,0,.80,.26,1.05);
     box(solid,glass,0,-.02,-.55,.68,.17,.13);
@@ -655,4 +744,30 @@ export function freightModel(mode:'rail'|'air',good:Good,quantity:number) {
   }
   batch(solid);
   return {root,motion};
+}
+
+export function helperModel() {
+  const root=new T.Group(), body=new T.Group(), motion:T.Object3D[]=[];
+  root.add(body);
+  const shirt=mat('#7d855e'), workPants=mat('#566968'), helmet=mat('#d6ae5c'), skin=mat('#b79274');
+  box(body,shirt,0,1.10,0,.38,.46,.25);
+  box(body,skin,0,1.47,0,.22,.25,.20);
+  cylinder(body,helmet,0,1.65,0,.17,.10);
+  box(body,helmet,0,1.61,-.085,.38,.067,.32);
+  for(const direction of [-1,1]){
+    const thigh=new T.Group();
+    thigh.position.set(direction*.098,.87,0);
+    box(thigh,workPants,0,-.30,0,.137,.60,.119);
+    box(thigh,dark,0,-.65,-.041,.147,.106,.22);
+    root.add(thigh);
+    motion.push(thigh);
+    const arm=new T.Group();
+    arm.position.set(direction*.244,1.30,0);
+    box(arm,shirt,0,-.16,0,.109,.32,.121);
+    box(arm,skin,0,-.36,-.01,.101,.15,.12);
+    root.add(arm);
+    motion.push(arm);
+  }
+  batch(body);
+  return {root,wheels:motion,forks:undefined};
 }

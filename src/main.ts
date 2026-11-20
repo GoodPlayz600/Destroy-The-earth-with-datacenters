@@ -9,11 +9,12 @@ import './style.css';
 import { Vector3 } from 'three';
 import { SIZE, facilities, recipes, species, tools, vehicles, vehicleTypes } from './catalog';
 import type { Facility, Tool, VehicleType } from './catalog';
-import { Campaign, cargoMass, takesLogs, waterSites } from './campaign';
+import { Campaign, cargoMass, freightVehicles, takesLogs, waterSites } from './campaign';
 import type { Log, Ride, Save, Site } from './campaign';
-import { clamp, distance, height, indexAt } from './land';
+import { clamp, distance, indexAt } from './land';
 import type { Point, Tree } from './land';
 import { Scene, initializePhysics } from './scene';
+import type { Rock } from './scene';
 import { Sound } from './sound';
 import { downloadSave, listArchives, loadCampaign, readPreferences, saveCampaign, validateSave, writePreferences } from './storage';
 import type { Archive, Binding } from './storage';
@@ -28,6 +29,7 @@ if(onTouch){
   try{if(!localStorage.getItem('clearcut.preferences'))prefs.quality='low';}catch{}
 }
 let game=new Campaign();
+const height=(x:number,z:number)=>game.ground(x,z);
 let scene:Scene;
 const sound=new Sound();
 let page:Page|undefined;
@@ -50,7 +52,7 @@ let using=false;
 let buttonAlt=false;
 let touchLook:{id:number;x:number;y:number}|undefined;
 let swing=0, swingPeriod=.32, reverse=false, vY=0, airborne=0, stride=0, dropTime=0, saveAge=0, victoryAge=-1;
-let toastDelay=0,bladeCycle=0;
+let toastDelay=0,bladeCycle=0,cutterCycle=0,earthCycle=0;
 let lastHarvest=0;
 let archives:Archive[]=[];
 let latestSave:Promise<unknown>=Promise.resolve();
@@ -273,6 +275,27 @@ function treeTarget(reach=tools[game.tool].range) {
   return chosen;
 }
 
+function stumpTarget() {
+  const p=game.player;
+  return scene.visibleTrees.filter(t=>game.removed.has(t.id)&&!game.groundStumps.has(t.id)&&distance(t,p)<3.7)
+    .sort((a,b)=>distance(a,p)-distance(b,p))[0];
+}
+
+function rockTarget() {
+  const p=game.player, origin=height(p.x,p.z)+1.64+airborne;
+  const x=-Math.sin(p.yaw),z=-Math.cos(p.yaw);
+  let pick:Rock|undefined,closest=tools.breaker.range;
+  for(const rock of scene.visibleRocks){
+    const dx=rock.x-p.x,dz=rock.z-p.z,along=dx*x+dz*z;
+    if(along<.2||along>closest||Math.hypot(dx-along*x,dz-along*z)>rock.size+.23)continue;
+    const actual=origin+Math.tan(p.pitch)*along;
+    if(Math.abs(actual-(height(rock.x,rock.z)+.19))>rock.size*.59+.28)continue;
+    closest=along;
+    pick=rock;
+  }
+  return pick;
+}
+
 function letGo() { held=undefined;dropTime=.45; }
 function release() {
   if(!held)return;
@@ -302,7 +325,7 @@ function interact() {
 }
 function attach(mode:'rope'|'lift') {
   if(held){release();return;}
-  const useWinch=mode==='rope'&&Boolean(ride)&&game.mods.winch;
+  const useWinch=mode==='rope'&&Boolean(ride)&&(game.mods.winch||ride?.kind==='tractor'&&ride.attachment==='tow');
   if(mode==='rope'&&!useWinch&&!game.mods.rope){show('Install Twine Bundle to tether a log');return;}
   if(mode==='lift'&&!game.mods.liftLogs){show('Install Lift Technique to lift logs');return;}
   const log=nearLog(useWinch?12:mode==='rope'?game.mods.ropeRange:1.8);
@@ -323,6 +346,7 @@ function toggleRide() {
   }
   const nearest=nearRide();
   if(!nearest){show('Move closer to a vehicle');return;}
+  if(game.sites.some(s=>s.dedicatedRide===nearest.id)){show('This vehicle is assigned to autonomous dispatch');return;}
   if(vehicleTypes[nearest.kind].trailer){show('Couple the trailer from a nearby tow vehicle');return;}
   if(vehicles[nearest.kind].motor && (nearest.fuel<=0||nearest.wear>=100)) {
     if(!game.refuel(nearest)){show('Vehicle needs $18 for service');return;}
@@ -333,6 +357,15 @@ function toggleRide() {
 function moveCargo() {
   const towing=ride??nearRide();
   if(!towing){show('Move closer to a vehicle');return;}
+  if(freightVehicles.includes(towing.kind)){
+    const stations=game.sites.filter(s=>distance(towing,s)<6.5).sort((a,b)=>distance(towing,a)-distance(towing,b));
+    const unloading=Boolean(towing.freight)&&(buttonAlt||ride!==undefined);
+    const station=stations.find(s=>game.freightBed(towing,s,unloading)>0);
+    if(station||!['forkliftPro','flatbed'].includes(towing.kind)){
+      show(station?(unloading?'Freight delivered':'Loaded '+towing.freight?.quantity+' units'):'No compatible nearby loading station');
+      return;
+    }
+  }
   if(towing.kind==='waterCart'){
     const station=game.sites.filter(s=>waterSites.includes(s.kind)&&distance(towing,s)<5.5).sort((a,b)=>distance(towing,a)-distance(towing,b))[0];
     const unload=Boolean(towing.water)&&((station?.water??0)<30||buttonAlt);
@@ -348,7 +381,7 @@ function moveCargo() {
   if(nearby&&!nearby.cargo&&!nearby.carrier&&canLoad&&!(buttonAlt&&load.length&&game.mods.liftBed)) {
     const max=def.capacity*(v.kind==='cart'?game.mods.cartCapacity:v.kind==='pickup'||v.kind==='towPickup'?game.mods.stakes:1);
     if(cargoMass(load,v.id)+nearby.kilograms>max){show('Cargo bed is over capacity');return;}
-    const maxLength=def.trailer||v.kind==='truck'?13:v.kind==='pickup'||v.kind==='towPickup'?7:def.forks?9:4.1;
+    const maxLength=def.trailer||['flatbed','heavyTruck'].includes(v.kind)?19:v.kind==='truck'?13:v.kind==='pickup'||v.kind==='towPickup'?7:def.forks?9:4.1;
     if(nearby.length>maxLength){show('Log is too long for this bed · section it first');return;}
     letGo();nearby.cargo=v.id;
     show('Trunk secured in '+(def.trailer?'the trailer':def.forks?'the grapple':'the cargo bed'));
@@ -384,11 +417,19 @@ function onAction(a:string,pressed:boolean) {
   inputs.add(a);
   switch(a) {
     case 'interact':interact();break;
-    case 'drop':pushOrCut();break;
+    case 'drop':
+      if(ride?.kind==='tractor'&&buttonAlt){ride.attachment=ride.attachment==='tow'?'saw':'tow';show('Tractor attachment · '+ride.attachment);}
+      else pushOrCut();
+      break;
     case 'rope':attach('rope');break;
     case 'lift':attach('lift');break;
     case 'ride':toggleRide();break;
-    case 'load':moveCargo();break;
+    case 'load':
+      if(ride&&vehicleTypes[ride.kind].forks&&game.mods.grapple&&buttonAlt){
+        const wood=Array.from(game.logs.values()).find(log=>log.cargo===ride!.id);
+        if(wood){wood.roll=((wood.roll??0)+Math.PI*.5)%(Math.PI*2);show('Grapple rotated the attached load');break;}
+      }
+      moveCargo();break;
     case 'probe': {
       if(!game.mods.probe){show('Install the Soil Moisture Probe in Upgrades');break;}
       const p=game.player,i=indexAt(p.x-Math.sin(p.yaw)*5,p.z-Math.cos(p.yaw)*5);
@@ -461,6 +502,33 @@ function swingTool() {
     return;
   }
   swingPeriod=game.swingTime;swing=swingPeriod;reverse=!reverse;
+  if(game.tool==='brush'||game.tool==='grinder'||game.tool==='mulcher'){
+    const p=game.player;
+    let complete=false;
+    if(game.tool==='grinder'){const stump=stumpTarget();complete=Boolean(stump&&game.grind(stump));}
+    else if(game.tool==='mulcher'){
+      const wood=nearLog(3.1);
+      if(wood)complete=game.mulch(wood);
+      if(!complete){
+        const small=treeTarget();
+        if(small&&small.kind===0){
+          const result=game.hit(small,reverse);
+          if(result.felled)scene.startFall(small,p);
+          complete=result.damage>0;
+        }
+      }
+    } else complete=game.clearBrush({x:p.x-Math.sin(p.yaw)*2.5,z:p.z-Math.cos(p.yaw)*2.5});
+    sound.swing(false,complete);
+    if(complete)scene.impact(new Vector3(p.x-Math.sin(p.yaw)*2.2,height(p.x,p.z)+.43,p.z-Math.cos(p.yaw)*2.2),'dust',9);
+    return;
+  }
+  if(game.tool==='breaker'){
+    const rock=rockTarget();
+    const broken=rock&&game.breakRock(rock.id,rock);
+    sound.swing(false,Boolean(broken));
+    if(broken)scene.impact(new Vector3(rock.x,height(rock.x,rock.z)+.35,rock.z),'dust',12);
+    return;
+  }
   const target=treeTarget();
   if(!target){sound.swing(game.tool==='knife',false);return;}
   const result=game.hit(target,reverse);
@@ -476,21 +544,21 @@ function movement(dt:number) {
   const sideways=Number(inputs.has('right'))-Number(inputs.has('left'));
   if(ride) {
     const def=vehicleTypes[ride.kind], trailer=game.rides.find(v=>v.hitch===ride!.id);
-    const totalMass=(ride.water??0)+cargoMass(game.logs.values(),ride.id)+(trailer?85+cargoMass(game.logs.values(),trailer.id):0);
+    const totalMass=(ride.water??0)+(ride.freight?.quantity??0)*11+cargoMass(game.logs.values(),ride.id)+(trailer?85+cargoMass(game.logs.values(),trailer.id):0);
     const mass=totalMass, terrain=game.soil.get(indexAt(ride.x,ride.z));
     if(def.motor&&(ride.fuel<=0||ride.wear>=100))return;
-    p.yaw-=sideways*dt*(def.motor?1.22:1.88);
+    p.yaw-=sideways*dt*(def.motor?1.22:1.88)*(game.mods.articulation&&def.motor?1.22:1);
     const mud=terrain&&terrain.moisture>.79 ? 1-.31*game.mods.traction : 1;
     const rough=Math.abs(height(ride.x+1.6,ride.z)-height(ride.x,ride.z-1.6));
     const ground=1-Math.min(.28,rough*.34)*game.mods.suspension;
-    const onRoad=game.sites.some(site=>site.kind==='road'&&distance(site,ride!)<2.8);
+    const onRoad=game.sites.some(site=>(['road','pavedRoad','serviceRoad'].includes(site.kind))&&distance(site,ride!)<2.8);
     const speed=def.speed*(1-clamp(mass/Math.max(1,def.capacity||210),0,1)*.47)*(ride.kind==='sled'?game.mods.sledSpeed:1)*mud*ground*(onRoad?1.19:1);
     const movement=dt*speed*ahead*(ahead<0?.48:1);
     const nx=clamp(ride.x-Math.sin(p.yaw)*movement,-SIZE/2+.7,SIZE/2-.7),nz=clamp(ride.z-Math.cos(p.yaw)*movement,-SIZE/2+.7,SIZE/2-.7);
     const obstacle=scene.visibleTrees.find(t=>game.isStanding(t)&&distance(t,{x:nx,z:nz})<species[t.kind].radius*t.scale+.69);
     if(!obstacle){
       ride.x=nx;ride.z=nz;
-    } else if(ride.kind==='dozer'||ride.kind==='skid'){
+    } else if(['dozer','trackDozer','skid'].includes(ride.kind)){
       if(!scene.isFalling(obstacle))scene.startFall(obstacle,p);
     }
     ride.yaw=p.yaw;p.x=ride.x;p.z=ride.z;
@@ -502,8 +570,48 @@ function movement(dt:number) {
       const angle=Math.atan2(ride.x-trailer.x,ride.z-trailer.z)+Math.PI;
       trailer.yaw+=Math.atan2(Math.sin(angle-trailer.yaw),Math.cos(angle-trailer.yaw))*follow;
     }
+    if(using&&['tractor','treeHarvester','giantRig'].includes(ride.kind)&&ride.attachment!=='tow'){
+      cutterCycle+=dt;
+      if(cutterCycle>=.62){
+        const radius=ride.kind==='giantRig'?8:game.mods.harvesterHead?6.7:5.4;
+        const aimed={x:ride.x-Math.sin(p.yaw)*2.6,z:ride.z-Math.cos(p.yaw)*2.6};
+        const eligible=scene.visibleTrees.filter(t=>game.isStanding(t)&&!scene.isFalling(t)&&distance(t,aimed)<radius)
+          .sort((a,b)=>distance(a,aimed)-distance(b,aimed)).slice(0,ride.kind==='giantRig'?4:1);
+        for(const tree of eligible){
+          const hit=game.harvesterHit(tree,ride);
+          scene.scuff(tree,hit.ratio,ride);
+          scene.impact(new Vector3(tree.x,height(tree.x,tree.z)+1,tree.z),'wood',12);
+          if(hit.felled)scene.startFall(tree,ride,0,true);
+        }
+        if(eligible.length)sound.swing(false,true);
+        cutterCycle=0;
+      }
+    } else cutterCycle=0;
+    if(ride.kind==='paver'&&using&&ahead>0&&
+      !game.sites.some(site=>['road','pavedRoad','serviceRoad'].includes(site.kind)&&distance(site,ride!)<4))
+      game.paveAt({x:ride.x,z:ride.z});
     if(ride.kind==='roller'&&ahead)game.compactGround({x:ride.x,z:ride.z},dt);
-    if(ride.kind==='dozer'&&using&&ahead>=0) {
+    if(ride.kind==='trackDozer'&&ahead){
+      const wood=nearLog(2.75);
+      if(wood)scene.shove(wood,p.yaw);
+    }
+    if(using&&['scoopLoader','excavator','shear','demolisher'].includes(ride.kind)){
+      earthCycle+=dt;
+      if(earthCycle>=.76){
+        const work={x:p.x-Math.sin(p.yaw)*3.1,z:p.z-Math.cos(p.yaw)*3.1};
+        if(ride.kind==='excavator'||ride.kind==='scoopLoader'){
+          if(game.excavate(work,ride))scene.impact(new Vector3(work.x,height(work.x,work.z)+.3,work.z),'dust',15);
+        }else if(ride.kind==='shear'){
+          const tree=scene.visibleTrees.find(t=>t.kind<=1&&game.isStanding(t)&&!scene.isFalling(t)&&distance(t,work)<2.8);
+          if(tree&&ride.fuel>=2){ride.fuel-=2;scene.startFall(tree,p,0,true);sound.swing(false,true);}
+        }else{
+          const ruin=game.sites.find(s=>s.kind==='ruin'&&distance(s,work)<3.4);
+          if(ruin&&game.demolish(ruin,ride))scene.impact(new Vector3(ruin.x,height(ruin.x,ruin.z)+1.1,ruin.z),'dust',20);
+        }
+        earthCycle=0;
+      }
+    }else earthCycle=0;
+    if((ride.kind==='dozer'||ride.kind==='trackDozer')&&using&&ahead>=0) {
       bladeCycle+=dt;
       if(bladeCycle>=.24) {
         const blade={x:ride.x-Math.sin(p.yaw)*1.4,z:ride.z-Math.cos(p.yaw)*1.4};
@@ -551,7 +659,7 @@ function targetHint():{hint?:Hint;point?:Point} {
   const t=treeTarget(),log=nearLog(2.75),site=nearSite(3.6),v=nearRide(),p=game.player;
   if(ride) {
     const trailer=game.rides.find(v=>v.hitch===ride!.id), load=cargoMass(game.logs.values(),trailer?.id??ride.id);
-    const extras=ride.kind==='dozer'?' · Swing to strip soil':trailer?' · '+key('hitch')+' detach':game.mods.winch?' · '+key('rope')+' winch':'';
+    const extras=['dozer','trackDozer','scoopLoader','excavator','shear','demolisher'].includes(ride.kind)?' · Swing to operate attachment':trailer?' · '+key('hitch')+' detach':game.mods.winch?' · '+key('rope')+' winch':'';
     return {hint:{key:key('ride'),title:vehicles[ride.kind].name,detail:`${Math.floor(ride.fuel)}% fuel · ${Math.round(load)} kg · ${key('load')} cargo${extras}`}};
   }
   if(held){
@@ -561,7 +669,13 @@ function targetHint():{hint?:Hint;point?:Point} {
     return {};
   }
   if(log) return {point:log,hint:{key:key('interact'),title:log.part==='branch'?'Cut branches':'Felled '+species[log.kind].name.toLowerCase(),detail:`${Math.round(log.kilograms)} kg · ${log.kilograms>game.mods.dragMass?'Too heavy to drag':'Hold to grab and drag'}`}};
-  if(t) {
+  if(game.tool==='grinder'){
+    const stump=stumpTarget();
+    if(stump)return {point:stump,hint:{key:onTouch?'SWING':'LMB',title:'Persistent stump',detail:'Grind it into usable chips'}};
+  }
+  const rock=game.tool==='breaker'?rockTarget():undefined;
+  if(rock)return {point:rock,hint:{key:onTouch?'SWING':'LMB',title:'Surface aggregate',detail:'Break this rock and collect material'}};
+  if(t&&game.tool!=='breaker') {
     const damaged=game.treeDamage.get(t.id)??0;
     return {point:t,hint:{key:onTouch?'SWING':'LMB',title:species[t.kind].name,detail:damaged?'Keep cutting the trunk':'Aim at the trunk · hold swing',bar:damaged/(species[t.kind].health*t.scale)}};
   }

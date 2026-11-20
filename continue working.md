@@ -26,7 +26,7 @@ Continue with the next open requirement in [tasks.md](tasks.md).
 
 **Needs work**
 
-- Playtest heavy recovery, winch loads, towing behavior and individual crane operations.
+- Review difficult towing and recovery situations. The crane has a tested power gate, unique reservation and actual transfer into a vehicle.
 
 ## [M5 — Industrial processing and factory network](progress/M5/continue%20working.md)
 
@@ -44,13 +44,13 @@ Continue with the next open requirement in [tasks.md](tasks.md).
 
 **Needs work**
 
-- Finish detailed terrain-clearing attachments, deeper agricultural logistics and advanced mining outputs. Review physically connected utilities and compare real campaign economics for the three strategies.
+- Review the heavy attachments, field economy and mine-to-construction logistics at normal campaign pacing. Review physically connected utilities and compare real campaign economics for the three strategies.
 
 ## [M8 — Massive late-game depth](progress/M8/continue%20working.md)
 
 **Needs work**
 
-- Implement and review the remaining 72 upgrades, additional regional freight and drone tasks, worker specialization, repair and long-contract systems. Profile large bases on target hardware and record frame time and save size.
+- Complete the release review for all 288 upgrade purchases and their gameplay effects, the remaining clearing and logging equipment, regional freight variants, repair and long-contract systems. Profile large bases on target hardware and record frame time and save size.
 
 ## [M9 — Actual 100% ending and final polish](progress/M9/continue%20working.md)
 

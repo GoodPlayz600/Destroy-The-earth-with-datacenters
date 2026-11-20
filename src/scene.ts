@@ -3,9 +3,9 @@ import R from '@dimforge/rapier3d-compat';
 import { CELL, SIZE, facilities, species, vehicleTypes } from './catalog';
 import { computeSites, utilityNodes, waterPipes, waterSites } from './campaign';
 import type { Campaign, Log, Ride, Site } from './campaign';
-import { clamp, distance, hash, height, indexAt, soilColors, treesIn } from './land';
+import { clamp, distance, hash, indexAt, soilColors, treesIn } from './land';
 import type { Point, Tree } from './land';
-import { box, distantTrees, freightModel, leafBlade, logModel, mat, productModel, ropeModel, siteModel, stone, stumpModel, toolModel, treeModels, vehicleModel } from './models';
+import { box, distantTrees, freightModel, helperModel, leafBlade, logModel, mat, productModel, ropeModel, siteModel, stone, stumpModel, toolModel, treeModels, vehicleModel } from './models';
 
 const CHUNK = 32;
 const terrainMaterial = new T.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: T.DoubleSide });
@@ -13,8 +13,9 @@ const toolScene = new T.Scene();
 const treeAxis = new T.Vector3(0,1,0);
 const buildTint = new T.MeshBasicMaterial({ color:'#ecd49d', wireframe:true, transparent:true, opacity:.68 });
 
-type Chunk = { x: number; z: number; ground: T.Mesh<T.BufferGeometry>; cover: T.Group; cells: number[]; signature: string; collider?: R.Collider; trunks: R.Collider[]; near: boolean; };
-type Falling = { tree: Tree; model: T.Group; age: number; dir: T.Vector3; };
+export type Rock=Point&{id:number;size:number};
+type Chunk = { base:string; rocks:Rock[]; x: number; z: number; ground: T.Mesh<T.BufferGeometry>; cover: T.Group; cells: number[]; signature: string; collider?: R.Collider; trunks: R.Collider[]; near: boolean; };
+type Falling = { tree: Tree; model: T.Group; age: number; dir: T.Vector3; segmented:boolean };
 type SiteView = ReturnType<typeof siteModel> & { stock?: T.Group; batch?: T.Group; signature?: string };
 type Particle = { mesh: T.Mesh; velocity: T.Vector3; life: number; total: number; cloud?: boolean; smoke?:boolean };
 
@@ -28,12 +29,13 @@ export class Scene {
   private fallers = new Map<number,Falling>();
   private logViews = new Map<number, { model:T.Group; body?: R.RigidBody; length: number }>();
   private siteViews = new Map<string,SiteView>();
-  private rideViews = new Map<string,ReturnType<typeof vehicleModel>>();
+  private rideViews = new Map<string,ReturnType<typeof vehicleModel>&{payload?:T.Group; signature?:string}>();
   private chops = new Map<number,T.Group>();
   private routes = new Map<string,T.Group>();
   private crew = new Map<string, ReturnType<typeof vehicleModel>>();
   private freight = new Map<string, ReturnType<typeof freightModel>>();
   private freightClock = 0;
+  private packets=new Map<string,{good:string;model:T.Group}>();
   private networkView?:T.Group;
   private networkStamp='';
   private freightTime = new Map<string,number>();
@@ -56,9 +58,11 @@ export class Scene {
   private quality = 'medium';
   private streamStamp = '';
   private landRevision=-1;
+  private terrainRevision=-1;
   private physicsTime=0;
   private frameAge=0;
   visibleTrees: Tree[] = [];
+  visibleRocks:Rock[]=[];
 
   constructor(canvas: HTMLCanvasElement, public game: Campaign) {
     this.renderer = new T.WebGLRenderer({ canvas, antialias:true, powerPreference:'high-performance' });
@@ -148,6 +152,8 @@ export class Scene {
     this.fallers.clear();
     for(const hitch of this.hitches.values())hitch.removeFromParent();
     this.hitches.clear();
+    for(const packet of this.packets.values())this.removeModel(packet.model);
+    this.packets.clear();
     this.trophy?.removeFromParent();this.trophy=undefined;
     for(const cable of this.cables.values())cable.removeFromParent();
     this.cables.clear();
@@ -155,6 +161,7 @@ export class Scene {
     this.networkView=undefined;this.networkStamp='';
     this.streamStamp='';
     this.landRevision=-1;
+    this.terrainRevision=-1;
     this.stream(game.player,true);
   }
 
@@ -168,13 +175,19 @@ export class Scene {
     group.removeFromParent();
   }
 
+  private elevationKey(x:number,z:number) {
+    const overlay=[];
+    for(let r=-1;r<=2;r++)for(let c=-1;c<=2;c++)overlay.push(this.game.elevation.get(indexAt(x+c*CELL+.1,z+r*CELL+.1))??0);
+    return overlay.join(',');
+  }
+
   private makeChunk(x: number,z: number) {
     const verts: number[]=[], colors: number[]=[], cells: number[]=[];
     const steps=CHUNK/4;
     for(let r=0;r<steps;r++) for(let c=0;c<steps;c++) {
       const px=x+c*4,pz=z+r*4;
       for(const [dx,dz] of [[0,0],[0,4],[4,0],[4,0],[0,4],[4,4]]) {
-        verts.push(px+dx,height(px+dx,pz+dz),pz+dz);
+        verts.push(px+dx,this.game.ground(px+dx,pz+dz),pz+dz);
         colors.push(0,0,0);
         cells.push(indexAt(px+2,pz+2));
       }
@@ -187,7 +200,7 @@ export class Scene {
     ground.receiveShadow=true;
     const cover=new T.Group();
     this.world.add(ground,cover);
-    return { x,z,ground,cover,cells,signature:'',trunks:[],near:false } satisfies Chunk;
+    return { base:this.elevationKey(x,z),rocks:[],x,z,ground,cover,cells,signature:'',trunks:[],near:false } satisfies Chunk;
   }
 
   private dropChunk(key:string, chunk:Chunk) {
@@ -203,6 +216,7 @@ export class Scene {
     for(const collider of chunk.trunks) this.physics.removeCollider(collider,false);
     chunk.trunks.length=0;
     chunk.cover.clear();
+    chunk.rocks=[];
   }
 
   private paintChunk(chunk: Chunk, trees: Tree[], near: boolean, stamp: string) {
@@ -230,7 +244,7 @@ export class Scene {
         const instances=new T.InstancedMesh(model.geometry,model.material,visible.length);
         for(let i=0;i<visible.length;i++) {
           const t=visible[i];
-          this.painter.position.set(t.x,height(t.x,t.z),t.z);
+          this.painter.position.set(t.x,this.game.ground(t.x,t.z),t.z);
           this.painter.rotation.set(0,t.rotation,0);
           this.painter.scale.setScalar(t.scale);
           this.painter.updateMatrix();
@@ -242,14 +256,14 @@ export class Scene {
       }
     }
     for(const tree of trees) {
-      if(this.game.removed.has(tree.id) && near) {
+      if(this.game.removed.has(tree.id)&&!this.game.groundStumps.has(tree.id)&&near) {
         const stump=stumpModel(tree.kind,tree.scale);
-        stump.position.set(tree.x,height(tree.x,tree.z),tree.z);
+        stump.position.set(tree.x,this.game.ground(tree.x,tree.z),tree.z);
         chunk.cover.add(stump);
       }
       if(near && this.game.isStanding(tree) && !this.fallers.has(tree.id)) {
         const s=species[tree.kind], h=s.height*tree.scale*.41;
-        chunk.trunks.push(this.physics.createCollider(R.ColliderDesc.cylinder(h,s.radius*tree.scale).setTranslation(tree.x,height(tree.x,tree.z)+h,tree.z)));
+        chunk.trunks.push(this.physics.createCollider(R.ColliderDesc.cylinder(h,s.radius*tree.scale).setTranslation(tree.x,this.game.ground(tree.x,tree.z)+h,tree.z)));
       }
     }
     if (near) this.decorate(chunk);
@@ -264,7 +278,7 @@ export class Scene {
       const initial=Math.hypot(x*.81,z)<11;
       const stage=this.game.soil.get(indexAt(x,z))?.stage??0;
       if(stage>=5 || (initial && n%6!==0) || (stage>=3 && n%4!==0)) continue;
-      this.painter.position.set(x,height(x,z),z);
+      this.painter.position.set(x,this.game.ground(x,z),z);
       this.painter.rotation.set(0,n*2.4,0);
       this.painter.scale.set(.38+n%7*.17,.42+n%11*.105,.48+n%7*.14);
       this.painter.updateMatrix();
@@ -281,7 +295,7 @@ export class Scene {
       const x=chunk.x+hash(this.game.seed+n,chunk.x,chunk.z+3)*CHUNK,z=chunk.z+hash(this.game.seed-n,chunk.z,chunk.x-3)*CHUNK;
       const cell=this.game.soil.get(indexAt(x,z));
       if(!cell || cell.stage<5 || cell.erosion<.49) continue;
-      this.painter.position.set(x,height(x,z)+.016,z);
+      this.painter.position.set(x,this.game.ground(x,z)+.016,z);
       this.painter.rotation.set(0,n*2.4,0);
       this.painter.scale.set(n%3===0?.055:.031,.016,.22+n%11*.065);
       this.painter.updateMatrix();
@@ -296,9 +310,12 @@ export class Scene {
     for(let n=0;n<16;n++) {
       const x=chunk.x+hash(this.game.seed+n,chunk.x,chunk.z+1)*CHUNK,z=chunk.z+hash(this.game.seed-n,chunk.z,chunk.x-1)*CHUNK;
       if (Math.hypot(x*.8,z)<11) continue;
-      const y=height(x,z),stage=this.game.soil.get(indexAt(x,z))?.stage??0;
+      const y=this.game.ground(x,z),stage=this.game.soil.get(indexAt(x,z))?.stage??0;
       if(n%3===0 || stage>=4) {
+        const id=((chunk.z+SIZE/2)/CHUNK*(SIZE/CHUNK)+(chunk.x+SIZE/2)/CHUNK)*16+n;
+        if(this.game.brokenRocks.has(id))continue;
         const size=.21+hash(this.game.seed,n,chunk.x)*.68;
+        chunk.rocks.push({x,z,size,id});
         this.painter.position.set(x,y+.11,z);
         this.painter.rotation.set(0,n,0);
         this.painter.scale.set(size,size*.56,size*.78);
@@ -324,7 +341,9 @@ export class Scene {
     const baseX=Math.floor(at.x/CHUNK)*CHUNK, baseZ=Math.floor(at.z/CHUNK)*CHUNK;
     const px=Math.floor(physicsAt.x/CHUNK)*CHUNK, pz=Math.floor(physicsAt.z/CHUNK)*CHUNK;
     const stamp=[baseX,baseZ,px,pz,this.quality].join(',');
-    if(!force && stamp===this.streamStamp && this.game.landRevision===this.landRevision) return;
+    const terrainChanged=this.terrainRevision!==this.game.terrainRevision;
+    if(!force&&!terrainChanged&&stamp===this.streamStamp&&this.game.landRevision===this.landRevision)return;
+    this.terrainRevision=this.game.terrainRevision;
     this.streamStamp=stamp;
     this.landRevision=this.game.landRevision;
     const radius=this.quality==='low'?1:this.quality==='high'?3:2;
@@ -334,7 +353,9 @@ export class Scene {
       if(x< -SIZE/2||x>=SIZE/2||z< -SIZE/2||z>=SIZE/2) continue;
       const id=x+','+z;
       viewKeys.add(id);
-      if(!this.chunks.has(id)) this.chunks.set(id,this.makeChunk(x,z));
+      const previous=this.chunks.get(id);
+      if(previous&&terrainChanged&&previous.base!==this.elevationKey(x,z))this.dropChunk(id,previous);
+      if(!this.chunks.has(id))this.chunks.set(id,this.makeChunk(x,z));
       const chunk=this.chunks.get(id)!;
       const near=Math.abs(x-px)<=CHUNK && Math.abs(z-pz)<=CHUNK;
       const local:Tree[]=[];
@@ -347,7 +368,7 @@ export class Scene {
       }
       const actual=local.filter(t=>t.x>=x&&t.x<x+CHUNK&&t.z>=z&&t.z<z+CHUNK);
       trees.push(...actual);
-      const signature=String(near)+this.quality+cellStates.join('')+actual.map(t=>this.game.removed.has(t.id)?'x':this.game.isStanding(t)&&!this.fallers.has(t.id)?'1':'0').join('');
+      const signature=String(near)+this.quality+this.game.rockVersion+':'+cellStates.join('')+actual.map(t=>this.game.groundStumps.has(t.id)?'.':this.game.removed.has(t.id)?'x':this.game.isStanding(t)&&!this.fallers.has(t.id)?'1':'0').join('');
       if(chunk.signature!==signature) this.paintChunk(chunk,actual,near,signature);
       if(near && !chunk.collider) {
         const pos=chunk.ground.geometry.getAttribute('position');
@@ -356,6 +377,7 @@ export class Scene {
     }
     for(const [key,chunk] of this.chunks) if(!viewKeys.has(key)) this.dropChunk(key,chunk);
     this.visibleTrees=trees;
+    this.visibleRocks=Array.from(this.chunks.values()).flatMap(chunk=>chunk.rocks);
     for(const [id,cut] of this.chops) if(!trees.some(t=>t.id===id && this.game.isStanding(t))) { this.world.remove(cut); this.chops.delete(id); }
     for(const tree of trees) {
       const damage=this.game.treeDamage.get(tree.id);
@@ -367,7 +389,7 @@ export class Scene {
     const previous=this.chops.get(tree.id);
     if(previous) this.world.remove(previous);
     const cut=new T.Group(), angle=Math.atan2(from.x-tree.x,from.z-tree.z);
-    cut.position.set(tree.x,height(tree.x,tree.z),tree.z);
+    cut.position.set(tree.x,this.game.ground(tree.x,tree.z),tree.z);
     cut.rotation.y=angle;
     const r=species[tree.kind].radius*tree.scale;
     box(cut,mat('#c5965f'),0,1.38,r*.91,r*(.53+ratio),.03+.15*ratio,.032);
@@ -376,15 +398,15 @@ export class Scene {
     this.chops.set(tree.id,cut);
   }
 
-  startFall(tree:Tree, from:Point, wedge=0) {
+  startFall(tree:Tree, from:Point, wedge=0,segmented=false) {
     if(this.fallers.has(tree.id)) return;
     const model=treeModels[tree.kind].clone();
     const dir=new T.Vector3(tree.x-from.x,0,tree.z-from.z).normalize();
     dir.applyAxisAngle(treeAxis,wedge || (hash(this.game.seed,tree.id,12)-.5)*.95);
-    model.position.set(tree.x,height(tree.x,tree.z),tree.z);
+    model.position.set(tree.x,this.game.ground(tree.x,tree.z),tree.z);
     model.scale.setScalar(tree.scale);
     this.world.add(model);
-    this.fallers.set(tree.id,{tree,model,dir,age:0});
+    this.fallers.set(tree.id,{tree,model,dir,age:0,segmented});
     const chop=this.chops.get(tree.id);
     if(chop) this.world.remove(chop);
     this.chops.delete(tree.id);
@@ -417,7 +439,13 @@ export class Scene {
       const chunk=this.chunks.get(Math.floor(log.x/CHUNK)*CHUNK+','+Math.floor(log.z/CHUNK)*CHUNK);
       const physical=Boolean(chunk?.collider)&&!log.cargo&&!log.carrier;
       const existing=this.logViews.get(log.id);
-      if(existing && Boolean(existing.body) === physical) continue;
+      if(existing&&Boolean(existing.body)===physical){
+        if(existing.body){
+          const from=existing.body.translation(), gap=distance(log,from);
+          if(gap>.25&&gap<3)existing.body.applyImpulse({x:(log.x-from.x)*log.kilograms*1.2,y:0,z:(log.z-from.z)*log.kilograms*1.2},true);
+        }
+        continue;
+      }
       if(existing) {
         if(existing.body) this.physics.removeRigidBody(existing.body);
         this.world.remove(existing.model);
@@ -455,7 +483,7 @@ export class Scene {
     const point=this.logPosition(log,at,winch?17:rope?this.game.mods.ropeRange+3:5);
     if(!point) return;
     const offset=winch?-3:rope ? 3.4 : mode==='lift' ? 1.25 : 1.92;
-    const target = new T.Vector3(at.x-Math.sin(yaw)*offset,height(at.x,at.z)+(mode==='lift'?.89:.42),at.z-Math.cos(yaw)*offset);
+    const target = new T.Vector3(at.x-Math.sin(yaw)*offset,this.game.ground(at.x,at.z)+(mode==='lift'?.89:.42),at.z-Math.cos(yaw)*offset);
     const vel=body.linvel(), correction=target.clone().sub(point).multiplyScalar(rope?4.3:5.65);
     correction.x-=vel.x*.75; correction.z-=vel.z*.75;
     correction.y=(target.y-point.y)*5.5-vel.y*.50;
@@ -464,7 +492,7 @@ export class Scene {
     const multiplier=Math.min(log.kilograms,95)*.17;
     body.applyImpulseAtPoint(correction.multiplyScalar(multiplier),point,true);
     if(rope) {
-      const hand=new T.Vector3(at.x+(winch?Math.sin(yaw)*1.1:-.26),height(at.x,at.z)+(winch?.68:1.13),at.z+(winch?Math.cos(yaw)*1.1:.27));
+      const hand=new T.Vector3(at.x+(winch?Math.sin(yaw)*1.1:-.26),this.game.ground(at.x,at.z)+(winch?.68:1.13),at.z+(winch?Math.cos(yaw)*1.1:.27));
       const center=hand.clone().lerp(point,.5), axis=point.clone().sub(hand);
       this.rope.position.copy(center);
       this.rope.scale.set(.021,axis.length(),.021);
@@ -474,6 +502,9 @@ export class Scene {
   }
 
   private syncSites(time:number, at:Point) {
+    for(const [id,view]of this.siteViews)if(!this.game.sites.some(site=>site.id===id)){
+      this.removeModel(view.root);this.siteViews.delete(id);
+    }
     for(const site of this.game.sites) {
       const existing=this.siteViews.get(site.id);
       if(distance(site,at)>125) {
@@ -484,12 +515,13 @@ export class Scene {
       }
       if(!this.siteViews.has(site.id)) {
         const visual=siteModel(site.kind);
-        visual.root.position.set(site.x,height(site.x,site.z),site.z);
-        if(['road','rail','belt','ditch',...waterPipes].includes(site.kind))visual.root.rotation.y=site.yaw??0;
+        visual.root.position.set(site.x,this.game.ground(site.x,site.z),site.z);
+        if(['road','serviceRoad','pavedRoad','rail','belt','poweredBelt','rollerIntake','ditch',...waterPipes].includes(site.kind))visual.root.rotation.y=site.yaw??0;
         this.world.add(visual.root);
         this.siteViews.set(site.id,visual);
       }
       const view=this.siteViews.get(site.id)!;
+      view.root.position.y=this.game.ground(site.x,site.z);
       if(site.kind==='fire') {
         const hot=site.jobs.length?1.45:.83;
         for(let n=0;n<view.moving.length;n++) {
@@ -499,9 +531,17 @@ export class Scene {
           part.position.y=.28+.13*Math.sin(time*3+n);
         }
         view.glow!.intensity=8*hot+Math.sin(time*11)*2;
-        if(Math.random()<(site.jobs.length?.21:.065) && distance(site,at)<24) this.impact(new T.Vector3(site.x+.34*Math.random(),height(site.x,site.z)+.44,site.z),'ember',1);
+        if(Math.random()<(site.jobs.length?.21:.065) && distance(site,at)<24) this.impact(new T.Vector3(site.x+.34*Math.random(),this.game.ground(site.x,site.z)+.44,site.z),'ember',1);
         if(this.quality!=='low'&&Math.random()<(site.jobs.length?.10:.021)&&distance(site,at)<28)
-          this.impact(new T.Vector3(site.x+.2,height(site.x,site.z)+.80,site.z),'smoke',1);
+          this.impact(new T.Vector3(site.x+.2,this.game.ground(site.x,site.z)+.80,site.z),'smoke',1);
+      } else if(site.kind==='burnZone'){
+        for(const [n,flame]of view.moving.entries()){
+          flame.visible=Boolean(site.jobs.length);
+          flame.scale.y=.62+Math.sin(time*6+n)*.27;
+        }
+      } else if(site.kind==='craneYard'&&site.crane){
+        const log=this.game.logs.get(site.crane.log),arm=view.moving[0];
+        if(log&&arm)arm.rotation.y=Math.atan2(site.x-log.x,site.z-log.z);
       } else if(site.kind==='wind'&&site.on){
         for(const hub of view.moving)hub.rotation.z=time*.52+Math.sin(time*.3)*.18;
       } else if(site.jobs.length || site.status==='Operational') {
@@ -535,7 +575,7 @@ export class Scene {
   }
 
   private syncUtility(at:Point) {
-    const stamp=`${Math.floor(at.x/24)},${Math.floor(at.z/24)}:${this.game.sites.length}`;
+    const stamp=`${Math.floor(at.x/24)},${Math.floor(at.z/24)}:${this.game.sites.length}:${this.game.terrainRevision}`;
     if(this.networkStamp===stamp)return;
     this.networkStamp=stamp;
     if(this.networkView)this.removeModel(this.networkView);
@@ -554,8 +594,8 @@ export class Scene {
         unique.add(id);
         const heightOf=(s:Site)=>s.kind==='backbone'?13:s.kind==='pole'?6.1:2.6;
         for(const offset of electric?[-.31,.31]:[0]){
-          const a=new T.Vector3(node.x+offset,height(node.x,node.z)+(electric?heightOf(node):.48),node.z);
-          const b=new T.Vector3(peer.x+offset,height(peer.x,peer.z)+(electric?heightOf(peer):.48),peer.z);
+          const a=new T.Vector3(node.x+offset,this.game.ground(node.x,node.z)+(electric?heightOf(node):.48),node.z);
+          const b=new T.Vector3(peer.x+offset,this.game.ground(peer.x,peer.z)+(electric?heightOf(peer):.48),peer.z);
           const c=a.clone().lerp(b,.5);
           c.y+=electric?-Math.min(1.8,a.distanceTo(b)*.055):.02;
           const curve=new T.QuadraticBezierCurve3(a,c,b);
@@ -571,7 +611,7 @@ export class Scene {
   }
 
   private syncRoute(site:Site,at:Point) {
-    const reverse=site.kind==='railDepot'||site.kind==='dronePad'?undefined:this.game.sites.find(s=>s.id===site.link);
+    const reverse=this.game.freightMode(site)?undefined:this.game.sites.find(s=>s.id===site.link);
     if(!reverse || distance(site,at)>80) {
       const route=this.routes.get(site.id);
       if(route) { this.world.remove(route); this.routes.delete(site.id); }
@@ -586,9 +626,9 @@ export class Scene {
     if(length>110) return;
     for(let n=1;n<segments;n++) {
       const p=n/segments,x=site.x+(reverse.x-site.x)*p,z=site.z+(reverse.z-site.z)*p;
-      const slat=box(path,mat('#777763'),x,height(x,z)+.13,z,1.0,.12,2.2);
+      const slat=box(path,mat('#777763'),x,this.game.ground(x,z)+.13,z,1.0,.12,2.2);
       slat.rotation.y=Math.atan2(reverse.x-site.x,reverse.z-site.z);
-      const wire=box(path,mat('#c8a26c'),x,height(x,z)+.20,z,.08,.03,2.2);
+      const wire=box(path,mat('#c8a26c'),x,this.game.ground(x,z)+.20,z,.08,.03,2.2);
       wire.rotation.y=slat.rotation.y;
     }
     this.world.add(path);
@@ -610,19 +650,30 @@ export class Scene {
         this.world.add(model.root);
       }
       const visual=this.rideViews.get(ride.id)!;
-      visual.root.position.set(ride.x,height(ride.x,ride.z),ride.z);
+      visual.root.position.set(ride.x,this.game.ground(ride.x,ride.z),ride.z);
       visual.root.rotation.y=ride.yaw;
-      visual.root.visible=ride!==driving;
+      visual.root.visible=ride!==driving&&!this.game.sites.some(s=>s.dedicatedRide===ride.id&&s.shipment);
       for(const wheel of visual.wheels) if(ride===driving) wheel.rotation.x=time*4;
       const shipment=[...this.game.logs.values()].filter(l=>l.cargo===ride.id);
       const def=vehicleTypes[ride.kind];
+      const freight=ride.freight, signature=freight?freight.good+freight.quantity:'';
+      if(visual.signature!==signature){
+        if(visual.payload)this.removeModel(visual.payload);
+        visual.payload=undefined;
+        if(freight&&ride.kind!=='mixer'){
+          visual.payload=productModel(freight.good,freight.quantity);
+          visual.payload.position.set(.12,.66,.48);
+          visual.root.add(visual.payload);
+        }
+        visual.signature=signature;
+      }
       if(visual.forks)visual.forks.rotation.x+=( (shipment.length?-.12:.46)-visual.forks.rotation.x)*Math.min(1,dt*3);
       const towing=this.game.rides.find(v=>v.id===ride.hitch);
       let hitch=this.hitches.get(ride.id);
       if(towing){
         if(!hitch){hitch=ropeModel();this.world.add(hitch);this.hitches.set(ride.id,hitch);}
-        const a=new T.Vector3(ride.x-Math.sin(ride.yaw)*1.55,height(ride.x,ride.z)+.53,ride.z-Math.cos(ride.yaw)*1.55);
-        const b=new T.Vector3(towing.x+Math.sin(towing.yaw)*1.14,height(towing.x,towing.z)+.58,towing.z+Math.cos(towing.yaw)*1.14);
+        const a=new T.Vector3(ride.x-Math.sin(ride.yaw)*1.55,this.game.ground(ride.x,ride.z)+.53,ride.z-Math.cos(ride.yaw)*1.55);
+        const b=new T.Vector3(towing.x+Math.sin(towing.yaw)*1.14,this.game.ground(towing.x,towing.z)+.58,towing.z+Math.cos(towing.yaw)*1.14);
         const arm=b.clone().sub(a);
         hitch.position.copy(a).lerp(b,.5);
         hitch.scale.set(.052,arm.length(),.052);
@@ -634,12 +685,32 @@ export class Scene {
         const reach=def.forks?-2.06:def.trailer?.35:.68;
         const x=ride.x+Math.cos(ride.yaw)*slot+Math.sin(ride.yaw)*reach;
         const z=ride.z-Math.sin(ride.yaw)*slot+Math.cos(ride.yaw)*reach;
-        const y=height(ride.x,ride.z)+(def.forks?1.03:.79)+Math.floor(n/3)*.32;
+        const y=this.game.ground(ride.x,ride.z)+(def.forks?1.03:.79)+Math.floor(n/3)*.32;
         const slide=Math.min(1,dt*11.5);
         log.x+=(x-log.x)*slide;log.z+=(z-log.z)*slide;log.y+=(y-log.y)*slide;
-        const rotation=new T.Quaternion().setFromEuler(new T.Euler(Math.PI*.5,ride.yaw+(def.forks?Math.PI*.5:0),0,'YXZ'));
+        const rotation=new T.Quaternion().setFromEuler(new T.Euler(Math.PI*.5,ride.yaw+(def.forks?Math.PI*.5:0)+(log.roll??0),0,'YXZ'));
         log.q=new T.Quaternion(...log.q).slerp(rotation,slide).toArray();
       }
+    }
+  }
+
+  private syncPackets(at:Point) {
+    const visible=new Set<string>();
+    for(const [id,packet]of this.game.routePackets){
+      const elapsed=this.game.clock-packet.at;
+      if(elapsed>1.05||distance(packet.from,at)>85||distance(packet.to,packet.from)>33)continue;
+      visible.add(id);
+      let item=this.packets.get(id);
+      if(!item||item.good!==packet.good){
+        if(item)this.removeModel(item.model);
+        item={good:packet.good,model:productModel(packet.good,1)};
+        this.packets.set(id,item);this.world.add(item.model);
+      }
+      const mix=clamp(elapsed),x=packet.from.x+(packet.to.x-packet.from.x)*mix,z=packet.from.z+(packet.to.z-packet.from.z)*mix;
+      item.model.position.set(x,this.game.ground(x,z)+.36,z);
+    }
+    for(const [id,item]of this.packets)if(!visible.has(id)){
+      this.removeModel(item.model);this.packets.delete(id);
     }
   }
 
@@ -647,11 +718,14 @@ export class Scene {
     if(active)this.freightClock+=dt;
     for(const site of this.game.sites){
       const shipping=site.shipment;
-      const current=this.freight.get(site.id);
+      let current=this.freight.get(site.id);
       if(!shipping) {
         if(current){this.removeModel(current.root);this.freight.delete(site.id);}
         this.freightTime.delete(site.id);
         continue;
+      }
+      if(current&&Boolean(current.root.userData.returning)!==Boolean(shipping.returning)){
+        this.removeModel(current.root);this.freight.delete(site.id);this.freightTime.delete(site.id);current=undefined;
       }
       const time=this.freightTime.get(site.id)??shipping.elapsed;
       const next=active?Math.min(shipping.elapsed+.85,shipping.duration,time+dt):time;
@@ -666,10 +740,10 @@ export class Scene {
         if(current){this.removeModel(current.root);this.freight.delete(site.id);}
         continue;
       }
-      const visual=current??freightModel(shipping.mode,shipping.load.good,shipping.load.quantity);
-      if(!current){this.freight.set(site.id,visual);this.world.add(visual.root);}
+      const visual=current??freightModel(shipping.mode,shipping.load.good,shipping.returning?0:shipping.load.quantity);
+      if(!current){visual.root.userData.returning=Boolean(shipping.returning);this.freight.set(site.id,visual);this.world.add(visual.root);}
       const altitude=shipping.mode==='air'?1.0+Math.sin(clamp(next/shipping.duration)*Math.PI)*12:0;
-      visual.root.position.set(x,height(x,z)+altitude,z);
+      visual.root.position.set(x,this.game.ground(x,z)+altitude,z);
       visual.root.rotation.y=Math.atan2(a.x-b.x,a.z-b.z);
       for(const blades of visual.motion)blades.rotation.y=this.freightClock*29;
     }
@@ -683,8 +757,8 @@ export class Scene {
         if(present){this.removeModel(present.root);this.crew.delete(site.id);}
         continue;
       }
-      const aim=new T.Vector3(worker.x,height(worker.x,worker.z),worker.z);
-      const visual=present??vehicleModel('skid');
+      const aim=new T.Vector3(worker.x,this.game.ground(worker.x,worker.z),worker.z);
+      const visual=present??(site.kind==='helperPost'?helperModel():vehicleModel('skid'));
       if(!present) {
         this.crew.set(site.id,visual);
         visual.root.position.copy(aim);
@@ -693,14 +767,15 @@ export class Scene {
       const offset=aim.clone().sub(visual.root.position);
       if(offset.lengthSq()>.04) {
         visual.root.rotation.y=Math.atan2(-offset.x,-offset.z);
-        for(const wheel of visual.wheels)wheel.rotation.x=time*6;
+        for(const [index,wheel]of visual.wheels.entries())wheel.rotation.x=site.kind==='helperPost'?Math.sin(time*6+index*Math.PI*.5)*.48:time*6;
       }
       visual.root.position.lerp(aim,Math.min(1,dt*7.5));
       if(worker.phase==='delivery'&&worker.log!==undefined) {
         const render=this.logViews.get(worker.log);
         if(render){
           const pos=visual.root.position;
-          render.model.position.set(pos.x-Math.sin(visual.root.rotation.y)*1.28,pos.y+.86,pos.z-Math.cos(visual.root.rotation.y)*1.28);
+          const reach=site.kind==='helperPost'?-1.20:1.28;
+          render.model.position.set(pos.x-Math.sin(visual.root.rotation.y)*reach,pos.y+(site.kind==='helperPost'?.24:.86),pos.z-Math.cos(visual.root.rotation.y)*reach);
           render.model.rotation.set(Math.PI*.5,visual.root.rotation.y+Math.PI*.5,0,'YXZ');
         }
       }
@@ -720,7 +795,7 @@ export class Scene {
       }
       if(!cable){cable=ropeModel();this.world.add(cable);this.cables.set(site.id,cable);}
       const attach=this.logPosition(log,site,25)!;
-      const anchor=new T.Vector3(site.x,height(site.x,site.z)+.57,site.z);
+      const anchor=new T.Vector3(site.x,this.game.ground(site.x,site.z)+.57,site.z);
       const haul=anchor.clone().sub(attach),span=haul.length();
       if(site.winch!.ready<=this.game.clock&&span>1.55){
         const push=haul.clone().normalize().multiplyScalar(Math.min(log.kilograms,130)*.33);
@@ -751,10 +826,10 @@ export class Scene {
       if(view.body) {
         const pos=view.body.translation(), rot=view.body.rotation();
         log.x=pos.x; log.y=pos.y; log.z=pos.z; log.q=[rot.x,rot.y,rot.z,rot.w];
-        if(log.y<height(log.x,log.z)-3 || indexAt(log.x,log.z)<0) {
+        if(log.y<this.game.ground(log.x,log.z)-3 || indexAt(log.x,log.z)<0) {
           log.x=clamp(log.x,-SIZE*.5+.9,SIZE*.5-.9);
           log.z=clamp(log.z,-SIZE*.5+.9,SIZE*.5-.9);
-          log.y=height(log.x,log.z)+.55;
+          log.y=this.game.ground(log.x,log.z)+.55;
           view.body.setTranslation(log,true);
           view.body.setLinvel({x:0,y:0,z:0},true);
         }
@@ -772,10 +847,14 @@ export class Scene {
       const tree=fall.tree, spec=species[tree.kind], length=spec.height*tree.scale*.72;
       const x=clamp(tree.x+fall.dir.x*length*.52,-SIZE/2+.4,SIZE/2-.4);
       const z=clamp(tree.z+fall.dir.z*length*.52,-SIZE/2+.4,SIZE/2-.4);
-      const y=height(x,z)+spec.radius*tree.scale+.42;
+      const y=this.game.ground(x,z)+spec.radius*tree.scale+.42;
       const q=new T.Quaternion().setFromAxisAngle(axis,Math.PI*.5).toArray();
       const idLog=this.game.nextId++;
       this.game.fell(tree,{id:idLog,x,y,z,q,kind:tree.kind,length,kilograms:spec.mass*tree.scale,units:spec.yield,moisture:.68,quality:tree.kind===0?.73:.87});
+      if(fall.segmented&&spec.yield>=2)this.game.cutHarvestedLog(idLog,{
+        x:clamp(x+fall.dir.x*1.2,-SIZE/2+.4,SIZE/2-.4),
+        z:clamp(z+fall.dir.z*1.2,-SIZE/2+.4,SIZE/2-.4),
+      });
       if(tree.kind>0){
         const tx=x+fall.dir.z*1.2,tz=z-fall.dir.x*1.2;
         if(indexAt(tx,tz)>=0) {
@@ -811,8 +890,8 @@ export class Scene {
       this.camera.lookAt(0,3.2,-12);
     } else if(survey) {
       const {point,age}=survey,a=age*.24;
-      this.camera.position.set(point.x+Math.cos(a)*45,Math.max(20,height(point.x,point.z)+31),point.z+Math.sin(a)*45);
-      this.camera.lookAt(point.x,height(point.x,point.z),point.z);
+      this.camera.position.set(point.x+Math.cos(a)*45,Math.max(20,this.game.ground(point.x,point.z)+31),point.z+Math.sin(a)*45);
+      this.camera.lookAt(point.x,this.game.ground(point.x,point.z),point.z);
     } else if(flyover!==undefined) {
       const a=flyover*.22;
       this.camera.position.set(at.x+Math.cos(a)*34,Math.min(37,9+flyover*4),at.z+Math.sin(a)*34);
@@ -841,7 +920,7 @@ export class Scene {
     this.syncSites(this.frameAge,survey?survey.point:at);
     if(this.game.ownedUpgrades.has('24-12')&&!this.trophy){
       const monument=new T.Group();
-      monument.position.set(2.8,height(2.8,-1.7),-1.7);
+      monument.position.set(2.8,this.game.ground(2.8,-1.7),-1.7);
       box(monument,mat('#8b7b61'),0,.19,0,.90,.38,.87);
       box(monument,mat('#b59461',.62),0,.64,0,.28,.52,.30);
       const emblem=box(monument,mat('#d7b779',.54),0,1.08,0,.64,.64,.18);
@@ -853,21 +932,22 @@ export class Scene {
     this.syncUtility(at);
     if(active&&!menu&&this.quality!=='low'&&Math.random()<dt*.13&&
       (this.game.soil.get(indexAt(at.x,at.z))?.stage??0)>=4){
-      this.impact(new T.Vector3(at.x+(Math.random()-.5)*12,height(at.x,at.z)+.6,at.z-4),'dust',4);
+      this.impact(new T.Vector3(at.x+(Math.random()-.5)*12,this.game.ground(at.x,at.z)+.6,at.z-4),'dust',4);
     }
     if(active) this.updateSimulation(dt,at,yaw,held);
     this.syncCrew(at,dt,this.frameAge);
     this.syncFreight(at,dt,active);
+    this.syncPackets(at);
     this.selection.visible=Boolean(target)&&!menu&&!drive;
-    if(target) this.selection.position.set(target.x,height(target.x,target.z)+.05,target.z);
+    if(target) this.selection.position.set(target.x,this.game.ground(target.x,target.z)+.05,target.z);
     this.ghost.visible=Boolean(build)&&!menu;
     if(build) {
-      this.ghost.position.set(build.point.x,height(build.point.x,build.point.z)+.64,build.point.z);
+      this.ghost.position.set(build.point.x,this.game.ground(build.point.x,build.point.z)+.64,build.point.z);
       this.ghost.scale.set(build.size*1.55,1.18,build.size*1.55);
       buildTint.color.set(build.valid?'#b6d59d':'#e49762');
     }
     this.marker.visible=Boolean(waypoint)&&!menu;
-    if(waypoint) this.marker.position.set(waypoint.x,height(waypoint.x,waypoint.z)+3+Math.sin(this.frameAge*3)*.34,waypoint.z);
+    if(waypoint) this.marker.position.set(waypoint.x,this.game.ground(waypoint.x,waypoint.z)+3+Math.sin(this.frameAge*3)*.34,waypoint.z);
     for(let n=this.particles.length-1;n>=0;n--) {
       const p=this.particles[n];
       p.life-=dt;

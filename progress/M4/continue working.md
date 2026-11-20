@@ -2,4 +2,4 @@
 
 **Needs work**
 
-- Playtest heavy recovery, winch loads, towing behavior and individual crane operations.
+- Review difficult towing and recovery situations. The crane has a tested power gate, unique reservation and actual transfer into a vehicle.

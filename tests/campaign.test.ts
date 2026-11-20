@@ -5,7 +5,8 @@ import type { Log, Project } from '../src/campaign';
 import { CELLS, TOTAL, facilities, recipes, species } from '../src/catalog';
 import { applyLand, conversionLabel, defaultSoil, desertified, districtAt, height, homeDistrict, indexAt, noPressure, treesIn } from '../src/land';
 import { validateSave } from '../src/storage';
-import { upgrades } from '../src/upgrades';
+import { upgradeFacility, upgrades } from '../src/upgrades';
+const upgradePrerequisiteFacilities=Object.values(upgradeFacility);
 
 const run = (g:Campaign,n:number) => { for(let i=0;i<n;i++) g.tick(1); };
 const baseLog = (g:Campaign,x:number,z:number):Log => ({
@@ -661,4 +662,179 @@ test('survey research spends earned science and the last-cell crew operates thro
   const restored=Campaign.restore(validateSave(JSON.parse(JSON.stringify(g.snapshot()))));
   assert.equal(restored.prototypes.has('edge'),true);
   assert.equal(restored.desertCount,g.desertCount);
+});
+
+test('rock breaking and mine freight keep deposits, cargo and stock separate',()=>{
+  const g=new Campaign();
+  g.cash=165000;
+  assert.ok(g.acquireTool('breaker'));
+  const stone={x:0,z:-2.5};
+  assert.ok(g.breakRock(12570,stone));
+  assert.equal(g.breakRock(12570,stone),false);
+  assert.equal(getQuantity(g.stock,'ore'),2);
+  build(g,'quarry',-11,-9);
+  assert.ok(g.buyUpgrade('21-02'));
+  const mine=build(g,'licensedQuarry',1,12);
+  assert.ok(g.buyUpgrade('21-03'));
+  assert.ok(g.buyUpgrade('21-04'));
+  const truck=g.acquireRide('oreTruck',{x:1,z:9})!;
+  assert.ok(truck);
+  build(g,'generator',-9,10);
+  run(g,30);
+  const produced=getQuantity(mine.output,'mixedOre');
+  assert.ok(produced>0);
+  assert.equal(g.freightBed(truck,mine),produced);
+  assert.equal(getQuantity(mine.output),0);
+  assert.equal(truck.freight?.quantity,produced);
+  const market=g.sites[1];
+  assert.equal(g.freightBed(truck,market,true),0);
+  truck.x=market.x;truck.z=market.z;
+  const start=g.cash;
+  assert.equal(g.freightBed(truck,market,true),produced);
+  assert.equal(g.freightBed(truck,market,true),0);
+  assert.ok(g.cash>start);
+  assert.doesNotThrow(()=>validateSave(JSON.parse(JSON.stringify(g.snapshot()))));
+});
+
+test('powered sorting splits actual material lots without duplicating grade or receipts',()=>{
+  const g=new Campaign();
+  g.cash=75000;
+  const rack=build(g,'bench',0,5);
+  for(let n=1;n<=6;n++){
+    assert.ok(g.buyUpgrade('15-'+String(n).padStart(2,'0')));
+    if(n===1)build(g,'stackRack',-8,7);
+  }
+  const gate=build(g,'sortGate',0,11), warehouse=build(g,'depot',9,12), market=g.sites[1];
+  const generator=build(g,'generator',-9,13);
+  assert.ok(g.enlarge(rack));
+  assert.equal(g.capacity(rack),52);
+  assert.ok(g.connect(gate,market));
+  assert.ok(g.connectAlternate(gate,warehouse,'chips'));
+  put(gate.output,{good:'chips',quantity:7,quality:.78,moisture:.40});
+  put(gate.output,{good:'boards',quantity:8,quality:.90,moisture:.28});
+  generator.on=false;
+  run(g,2);
+  assert.equal(getQuantity(gate.output),15);
+  generator.on=true;
+  run(g,5);
+  assert.equal(getQuantity(gate.output),0);
+  assert.equal(getQuantity(warehouse.output,'chips'),7);
+  assert.equal(g.stats.sold,8);
+  assert.equal(gate.shipped,15);
+  assert.doesNotThrow(()=>validateSave(JSON.parse(JSON.stringify(g.snapshot()))));
+});
+
+test('staffing reserves one paid position and shortens actual processing time',()=>{
+  const g=new Campaign();
+  g.cash=40000;
+  assert.ok(g.buyUpgrade('17-01'));
+  build(g,'helperPost',-9,10);
+  for(let n=2;n<=6;n++)assert.ok(g.buyUpgrade('17-'+String(n).padStart(2,'0')));
+  const bench=build(g,'bench',0,8);
+  const cash=g.cash;
+  assert.ok(g.staff(bench));
+  assert.equal(g.cash,cash-40);
+  put(bench.input,{good:'timber',quantity:1,quality:.80,moisture:.54});
+  run(g,1);
+  assert.equal(bench.jobs[0].remaining,4*.76);
+  run(g,65);
+  assert.equal(g.cash,cash-49);
+  assert.equal(getQuantity(bench.output,'boards'),2);
+  assert.ok(g.staff(bench));
+  run(g,66);
+  assert.equal(g.cash,cash-49);
+});
+
+test('owned autonomous truck reserves stock, uses fuel, delivers once and returns',()=>{
+  const g=new Campaign();
+  g.cash=4500000;
+  for(let n=1;n<=11;n++){
+    if(n===2){
+      assert.ok(g.buyUpgrade('16-02'));
+      build(g,'loadingPad',-9,12);
+      continue;
+    }
+    assert.ok(g.buyUpgrade('16-'+String(n).padStart(2,'0')));
+    if(n===5)build(g,'roadDepot',1,13);
+    if(n===8){
+      build(g,'depot',10,13);
+      build(g,'railDepot',-12,-6);
+      for(const tree of treesIn(g.seed,indexAt(13,-10)))g.fell(tree,baseLog(g,tree.x,tree.z));
+      build(g,'railTerminal',13,-10);
+    }
+  }
+  for(const tree of treesIn(g.seed,indexAt(0,-15)))g.fell(tree,baseLog(g,tree.x,tree.z));
+  const garage=build(g,'autoGarage',0,-15), market=g.sites[1];
+  const ride=g.acquireRide('regionalTruck',{x:0,z:-17})!;
+  assert.ok(ride&&g.assignDriverless(garage,ride));
+  assert.ok(g.connect(garage,market));
+  put(garage.output,{good:'boards',quantity:17,quality:.86,moisture:.42});
+  run(g,1);
+  assert.equal(getQuantity(garage.output),0);
+  assert.ok(ride.fuel<100);
+  assert.equal(garage.shipment?.load.quantity,17);
+  run(g,5);
+  assert.equal(g.stats.sold,17);
+  assert.equal(garage.shipment?.returning,true);
+  run(g,10);
+  assert.equal(garage.shipment,undefined);
+  assert.equal(g.stats.sold,17);
+});
+
+test('every defined upgrade is purchasable in order given its prerequisites and unlock state',()=>{
+  const g=new Campaign();
+  g.cash=20_000_000_000;
+  const required = new Set(upgradePrerequisiteFacilities);
+  for(const kind of required)g.sites.push({id:'s'+g.nextId++,kind,x:11,z:13,on:true,fuel:100,input:[],output:[],jobs:[],status:'Ready'});
+  assert.ok(upgrades.every(u=>u.implemented));
+  for(const upgrade of upgrades){
+    if(upgrade.id==='24-12'){
+      assert.equal(g.buyUpgrade(upgrade.id),false);
+      g.desertCount=TOTAL;
+    }
+    assert.ok(g.buyUpgrade(upgrade.id),upgrade.id+' · '+upgrade.name);
+    assert.equal(g.buyUpgrade(upgrade.id),false);
+  }
+  assert.equal(g.ownedUpgrades.size,288);
+  assert.ok(g.achievements.has('Stable desert certification'));
+  assert.doesNotThrow(()=>validateSave(JSON.parse(JSON.stringify(g.snapshot()))));
+});
+
+test('powered cranes reserve a unique trunk and place it on the selected vehicle',()=>{
+  const g=new Campaign();
+  g.cash=2600000;
+  for(let n=1;n<=6;n++)assert.ok(g.buyUpgrade('07-'+String(n).padStart(2,'0')));
+  const crane=build(g,'craneYard',0,11), truck=g.acquireRide('pickup',{x:5,z:11})!;
+  const log=baseLog(g,-3,8);
+  g.logs.set(log.id,log);
+  assert.ok(g.loadByCrane(crane,log,truck));
+  assert.equal(g.loadByCrane(crane,log,truck),false);
+  run(g,4);
+  assert.equal(log.cargo,undefined);
+  assert.equal(crane.crane?.remaining,5);
+  build(g,'generator',-10,11);
+  run(g,2);
+  assert.ok(log.y>1.4);
+  assert.equal(log.carrier,crane.id);
+  run(g,5);
+  assert.equal(log.carrier,undefined);
+  assert.equal(log.cargo,truck.id);
+  assert.equal(crane.crane,undefined);
+});
+
+test('excavation changes the actual elevation used by the game and preserves cargo across saves',()=>{
+  const g=new Campaign();
+  g.cash=200000;
+  for(let n=1;n<=6;n++)assert.ok(g.buyUpgrade('08-'+String(n).padStart(2,'0')));
+  const crane=g.acquireRide('excavator',{x:8,z:8})!;
+  assert.ok(crane);
+  const base=g.ground(8,8);
+  assert.ok(g.excavate(crane,crane));
+  assert.ok(g.excavate(crane,crane));
+  assert.ok(g.ground(8,8)<base-.60);
+  assert.equal(crane.freight?.quantity,2);
+  assert.ok(crane.fuel<100);
+  const copy=Campaign.restore(validateSave(JSON.parse(JSON.stringify(g.snapshot()))));
+  assert.equal(copy.ground(8,8),g.ground(8,8));
+  assert.equal(copy.rides[0].freight?.quantity,2);
 });

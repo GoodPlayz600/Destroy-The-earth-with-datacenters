@@ -2,4 +2,4 @@
 
 **Needs work**
 
-- Finish detailed terrain-clearing attachments, deeper agricultural logistics and advanced mining outputs. Review physically connected utilities and compare real campaign economics for the three strategies.
+- Review the heavy attachments, field economy and mine-to-construction logistics at normal campaign pacing. Review physically connected utilities and compare real campaign economics for the three strategies.

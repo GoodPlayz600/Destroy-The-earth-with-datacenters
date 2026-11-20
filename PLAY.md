@@ -39,3 +39,5 @@ npm run test:browser
 ```
 
 The browser review checks the opening from a fresh campaign and imports prepared saves to verify refining, pickup delivery and the final cell. Chromium also checks touchscreen movement and chopping. Run `BROWSER=firefox npm run test:browser` after installing Playwright Firefox. On Linux systems without a hardware display, use `xvfb-run --auto-servernum env HEADED=1 BROWSER=firefox npm run test:browser`.
+
+Heavy equipment and utilities unlock through the 24 research branches. Use the survey's remaining-cell markers to find unconverted ground. Site panels show deliveries, production buffers, power, water, and dispatch assignments. In a developed campaign, authorized crews can work on marked parcels while you continue harvesting and hauling.
