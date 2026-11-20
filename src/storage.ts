@@ -67,7 +67,7 @@ export function validateSave(data:unknown): Save {
       &&Math.abs(Math.hypot(...x.q as number[])-1)<.01&&integer(x.kind,0,species.length-1)&&numeric(x.length,.05,40)&&numeric(x.kilograms,.1,1000)
       &&integer(x.units,1,20)&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1)&&(x.cargo===undefined||identifier(x.cargo))&&(x.carrier===undefined||identifier(x.carrier)))
     &&rows(s.sites,20000,x=>object(x)&&identifier(x.id)&&key(x.kind,facilities)&&coordinate(x)&&rows(x.input,260,lot)&&rows(x.output,260,lot)
-      &&rows(x.jobs,8,job)&&flag(x.on)&&numeric(x.fuel,0,100)&&text(x.status)&&(x.link===undefined||identifier(x.link))
+      &&rows(x.jobs,8,job)&&flag(x.on)&&numeric(x.fuel,0,100)&&text(x.status)&&(x.water===undefined||numeric(x.water,0,1200))&&(x.link===undefined||identifier(x.link))
       &&(x.mode===undefined||x.mode==='sell'||x.mode==='charcoal')
       &&(x.haul===undefined||(object(x.haul)&&coordinate(x.haul)&&identifier(x.haul.target)
         &&(x.haul.log===undefined||integer(x.haul.log,1))&&text(x.haul.status)&&['waiting','pickup','delivery','return'].includes(String(x.haul.phase)))))

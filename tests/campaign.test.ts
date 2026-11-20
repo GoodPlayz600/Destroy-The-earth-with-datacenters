@@ -290,3 +290,22 @@ test('tool wear survives switching and forestry unlocks go through the upgrade c
   assert.ok(restored.ownedTools.has('axe'));
   assert.equal(restored.wear,used);
 });
+
+test('compute processing requires electricity and physically connected cooling storage',()=>{
+  const g=new Campaign();
+  g.cash=10000;
+  const gen=build(g,'generator',-6,12), pump=build(g,'pump',0,13), data=build(g,'data',11,13);
+  gen.on=false;
+  run(g,8);
+  assert.match(data.status,/No grid power/);
+  assert.equal(getQuantity(data.output),0);
+  gen.on=true; pump.on=false;
+  run(g,8);
+  assert.match(data.status,/Cooling supply/);
+  assert.equal(getQuantity(data.output),0);
+  pump.on=true;
+  run(g,31);
+  assert.ok(getQuantity(data.output,'compute')>=2);
+  assert.ok(pump.water!==undefined&&pump.water<160);
+  assert.ok(gen.fuel<100);
+});

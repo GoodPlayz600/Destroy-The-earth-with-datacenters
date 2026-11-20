@@ -57,7 +57,7 @@ export const recipes = {
   data: { name: 'Process compute contract', output: ['compute', 2], time: 24, power: 12 },
 } as const satisfies Record<string, Recipe>;
 
-export type Facility = keyof typeof recipes | 'fire' | 'market' | 'depot' | 'generator' | 'substation' | 'pump' | 'grazing' | 'thermal' | 'dryer' | 'forestry' | 'road' | 'belt' | 'rail';
+export type Facility = keyof typeof recipes | 'fire' | 'market' | 'depot' | 'generator' | 'substation' | 'pump' | 'pipe' | 'tank' | 'grazing' | 'thermal' | 'dryer' | 'forestry' | 'road' | 'belt' | 'rail';
 type Building = {
   name: string; price: number; color: string; size: number; requires?: Facility;
   effect?: 'fire' | 'pump' | 'grazing' | 'quarry' | 'thermal' | 'dryer' | 'forestry' | 'data';
@@ -83,6 +83,8 @@ export const facilities: Record<Facility, Building> = {
   generator: { name: 'Grid Generator', price: 305, color: '#be964b', size: 3, supply: 28 },
   substation: { name: 'Grid Relay', price: 195, color: '#897f64', size: 2 },
   pump: { name: 'Drainage Array', price: 550, color: '#5e8c9e', size: 3, effect: 'pump', reach: 9, power: 5 },
+  pipe: { name: 'Cooling Pipeline', price: 85, color: '#5e8c9e', size: 2, requires: 'pump' },
+  tank: { name: 'Cooling Reservoir', price: 270, color: '#719496', size: 3, requires: 'pump' },
   grazing: { name: 'Grazing Station', price: 460, color: '#8c955a', size: 4, effect: 'grazing', reach: 7 },
   quarry: { name: 'Aggregate Quarry', price: 950, color: '#9b826f', size: 5, effect: 'quarry', reach: 11, power: 4 },
   cement: { name: 'Cement Works', price: 1220, color: '#989e90', size: 5, requires: 'quarry' },

@@ -16,6 +16,8 @@ const result='test-results';
 const flags=engine==='chromium'?['--enable-unsafe-swiftshader','--use-gl=angle','--use-angle=swiftshader']:undefined;
 await mkdir(result,{recursive:true});
 const snapshots=await mkdtemp(join(tmpdir(),'clearcut-review-'));
+const capture=process.env.CAPTURE==='1'||engine==='firefox';
+const screenshot=(page,name)=>capture?page.screenshot({path:`${result}/${engine}-${name}.png`,timeout:20000}):Promise.resolve();
 try{
   if(server) for(let i=0;i<75;i++){
     try{if((await fetch(base)).ok)break;}catch{}
@@ -33,6 +35,7 @@ try{
   const wait=(f,arg)=>p.waitForFunction(f,arg,{timeout:42000,polling:45});
   const press=code=>p.keyboard.press(code);
   const click=name=>p.getByRole('button',{name,exact:true}).click();
+  const select=(name,value)=>p.locator('.row').filter({hasText:name}).getByRole('combobox').selectOption(value);
   const move=async(axis,to)=>{
     const s=await inspect(),greater=s.player[axis]<to;
     const code=axis==='x'?(greater?'KeyD':'KeyA'):(greater?'KeyS':'KeyW');
@@ -42,10 +45,10 @@ try{
   };
   await p.goto(target);
   await p.getByRole('button',{name:'Play campaign'}).waitFor();
-  await p.screenshot({path:`${result}/${engine}-menu.png`});
+  await screenshot(p,'menu');
   await click('Settings');
-  await p.locator('.row').filter({hasText:'Graphics quality'}).getByRole('combobox').selectOption('low');
-  await p.locator('.row').filter({hasText:'Look mode'}).getByRole('combobox').selectOption('drag');
+  await select('Graphics quality','low');
+  await select('Look mode','drag');
   await click('Close panel');
   await click('Play campaign');
   assert.equal((await inspect()).cash,0);
@@ -64,7 +67,7 @@ try{
   assert.ok(cut.stats.hits>=10&&cut.stats.hits<=14);
   assert.deepEqual(cut.removed,[cut.removed[0]]);
   assert.equal(cut.logs.length,1);
-  await p.screenshot({path:`${result}/${engine}-felled.png`});
+  await screenshot(p,'felled');
   await move('z',-6.95);
   await p.keyboard.down('KeyE');
   await p.locator('.hold-context').waitFor();
@@ -85,7 +88,7 @@ try{
   const frozen=(await inspect()).clock;
   await p.waitForTimeout(300);
   assert.equal((await inspect()).clock,frozen,'Panel pauses the simulation');
-  await p.screenshot({path:`${result}/${engine}-upgrades.png`});
+  await screenshot(p,'upgrades');
   await click('Close panel');
   await press('Escape');
   await click('Save campaign');
@@ -98,19 +101,57 @@ try{
   assert.ok(resumed.ownedUpgrades.includes('01-01'));
   await press('KeyM');
   await p.getByRole('heading',{name:'Land survey'}).waitFor();
-  await p.screenshot({path:`${result}/${engine}-map.png`});
+  await screenshot(p,'map');
   await click('Close panel');
   await p.setViewportSize({width:450,height:720});
   await press('Escape');
   await click('Settings');
   const panel=await p.locator('.panel').boundingBox();
   assert.ok(panel&&panel.x>=0&&panel.x+panel.width<=450);
-  await p.screenshot({path:`${result}/${engine}-narrow.png`});
+  await screenshot(p,'narrow');
   const exported=p.waitForEvent('download');
   await click('Export');
   await (await exported).saveAs(join(snapshots,'campaign.json'));
+  await p.setViewportSize({width:960,height:660});
+  const fixture=await inspect();
+  fixture.player={x:0,z:9.5,yaw:0,pitch:-.03};
+  fixture.cash=100;
+  fixture.logs.push({
+    id:fixture.nextId++,x:0,y:.35,z:7,q:[Math.SQRT1_2,0,0,Math.SQRT1_2],
+    kind:0,length:2.6,kilograms:22,units:1,moisture:.67,quality:.76,
+  });
+  const choose=p.waitForEvent('filechooser');
+  await click('Import');
+  await (await choose).setFiles({name:'refining-test.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(fixture))});
+  await p.getByText('Campaign imported',{exact:true}).waitFor();
+  await click('Close panel');
+  await press('KeyB');
+  await p.locator('.row').filter({hasText:'Field Sawbench'}).getByRole('button',{name:'$75',exact:true}).click();
+  await p.mouse.click(480,330);
+  await wait(()=>window.clearcutReview().sites.some(s=>s.kind==='bench'));
+  await p.keyboard.down('KeyE');
+  await p.locator('.hold-context').waitFor();
+  await move('z',5.45);
+  await wait(()=>window.clearcutReview().logs.some(l=>Math.abs(l.z-3.75)<1.3));
+  await p.keyboard.up('KeyE');
+  await wait(()=>window.clearcutReview().sites.some(s=>s.kind==='bench'&&s.output.some(l=>l.good==='boards'&&l.quantity===2)));
+  await press('KeyE');
+  await p.getByRole('heading',{name:'Field Sawbench'}).waitFor();
+  await click('Take batch');
+  assert.equal((await inspect()).stock.find(lot=>lot.good==='boards').quantity,2);
+  await screenshot(p,'sawbench');
+  await click('Close panel');
+  await move('x',7.15);
+  await move('z',.35);
+  await press('KeyE');
+  await p.getByRole('heading',{name:'Timber Exchange'}).waitFor();
+  await p.getByRole('button',{name:/Sell batch/}).click();
+  const refined=await inspect();
+  assert.ok(refined.cash>75);
+  assert.equal(refined.stock.length,0);
+  assert.equal(refined.stats.produced,2);
   assert.deepEqual(errors,[]);
-  console.log(`${engine}: menu, WebGL, walk, swing, fell, haul, burn, upgrade, pause, reload, map, resize and export passed.`);
+  console.log(`${engine}: menu, WebGL, walk, swing, fell, haul, burn, upgrade, pause, reload, map, resize, save export/import, sawbench placement, physical feed and market sale passed.`);
 } catch(error) {
   const page=browser?.contexts()[0]?.pages()[0];
   if(page){

@@ -189,6 +189,20 @@ export function siteModel(kind: Facility): SiteModel {
     fixed.add(productModel('crates',2).translateX(size*.43).translateZ(.42));
     fixed.add(productModel('boards',4).translateX(-size*.42).translateZ(.35));
     sign(fixed,kind === 'market' ? 'TIMBER' : 'FREIGHT',kind === 'market' ? 'EXCHANGE' : 'DEPOT',0,-size*.9,paint,0);
+  } else if (kind === 'pipe' || kind === 'tank') {
+    if (kind==='pipe') {
+      for (const x of [-1.4,1.4]) box(fixed,steel,x,.27,0,.26,.54,.54);
+      const body=cylinder(fixed,paint,0,.59,0,.24,5.2);
+      body.rotation.z=Math.PI*.5;
+      for(const x of [-2.53,-1.34,1.34,2.53]) cylinder(fixed,steel,x,.59,0,.32,.15).rotation.z=Math.PI*.5;
+    } else {
+      cylinder(fixed,dark,0,.20,0,2.3,.32);
+      cylinder(fixed,paint,0,1.73,0,1.9,3.12);
+      cylinder(fixed,steel,0,3.33,0,1.89,.2);
+      for(const y of [.52,1.4,2.4,3.1]) cylinder(fixed,steel,0,y,0,1.94,.08);
+      for(let n=0;n<12;n++) box(fixed,steel,.93,.27+n*.23,1.68,.46,.07,.16);
+      box(fixed,glass,-.5,1.55,1.88,.18,1.54,.12);
+    }
   } else if (kind === 'road' || kind === 'rail' || kind === 'belt') {
     const rail = kind === 'rail', belt = kind === 'belt';
     box(fixed,kind === 'road' ? mat('#726f61') : dark,0,belt?.34:.04,0,4.05,belt?.24:.08,5.05);

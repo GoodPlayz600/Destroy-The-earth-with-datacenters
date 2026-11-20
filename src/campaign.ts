@@ -10,7 +10,7 @@ export type Haul = Point & { target: string; log?: number; phase: 'waiting'|'pic
 type Batch = Stack & { remaining: number; payout?: number };
 export type Site = Point & {
   id: string; kind: Facility; input: Stack[]; output: Stack[]; jobs: Batch[];
-  on: boolean; fuel: number; status: string; link?: string; haul?: Haul; mode?: 'sell' | 'charcoal';
+  on: boolean; fuel: number; status: string; water?: number; link?: string; haul?: Haul; mode?: 'sell' | 'charcoal';
 };
 export type Ride = Point & { id: string; kind: VehicleType; yaw: number; fuel: number; wear: number };
 export type Ledger = { date: number; note: string; amount: number };
@@ -297,7 +297,7 @@ export class Campaign {
     if (this.cash < def.price) return 'Insufficient funds';
     if (def.requires && !this.sites.some(s => s.kind === def.requires)) return `Requires ${facilities[def.requires].name}`;
     if (this.sites.some(s => distance(s, at) < Math.max(2, facilities[s.kind].size + def.size - 1.4))) return 'Leave room around equipment';
-    if (['road', 'belt', 'rail'].indexOf(kind) < 0 && treesIn(this.seed, i).some(t => this.isStanding(t) && distance(t, at) < def.size)) return 'Clear trees from the footprint';
+    if (['road', 'belt', 'rail', 'pipe'].indexOf(kind) < 0 && treesIn(this.seed, i).some(t => this.isStanding(t) && distance(t, at) < def.size)) return 'Clear trees from the footprint';
     return '';
   }
 
@@ -378,6 +378,20 @@ export class Campaign {
     return false;
   }
 
+  private supplyCooling(site:Site,dt:number) {
+    const requested=13*dt;
+    const stores=this.sites.filter(source=>source.on&&(source.kind==='pump'||source.kind==='tank')
+      &&this.reachable(site,source,['pipe'],46));
+    if(stores.reduce((total,source)=>total+(source.water??0),0)<requested) return false;
+    let remaining=requested;
+    for(const source of stores) {
+      const amount=Math.min(remaining,source.water??0);
+      source.water=(source.water??0)-amount;
+      if((remaining-=amount)<=0) break;
+    }
+    return true;
+  }
+
   private simulateMachinery(dt: number) {
     const supply = this.sites.filter(s => s.on && facilities[s.kind].supply && s.fuel > 0).map(site => ({ site, free: facilities[site.kind].supply! }));
     this.roadPower.clear();
@@ -407,7 +421,7 @@ export class Campaign {
       if (site.kind === 'kiln' && this.mods.heatReuse && this.sites.some(s => s.kind === 'fire' && s.jobs.length > 0 && distance(site, s) < 22)) watts = Math.max(0, watts - 3);
       const generator = !watts ? undefined : supply.find(source => source.free >= watts && this.reachable(site, source.site, ['substation'], 78));
       if (watts && !generator) { site.status = 'No grid power'; continue; }
-      if (site.kind === 'data' && !this.reachable(site, this.sites.find(s => s.kind === 'pump' && s.on && supply.some(source => this.reachable(s, source.site, ['substation'], 78))) ?? { x: Infinity, z: Infinity }, ['substation'], 120)) {
+      if (site.kind === 'data' && !this.supplyCooling(site,dt)) {
         site.status = 'Cooling supply required';
         continue;
       }
@@ -417,6 +431,20 @@ export class Campaign {
       }
       this.roadPower.set(site.id, true);
       site.status = 'Operational';
+      if (site.kind === 'pump') {
+        const aquifer=this.soil.get(indexAt(site.x,site.z))?.groundwater??.85;
+        site.water=Math.min(160,(site.water??0)+dt*36*aquifer);
+        site.status=site.water>1?'Extracting cooling water':'Aquifer exhausted';
+      }
+      if (site.kind === 'tank') {
+        for(const source of this.sites) {
+          if(source.kind!=='pump'||!source.on||!this.reachable(site,source,['pipe'],46)) continue;
+          const transfer=Math.min(source.water??0,24*dt,1200-(site.water??0));
+          if(transfer<=0)continue;
+          source.water=(source.water??0)-transfer;
+          site.water=(site.water??0)+transfer;
+        }
+      }
       if (!recipe) continue;
       if (site.jobs.length) {
         const work = site.jobs[0];

@@ -69,6 +69,7 @@ export class UI {
   private bindingKey?:Binding;
   private branch=0;
   private district=36;
+  private layer:'stage'|'moisture'|'heat'|'groundwater'='stage';
   private signature='';
   private noticeTimers=new Map<HTMLElement,number>();
 
@@ -345,20 +346,32 @@ export class UI {
   private map() {
     const g=this.c.game();
     const grid=el('div','map-grid');
+    const controls=el('div','controls-row survey-controls');
+    for(const [name,id] of [['Biome stage','stage'],['Soil moisture','moisture'],['Water table','groundwater'],['Heat','heat']] as const) {
+      controls.append(action(name,()=>{this.layer=id;this.map();},this.layer===id?'branch selected':'branch'));
+    }
+    const metrics=Array.from({length:DISTRICTS**2},()=>({moisture:.68*1024,groundwater:.85*1024,heat:.12*1024}));
     const layers=Array.from({length:DISTRICTS**2},()=>Array(7).fill(0) as number[]);
     for(const [i,s] of g.soil) {
       const x=Math.floor((i%256)/32),z=Math.floor(i/256/32);
-      layers[z*DISTRICTS+x][s.stage]++;
+      const district=z*DISTRICTS+x;
+      layers[district][s.stage]++;
+      metrics[district].moisture+=s.moisture-.68;
+      metrics[district].groundwater+=s.groundwater-.85;
+      metrics[district].heat+=s.heat-.12;
     }
     for(let i=0;i<DISTRICTS**2;i++) {
       const b=action('',()=>{this.district=i;this.map();},i===this.district?'zone active':'zone');
       const desert=g.desertByDistrict[i],style=layers[i].reduce((last,n,index)=>n>0?index:last,-1);
-      b.style.setProperty('--land',soilColors[Math.max(0,style)]);
-      b.append(el('strong','',districtName(i)),el('small','',desert?Math.floor(desert/10.24)+'%':g.districts.has(i)?'OWNED':'·'));
+      const precision=this.layer==='stage'?0:Math.round(metrics[i][this.layer]/10.24);
+      const soil=this.layer==='stage'?soilColors[Math.max(0,style)]
+        : this.layer==='heat'?`hsl(${51-.42*precision} 55% ${33+precision*.18}%)`:`hsl(${40+precision*1.75} 39% ${33+precision*.18}%)`;
+      b.style.setProperty('--land',soil);
+      b.append(el('strong','',districtName(i)),el('small','',this.layer!=='stage'?precision+'%':desert?Math.floor(desert/10.24)+'%':g.districts.has(i)?'OWNED':'·'));
       grid.append(b);
     }
     const district=this.district,count=g.desertByDistrict[district];
-    const selected=el('div','panel-content',cards(tc(conversionLabel(g.desertCount)+'%','Campaign desert'),tc(value(g.desertCount)+' / '+value(TOTAL),'Stable cells')),grid,
+    const selected=el('div','panel-content',cards(tc(conversionLabel(g.desertCount)+'%','Campaign desert'),tc(value(g.desertCount)+' / '+value(TOTAL),'Stable cells')),controls,grid,
       section('District '+districtName(district),sub(`${count} / 1,024 cells stable`),
         g.districts.has(district)?sub('Permit active'):btn('Purchase permit · $950',()=>{if(g.buyDistrict(district))this.map();},g.cash<950),
         ...Object.entries(projectPrices).map(([key,price])=>{
@@ -381,6 +394,11 @@ export class UI {
       section('Work plan',row('Start a timber operation','Sell wood at the fire or market. Build a sawbench and sell the products.'),
         row('Scale production','Use a generator, connect machines, then route output to buyers.'),
         row('Transform the land','Buy district permits and commission forestry with drainage, soil stripping or thermal conversion.')),
+      section('Operations',
+        row('Earnings per field minute',g.clock>2?cash(g.stats.earned/(g.clock/60)):'Begin field work'),
+        row('Average swings per harvest',g.stats.harvest?String(Math.round(g.stats.hits/g.stats.harvest)):'No harvest recorded'),
+        row('Machine bottlenecks',g.sites.filter(site=>['No grid power','Output full','Awaiting suitable material'].includes(site.status)).map(site=>facilities[site.kind].name+' · '+site.status).join(' / ')||'No blocked production'),
+        row('Desert cells per field hour',g.clock>60?value(g.desertCount/(g.clock/3600)):'Collecting data')),
       section('Awards',g.achievements.size?undefined:sub('Earn your first award by felling a tree.'),...Array.from(g.achievements,a=>row(a,'Unlocked'))),
       section('Recent receipts',g.ledger.length?undefined:sub('Receipts appear after the first transaction.'),
         ...g.ledger.slice(0,18).map(entry=>row(entry.note,duration(entry.date),el('strong',entry.amount>0?'positive':'',`${entry.amount>0?'+':'−'}${cash(Math.abs(entry.amount))}`))))));
@@ -406,6 +424,8 @@ export class UI {
     } else {
       content.append(section('Operation',row('Run schedule',s.on?'Enabled while in the field':'Stopped',btn(s.on?'Stop':'Start',()=>{s.on=!s.on;this.site();})),
         def.supply?row('Fuel',Math.floor(s.fuel)+'%',btn('Refuel · $25',()=>{if(g.cash>=25){g.finance(-25,'Generator fuel');s.fuel=100;this.site();}},g.cash<25||s.fuel===100)):undefined,
+        s.kind==='pump'||s.kind==='tank'?row('Cooling water',Math.floor(s.water??0)+' L stored · feed a nearby compute campus or extend with pipe'):undefined,
+        s.kind==='data'?row('Cooling draw','Requires 13 L/s. Link to a powered pump or reservoir within 46 m per pipeline segment.'):undefined,
         s.kind==='fire'&&g.mods.carbon?row('Fire mode',s.mode==='charcoal'?'Charcoal collection':'Cash sale',btn('Switch',()=>{s.mode=s.mode==='charcoal'?'sell':'charcoal';this.site();})):undefined,
         ...s.jobs.map(job=>row(goods[job.good][0],`${Math.ceil(Math.max(0,job.remaining))}s remaining`))),
       section('Output',

@@ -30,3 +30,12 @@ npm run preview
 ```
 
 Deploy the contents of `dist/` to a static host. The production build uses relative asset URLs and needs no server-side game service. The field manual is available from the main menu. See [tasks.md](tasks.md) and [completed.md](completed.md) for the scope and review status.
+
+## Browser test
+
+```sh
+npx playwright install chromium
+npm run test:browser
+```
+
+The browser review checks the opening from a fresh campaign and imports a small saved fixture for the refining path. Run `BROWSER=firefox npm run test:browser` after installing Playwright Firefox. On Linux systems without a hardware display, use `xvfb-run --auto-servernum env HEADED=1 BROWSER=firefox npm run test:browser`.

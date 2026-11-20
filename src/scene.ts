@@ -30,7 +30,6 @@ export class Scene {
   private rideViews = new Map<string,ReturnType<typeof vehicleModel>>();
   private chops = new Map<number,T.Group>();
   private routes = new Map<string,T.Group>();
-  private workProjects = new Map<number,T.Group>();
   private crew = new Map<string, ReturnType<typeof vehicleModel>>();
   private particles: Particle[] = [];
   private painter = new T.Object3D();
@@ -38,6 +37,8 @@ export class Scene {
   private sunlight: T.DirectionalLight;
   private sky: T.Mesh<T.SphereGeometry,T.ShaderMaterial>;
   private rope = ropeModel();
+  private rain = new T.InstancedMesh(new T.CylinderGeometry(.016,.012,.51,4),
+    new T.MeshBasicMaterial({color:'#9cb6ac',transparent:true,opacity:.28,depthWrite:false}),145);
   private selection = new T.Mesh(new T.RingGeometry(.2,.235,28),new T.MeshBasicMaterial({color:'#f1d599',side:T.DoubleSide, depthWrite:false, transparent:true, opacity:.8}));
   private ghost = new T.Mesh(new T.BoxGeometry(1,1,1),buildTint);
   private marker = new T.Mesh(new T.ConeGeometry(.6,1.7,5),new T.MeshStandardMaterial({color:'#ecc47a',emissive:'#da8938',emissiveIntensity:.3}));
@@ -92,7 +93,9 @@ export class Scene {
       `,
     }));
     this.sky.renderOrder=-10;
-    this.world.add(this.sky,this.rope,this.selection,this.ghost,this.marker);
+    this.world.add(this.sky,this.rope,this.selection,this.ghost,this.marker,this.rain);
+    this.rain.frustumCulled=false;
+    this.rain.visible=false;
     this.selection.rotation.x=-Math.PI*.5;
     this.marker.rotation.z=Math.PI;
     this.marker.visible=false;
@@ -129,8 +132,8 @@ export class Scene {
     for (const [key,chunk] of this.chunks) this.dropChunk(key,chunk);
     for (const {model,body} of this.logViews.values()) { this.world.remove(model); if (body) this.physics.removeRigidBody(body); }
     for (const collection of [this.siteViews,this.rideViews,this.crew]) for (const {root} of collection.values()) this.world.remove(root);
-    for (const obj of [...this.chops.values(), ...this.routes.values(), ...this.workProjects.values()]) this.world.remove(obj);
-    this.logViews.clear(); this.siteViews.clear(); this.rideViews.clear();this.crew.clear(); this.chops.clear(); this.routes.clear(); this.workProjects.clear();
+    for (const obj of [...this.chops.values(), ...this.routes.values()]) this.world.remove(obj);
+    this.logViews.clear(); this.siteViews.clear(); this.rideViews.clear();this.crew.clear(); this.chops.clear(); this.routes.clear();
     for (const f of this.fallers.values()) this.world.remove(f.model);
     this.fallers.clear();
     this.streamStamp='';
@@ -244,6 +247,20 @@ export class Scene {
     leaves.count=used;
     leaves.receiveShadow=true;
     chunk.cover.add(leaves);
+    const cracks=new T.InstancedMesh(new T.BoxGeometry(1,1,1),mat('#6e5940'),96);
+    let etched=0;
+    for(let n=0;n<96;n++) {
+      const x=chunk.x+hash(this.game.seed+n,chunk.x,chunk.z+3)*CHUNK,z=chunk.z+hash(this.game.seed-n,chunk.z,chunk.x-3)*CHUNK;
+      const cell=this.game.soil.get(indexAt(x,z));
+      if(!cell || cell.stage<5 || cell.erosion<.49) continue;
+      this.painter.position.set(x,height(x,z)+.016,z);
+      this.painter.rotation.set(0,n*2.4,0);
+      this.painter.scale.set(n%3===0?.055:.031,.016,.22+n%11*.065);
+      this.painter.updateMatrix();
+      cracks.setMatrixAt(etched++,this.painter.matrix);
+    }
+    if(etched) { cracks.count=etched; cracks.receiveShadow=true; chunk.cover.add(cracks); }
+    else cracks.dispose();
     for(let n=0;n<16;n++) {
       const x=chunk.x+hash(this.game.seed+n,chunk.x,chunk.z+1)*CHUNK,z=chunk.z+hash(this.game.seed-n,chunk.z,chunk.x-1)*CHUNK;
       if (Math.hypot(x*.8,z)<11) continue;
@@ -574,7 +591,7 @@ export class Scene {
     for(const [id, fall] of this.fallers) {
       fall.age+=dt;
       const progress=clamp(fall.age/1.22), tilt=progress*progress*Math.PI*.49;
-      const axis=new T.Vector3(-fall.dir.z,0,fall.dir.x);
+      const axis=new T.Vector3(fall.dir.z,0,-fall.dir.x);
       fall.model.quaternion.setFromAxisAngle(axis,tilt);
       fall.model.rotateY(fall.tree.rotation);
       if(progress<1) continue;
@@ -619,6 +636,19 @@ export class Scene {
       this.camera.rotation.set(pitch,yaw,0,'YXZ');
     }
     this.sky.position.copy(this.camera.position);
+    this.rain.visible=this.game.rain>.12&&!menu&&this.quality!=='low';
+    if(this.rain.visible) {
+      this.rain.count=Math.ceil(this.game.rain*145);
+      for(let n=0;n<this.rain.count;n++) {
+        const y=9-((n*.83+this.frameAge*10)%10);
+        this.painter.position.set(this.camera.position.x+(hash(n,5,8)-.5)*23+y*.16,y+this.camera.position.y-3,this.camera.position.z+(hash(n,8,2)-.5)*23);
+        this.painter.rotation.set(.06,0,-.16);
+        this.painter.scale.setScalar(.86);
+        this.painter.updateMatrix();
+        this.rain.setMatrixAt(n,this.painter.matrix);
+      }
+      this.rain.instanceMatrix.needsUpdate=true;
+    }
     this.stream({x:this.camera.position.x,z:this.camera.position.z},false,at);
     this.syncRides(at,this.frameAge,drive);
     this.syncLogs(at);
