@@ -1,6 +1,6 @@
-import { CELL, DISTRICTS, SIZE, TOTAL, facilities, goods, recipes, species, tools, vehicles, vehicleTypes } from './catalog';
+import { CELL, DISTRICT, DISTRICT_CELLS, DISTRICTS, SIZE, TOTAL, facilities, goods, recipes, species, tools, vehicles, vehicleTypes } from './catalog';
 import type { Facility, Good, Recipe, Stack, Tool, VehicleType } from './catalog';
-import { applyLand, blockers, cellPoint, clamp, defaultSoil, desertified, distance, districtAt, hash, height, homeDistrict, indexAt, noPressure, treesIn } from './land';
+import { applyLand, blockers, cellPoint, clamp, defaultSoil, desertified, distance, districtAt, districtCell, hash, height, homeDistrict, indexAt, noPressure, treesIn } from './land';
 import type { Blocker, Point, Pressure, Soil, Tree } from './land';
 import { quests } from './quests';
 import type { QuestId } from './quests';
@@ -64,7 +64,15 @@ const isRecipe = (kind: Facility): kind is keyof typeof recipes => Object.hasOwn
 const allDistricts = DISTRICTS ** 2;
 const pressureFields=['clearing','drainage','removal','heat','grazing','pollution','runoff'] as const;
 const pressureSlots:Record<keyof Pressure,number>={clearing:0,drainage:1,removal:2,heat:3,grazing:4,pollution:5,runoff:6};
-export const projectPrices = { watershed: 6200, quarry: 8200, thermal: 9500, dryland: 12500, integrated: 24000, continental:32000 };
+export const projectBond=5500;
+export const districtProjects:Record<Project['kind'],{name:string;price:number;facility:Facility;research?:string}> = {
+  watershed:{name:'Watershed drawdown',price:6200,facility:'pump'},
+  quarry:{name:'Regional stripping',price:8200,facility:'quarry'},
+  thermal:{name:'Thermal exhaustion',price:9500,facility:'thermal'},
+  dryland:{name:'Dryland farming and extraction',price:12500,facility:'soilRecovery',research:'20-12'},
+  integrated:{name:'Integrated conversion program',price:24000,facility:'stormTower',research:'23-12'},
+  continental:{name:'Continental extraction program',price:32000,facility:'urbanBlock',research:'21-12'},
+};
 export const fields:Facility[]=['pasture','crop','megaFarm','soilRecovery'];
 
 export function getQuantity(stacks: Stack[], good?: Good) {
@@ -638,13 +646,21 @@ export class Campaign {
     return true;
   }
 
+  projectBlockers(district:number,kind:Project['kind']) {
+    const rules=districtProjects[kind], issues:string[]=[];
+    if(!this.districts.has(district))issues.push('Requires a district permit');
+    if(this.projects.some(p=>p.district===district))issues.push('A project is already commissioned here');
+    if(this.desertByDistrict[district]===DISTRICT_CELLS)issues.push('All district cells are already stable');
+    if(!this.sites.some(s=>s.kind==='forestry'))issues.push('Build '+facilities.forestry.name);
+    if(rules.research&&!this.ownedUpgrades.has(rules.research))issues.push('Research '+upgradesById.get(rules.research)!.name);
+    if(!this.sites.some(s=>s.kind===rules.facility))issues.push('Build '+facilities[rules.facility].name);
+    if(this.cash<rules.price)issues.push('Insufficient funds');
+    return issues;
+  }
+
   startProject(district: number, kind: Project['kind']) {
-    if (!this.districts.has(district) || this.projects.some(p => p.district === district) || this.cash < projectPrices[kind]) return false;
-    if (!this.sites.some(s => s.kind === 'forestry')) return false;
-    if(kind==='dryland'&&!this.mods.drylandOffice||kind==='integrated'&&!this.mods.megaPlan||kind==='continental'&&!this.mods.continent)return false;
-    const required = kind === 'watershed' ? 'pump' : kind === 'quarry' ? 'quarry' : kind==='dryland'?'soilRecovery':kind==='integrated'?'stormTower':kind==='continental'?'urbanBlock':'thermal';
-    if (!this.sites.some(s => s.kind === required)) return false;
-    this.finance(-projectPrices[kind], kind + ' district deployment');
+    if(this.projectBlockers(district,kind).length)return false;
+    this.finance(-districtProjects[kind].price, kind + ' district deployment');
     this.projects.push({ district, kind, phase: 0 });
     this.notice('District work order commissioned');
     return true;
@@ -1220,12 +1236,16 @@ export class Campaign {
       if(waterStores.includes(site.kind)) {
         const maximum=waterCapacity(site.kind);
         const flow=site.kind==='coolTower'?140:site.kind==='tankFarm'?92:24;
+        let remaining=Math.min(flow*dt,maximum-(site.water??0));
         for(const source of this.sites) {
+          if(remaining<=0)break;
           if(!waterPumps.includes(source.kind)||!source.on||!this.waterReach(site,source,46)) continue;
-          const transfer=Math.min(source.water??0,flow*dt,maximum-(site.water??0));
+          if(source.waterMode&&source.waterMode!=='all'&&source.waterMode!==site.waterMode)continue;
+          const transfer=Math.min(source.water??0,remaining);
           if(transfer<=0)continue;
           source.water=(source.water??0)-transfer;
           site.water=(site.water??0)+transfer;
+          remaining-=transfer;
         }
       }
       if(this.rain>.3&&!this.mods.sheltered&&(site.kind==='rack'||storageSite(site.kind))) {
@@ -1531,18 +1551,17 @@ export class Campaign {
     }
     for (const project of this.projects) {
       if(project.complete)continue;
-      if(this.desertByDistrict[project.district]===1024) {
+      if(this.desertByDistrict[project.district]===DISTRICT_CELLS) {
         project.complete=true;
-        this.finance(5500,'Completed regional conversion contract');
+        this.finance(projectBond,'Completed regional conversion contract');
         this.notice('District converted · completion bond paid');
         continue;
       }
       project.phase += dt;
-      const dx = project.district % DISTRICTS * 32, dz = Math.floor(project.district / DISTRICTS) * 32;
-      for (let z = dz; z < dz + 32; z++) for (let x = dx; x < dx + 32; x++) {
-        const i = z * 256 + x;
-        const wave = (x - dx + z - dz) * 1.5;
+      for(let offset=0;offset<DISTRICT_CELLS;offset++){
+        const wave=(offset%DISTRICT+Math.floor(offset/DISTRICT))*1.5;
         if (project.phase < wave) continue;
+        const i=districtCell(project.district,offset);
         add(i, 'clearing', 1.1);
         if (project.kind === 'watershed') { add(i, 'drainage', 3.2); add(i, 'grazing', 2.6); }
         if (project.kind === 'quarry') { add(i, 'removal', 2.1); add(i, 'drainage', .8); }
@@ -1724,8 +1743,10 @@ export class Campaign {
 
   scan(district?: number, limit = 64, filter?:Blocker) {
     const output: { i: number; at: Point; soil: Soil }[] = [];
-    for (let i = 0; i < TOTAL && output.length < limit; i++) {
-      if (district !== undefined && districtAt(i) !== district) continue;
+    if(district!==undefined&&(!Number.isInteger(district)||district<0||district>=allDistricts))return output;
+    const count=district===undefined?TOTAL:DISTRICT_CELLS;
+    for (let offset = 0; offset < count && output.length < limit; offset++) {
+      const i=district===undefined?offset:districtCell(district,offset);
       const soil = this.soil.get(i) ?? defaultSoil();
       if (!desertified(soil)&&(!filter||blockers(soil).includes(filter))) output.push({ i, at: cellPoint(i), soil });
     }

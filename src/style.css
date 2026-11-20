@@ -278,6 +278,10 @@ kbd { display: inline-flex; align-items: center; justify-content: center; min-wi
 .zone.active, .zone:hover { border-color: #eed183; background: color-mix(in srgb,var(--land),#cbbd80 27%); }
 .zone strong, .zone small { display: block; font: 500 .65rem/1.12 var(--mono); }
 .zone small { color: #f7e8bd; font-size: .46rem; margin-top: 2px; }
+.biome-legend { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,9.5rem),1fr)); gap: .28rem .6rem; padding: 0; margin: .5rem 0 .68rem; list-style: none; }
+.biome-legend li { display: grid; grid-template-columns: .63rem 1fr auto; gap: .36rem; align-items: center; padding: .22rem .3rem; font-size: .66rem; }
+.biome-swatch { width: .63rem; height: .63rem; border: 1px solid #e9dfb66b; }
+.biome-legend strong { font-family: var(--mono); }
 .touch { position: absolute; inset: 0; pointer-events: none; }
 .touch .dpad { position: absolute; bottom: 7.4rem; left: 14px; display: grid; grid-template-columns: repeat(3,2.75rem); gap: 5px; align-items: end; }
 .dpad button:first-child { grid-column: 2; }

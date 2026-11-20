@@ -3,6 +3,7 @@ export const CELL = 16;
 export const CELLS = SIZE / CELL;
 export const TOTAL = CELLS ** 2;
 export const DISTRICT = 32;
+export const DISTRICT_CELLS = DISTRICT ** 2;
 export const DISTRICTS = CELLS / DISTRICT;
 
 export const species = [

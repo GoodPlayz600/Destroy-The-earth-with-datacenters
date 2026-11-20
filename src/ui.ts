@@ -1,8 +1,8 @@
-import { DISTRICTS, TOTAL, facilities, goods, recipes, tools, vehicles, vehicleTypes } from './catalog';
+import { DISTRICT_CELLS, DISTRICTS, TOTAL, facilities, goods, recipes, tools, vehicles, vehicleTypes } from './catalog';
 import type { Facility, Good, Recipe, Tool, VehicleType } from './catalog';
-import { biomassSites, buyerSite, cargoMass, computeSites, consumes, fields, fuelGood, getQuantity, isOpenContract, projectPrices, storageSite, mills, waterSites, waterPumps, waterCapacity } from './campaign';
+import { biomassSites, buyerSite, cargoMass, computeSites, consumes, districtProjects, fields, fuelGood, getQuantity, isOpenContract, projectBond, storageSite, mills, waterSites, waterPumps, waterCapacity } from './campaign';
 import type { Campaign, Challenge, Project, Site } from './campaign';
-import { blockers, conversionLabel, desertRules, districtCenter, districtName, soilColors, stages } from './land';
+import { blockers, conversionLabel, coverageLabel, desertRules, desertified, districtAt, districtCenter, districtName, soilColors, stages } from './land';
 import type { Blocker, Point } from './land';
 import { bindingOptions, defaults } from './storage';
 import type { Archive, Binding, Preferences } from './storage';
@@ -391,12 +391,14 @@ export class UI {
     for(const [name,id] of [...availableLayers,...(g.mods.soilOverlay?researchLayers:[])]) {
       controls.append(action(name,()=>{this.layer=id;this.map();},this.layer===id?'branch selected':'branch'));
     }
-    const metrics=Array.from({length:DISTRICTS**2},()=>({moisture:.68*1024,groundwater:.85*1024,heat:.12*1024,vegetation:1024,fertility:.9*1024,erosion:0}));
-    const layers=Array.from({length:DISTRICTS**2},()=>Array(7).fill(0) as number[]);
+    const metrics=Array.from({length:DISTRICTS**2},()=>({moisture:.68*DISTRICT_CELLS,groundwater:.85*DISTRICT_CELLS,
+      heat:.12*DISTRICT_CELLS,vegetation:DISTRICT_CELLS,fertility:.9*DISTRICT_CELLS,erosion:0}));
+    const layers=Array.from({length:DISTRICTS**2},()=>[DISTRICT_CELLS,0,0,0,0,0,0]);
     for(const [i,s] of g.soil) {
-      const x=Math.floor((i%256)/32),z=Math.floor(i/256/32);
-      const district=z*DISTRICTS+x;
-      layers[district][s.stage]++;
+      const district=districtAt(i);
+      const stage=desertified(s)?6:Math.min(s.stage,5);
+      layers[district][0]--;
+      layers[district][stage]++;
       metrics[district].moisture+=s.moisture-.68;
       metrics[district].groundwater+=s.groundwater-.85;
       metrics[district].heat+=s.heat-.12;
@@ -404,15 +406,26 @@ export class UI {
     }
     for(let i=0;i<DISTRICTS**2;i++) {
       const b=action('',()=>{this.district=i;this.map();},i===this.district?'zone active':'zone');
-      const desert=g.desertByDistrict[i],style=layers[i].reduce((last,n,index)=>n>0?index:last,-1);
-      const precision=this.layer==='stage'?0:Math.round(metrics[i][this.layer]/10.24);
-      const soil=this.layer==='stage'?soilColors[Math.max(0,style)]
+      const desert=g.desertByDistrict[i];
+      const style=layers[i].reduce((most,n,index)=>n>layers[i][most]?index:most,0);
+      const precision=this.layer==='stage'?0:Math.round(metrics[i][this.layer]*100/DISTRICT_CELLS);
+      const soil=this.layer==='stage'?soilColors[style]
         : this.layer==='heat'?`hsl(${51-.42*precision} 55% ${33+precision*.18}%)`:`hsl(${40+precision*1.75} 39% ${33+precision*.18}%)`;
       b.style.setProperty('--land',soil);
-      b.append(el('strong','',districtName(i)),el('small','',this.layer!=='stage'?precision+'%':desert?Math.floor(desert/10.24)+'%':g.districts.has(i)?'OWNED':'·'));
+      b.title=this.layer==='stage'?`${stages[style]} is the largest biome · ${coverageLabel(desert)}% stable`:districtName(i);
+      b.setAttribute('aria-pressed',String(i===this.district));
+      b.append(el('strong','',districtName(i)),el('small','',this.layer!=='stage'?precision+'%':desert?coverageLabel(desert)+'%':g.districts.has(i)?'OWNED':'·'));
       grid.append(b);
     }
     const district=this.district,count=g.desertByDistrict[district];
+    const built=g.projects.find(p=>p.district===district);
+    const biomeLegend=el('ul','biome-legend');
+    for(const [stage,name] of stages.entries()){
+      const swatch=el('span','biome-swatch');
+      swatch.style.backgroundColor=soilColors[stage];
+      swatch.setAttribute('aria-hidden','true');
+      biomeLegend.append(el('li','',swatch,el('span','',name),el('strong','',value(layers[district][stage]))));
+    }
     const labels:Record<Blocker,string>={vegetation:'Clear vegetation',moisture:'Dry surface',ground:'Lower groundwater or fertility',substrate:'Expose substrate',time:'Wait for stabilization'};
     const survey=g.scan(district,16,this.filter);
     const filtered=el('div','controls-row survey-controls');
@@ -421,21 +434,23 @@ export class UI {
       for(const [type,name] of names)filtered.append(action(name,()=>{this.filter=type;this.map();},this.filter===type?'branch selected':'branch'));
     }
     const selected=el('div','panel-content',cards(tc(conversionLabel(g.desertCount)+'%','Campaign desert'),tc(value(g.desertCount)+' / '+value(TOTAL),'Stable cells')),controls,grid,
-      section('District '+districtName(district),sub(`${count} / 1,024 cells stable${g.mods.census?' · '+(1024-count)+' remaining · '+desertRules.stabilization+'s verified hold':''}`),
+      section('District '+districtName(district),sub(`${value(count)} / ${value(DISTRICT_CELLS)} cells stable${g.mods.census?' · '+(DISTRICT_CELLS-count)+' remaining · '+desertRules.stabilization+'s verified hold':''}`),
+        biomeLegend,
         g.mods.droneSurvey?btn('Fly survey drone',()=>this.c.survey(districtCenter(district))):undefined,
-        g.districts.has(district)?sub('Permit active'):btn('Purchase permit · $950',()=>{if(g.buyDistrict(district))this.map();},g.cash<950),
-        ...Object.entries(projectPrices).map(([key,price])=>{
-          const kind=key as Project['kind'], built=g.projects.find(p=>p.district===district);
-          const ready=g.sites.some(s=>s.kind==='forestry')&&g.sites.some(s=>s.kind===(kind==='watershed'?'pump':kind==='quarry'?'quarry':kind==='dryland'?'soilRecovery':kind==='integrated'?'stormTower':kind==='continental'?'urbanBlock':'thermal'))
-            &&(kind!=='dryland'||g.mods.drylandOffice)&&(kind!=='integrated'||g.mods.megaPlan)&&(kind!=='continental'||g.mods.continent);
-          const display={watershed:'Watershed drawdown',quarry:'Regional stripping',thermal:'Thermal exhaustion',dryland:'Dryland farming and extraction',integrated:'Integrated conversion program',continental:'Continental extraction program'}[kind];
-          return row(display,built?.kind===kind?(built.complete?'Bond paid · all district cells stable':`Commissioned · ${duration(built.phase)}`):'Requires local industrial expertise and a district permit',
-            btn(cash(price),()=>{if(g.startProject(district,kind))this.map();},Boolean(built)||!ready||!g.districts.has(district)||g.cash<price));
+        g.districts.has(district)?sub('Permit active'):btn('Purchase permit · $950',()=>{if(g.buyDistrict(district))this.map();},g.cash<950)),
+      section('District projects',sub(`Each completed project pays a ${cash(projectBond)} bond once all district cells stabilize.`),
+        ...Object.entries(districtProjects).map(([key,rules])=>{
+          const kind=key as Project['kind'];
+          const issues=g.projectBlockers(district,kind);
+          const state=built?.kind===kind?(built.complete?`Bond paid · completed in ${duration(built.phase)}`:`Commissioned · ${duration(built.phase)} elapsed`):issues.join(' · ');
+          const cost=`Net project cost after bond ${cash(rules.price-projectBond)}`;
+          return row(rules.name,state?cost+' · '+state:cost,
+            btn(cash(rules.price),()=>{if(g.startProject(district,kind))this.map();},Boolean(issues.length)));
         })),
       g.mods.aquiferMap?section('Aquifer connectivity',
         sub('District averages use the groundwater in their individual cells. Pump outlets serve facilities within their pipe network.'),
         ...[district-DISTRICTS,district+DISTRICTS,district-1,district+1].filter(i=>i>=0&&i<DISTRICTS**2&&Math.abs(Math.floor(i/DISTRICTS)-Math.floor(district/DISTRICTS))+
-          Math.abs(i%DISTRICTS-district%DISTRICTS)===1).map(i=>row(districtName(i),Math.round(metrics[i].groundwater/10.24)+'% mean groundwater'))):undefined,
+          Math.abs(i%DISTRICTS-district%DISTRICTS)===1).map(i=>row(districtName(i),Math.round(metrics[i].groundwater*100/DISTRICT_CELLS)+'% mean groundwater'))):undefined,
       section('Remaining-cell survey',filtered,
         g.mods.lastPixel?btn('Queue visible cleanup jobs',()=>{for(const {i}of survey)g.dispatchCleanup(i);this.map();},!survey.length||!g.districts.has(district)):undefined,
         ...survey.map(({i,at,soil})=>{
@@ -557,7 +572,8 @@ export class UI {
         def.supply&&!['solar','wind',...biomassSites].includes(s.kind)?row('Fuel',Math.floor(s.fuel)+'%',btn('Refuel · $25',()=>{if(g.cash>=25){g.finance(-25,'Generator fuel');s.fuel=100;this.site();}},g.cash<25||s.fuel===100)):undefined,
         waterSites.includes(s.kind)?row('Water storage',Math.floor(s.water??0)+' / '+waterCapacity(s.kind)+' L'):undefined,
         s.kind==='handPump'?row('Manual extraction','Draw water from the current cell',btn('Pump',()=>{g.pumpByHand(s);this.site();})):undefined,
-        waterSites.includes(s.kind)&&g.mods.diversion?row('Allocation',s.waterMode??'all',btn('Switch priority',()=>{
+        waterSites.includes(s.kind)&&g.mods.diversion?row('Allocation',
+          s.waterMode==='farm'?'Farms and farm-only reservoirs':s.waterMode==='industry'?'Industry and industry-only reservoirs':'Shared supply',btn('Switch priority',()=>{
           s.waterMode=s.waterMode==='farm'?'industry':s.waterMode==='industry'?'all':'farm';this.site();
         })):undefined,
         waterPumps.includes(s.kind)&&s.kind!=='handPump'&&g.mods.waterBoard?row('Pump schedule',s.waterRate??'normal',btn('Switch rate',()=>{
