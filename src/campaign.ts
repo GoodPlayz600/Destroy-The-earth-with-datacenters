@@ -2,6 +2,8 @@ import { CELL, DISTRICTS, TOTAL, facilities, goods, recipes, species, tools, veh
 import type { Facility, Good, Recipe, Stack, Tool, VehicleType } from './catalog';
 import { applyLand, cellPoint, clamp, defaultSoil, desertified, distance, districtAt, hash, height, homeDistrict, indexAt, noPressure, treesIn } from './land';
 import type { Point, Pressure, Soil, Tree } from './land';
+import { quests } from './quests';
+import type { QuestId } from './quests';
 import { forestryUnlocks, modifiers, upgradeFacility, upgradesById } from './upgrades';
 
 export const VERSION = 1;
@@ -19,12 +21,12 @@ export const consumes = (recipe: Recipe | undefined, good: Good) => recipe?.inpu
 export const takesLogs=(kind:Facility) => storageSite(kind)||kind==='fire'||kind==='market'||(isRecipe(kind)&&(recipes[kind] as Recipe).input?.[0]==='timber');
 export type Site = Point & {
   id: string; kind: Facility; yaw?:number; input: Stack[]; output: Stack[]; jobs: Batch[];
-  on: boolean; fuel: number; status: string; water?: number; reserve?:number; priority?:boolean; gridFlow?:number; gridCapacity?:number; uptime?:number; service?:number; yieldCarry?:number; layout?: 'quality'|'volume'; sortHigh?:boolean; link?: string; haul?: Haul; shipment?:Shipment; mode?: 'sell' | 'charcoal';
+  on: boolean; fuel: number; status: string; planted?:number; fertilizer?:boolean; intensive?:boolean; water?: number; reserve?:number; priority?:boolean; gridFlow?:number; gridCapacity?:number; uptime?:number; service?:number; yieldCarry?:number; layout?: 'quality'|'volume'; sortHigh?:boolean; link?: string; haul?: Haul; shipment?:Shipment; mode?: 'sell' | 'charcoal';
 };
 export type Ride = Point & { id: string; kind: VehicleType; yaw: number; fuel: number; wear: number; hitch?:string };
 export type Ledger = { date: number; note: string; amount: number };
 export type Contract = { good: Good; quantity: number; deadline: number; payout: number; done: boolean; failed: boolean; dense?:boolean; grade?:number };
-export type Project = { kind: 'watershed' | 'quarry' | 'thermal'; district: number; phase: number; complete?: boolean };
+export type Project = { kind: 'watershed' | 'quarry' | 'thermal' | 'dryland'; district: number; phase: number; complete?: boolean };
 type RecordRow = { hits: number; harvest: number; fire: number; sold: number; produced: number; earned: number; spent: number; miles: number };
 export type Save = ReturnType<Campaign['snapshot']>;
 
@@ -32,7 +34,8 @@ const baseSites: [Facility, number, number][] = [['fire', -6.5, 0], ['market', 7
 const rootStats = (): RecordRow => ({ hits: 0, harvest: 0, fire: 0, sold: 0, produced: 0, earned: 0, spent: 0, miles: 0 });
 const isRecipe = (kind: Facility): kind is keyof typeof recipes => Object.hasOwn(recipes, kind);
 const allDistricts = DISTRICTS ** 2;
-export const projectPrices = { watershed: 6200, quarry: 8200, thermal: 9500 };
+export const projectPrices = { watershed: 6200, quarry: 8200, thermal: 9500, dryland: 12500 };
+export const fields:Facility[]=['pasture','crop','megaFarm','soilRecovery'];
 
 export function getQuantity(stacks: Stack[], good?: Good) {
   return stacks.reduce((n, stack) => n + (!good || stack.good === good ? stack.quantity : 0), 0);
@@ -102,6 +105,7 @@ export class Campaign {
   desertByDistrict = new Uint16Array(allDistricts);
   notices: string[] = [];
   achievements = new Set<string>();
+  claimed = new Set<QuestId>();
   private tickTime = 0;
   private landQueue = new Set<number>();
   private roadPower = new Map<string, boolean>();
@@ -116,6 +120,15 @@ export class Campaign {
   }
 
   notice(message: string) { this.notices.push(message); }
+  claimQuest(id:QuestId) {
+    const quest=quests[id];
+    if(this.claimed.has(id)||quest.progress(this)<quest.target)return false;
+    this.claimed.add(id);
+    if(quest.reward)this.finance(quest.reward,'Field objective · '+quest.title);
+    this.notice(quest.reward?`Objective complete · +$${quest.reward}`:`Objective complete · ${quest.title}`);
+    return true;
+  }
+
   finance(amount: number, note: string) {
     this.cash += amount;
     if (amount > 0) this.stats.earned += amount;
@@ -379,7 +392,8 @@ export class Campaign {
   startProject(district: number, kind: Project['kind']) {
     if (!this.districts.has(district) || this.projects.some(p => p.district === district) || this.cash < projectPrices[kind]) return false;
     if (!this.sites.some(s => s.kind === 'forestry')) return false;
-    const required = kind === 'watershed' ? 'pump' : kind === 'quarry' ? 'quarry' : 'thermal';
+    if(kind==='dryland'&&!this.mods.drylandOffice)return false;
+    const required = kind === 'watershed' ? 'pump' : kind === 'quarry' ? 'quarry' : kind==='dryland'?'soilRecovery':'thermal';
     if (!this.sites.some(s => s.kind === required)) return false;
     this.finance(-projectPrices[kind], kind + ' district deployment');
     this.projects.push({ district, kind, phase: 0 });
@@ -483,7 +497,11 @@ export class Campaign {
     const base={data:13,serverHall:25,hyperscale:98}[site.kind as 'data'|'serverHall'|'hyperscale']??0;
     if(!base)return true;
     const requested=base*dt*(this.mods.airFans?.91:1)*(this.mods.liquidLoop?1.36:1);
-    const stores=this.sites.filter(source=>source.on&&waterSites.includes(source.kind)&&this.reachable(site,source,['pipe'],this.mods.campus?65:46));
+    return this.takeWater(site,requested,this.mods.campus?65:46);
+  }
+
+  private takeWater(site:Site,requested:number,range:number) {
+    const stores=this.sites.filter(source=>source.on&&waterSites.includes(source.kind)&&this.reachable(site,source,['pipe'],range));
     if(stores.reduce((total,source)=>total+(source.water??0),0)<requested) return false;
     let remaining=requested;
     for(const source of stores) {
@@ -494,9 +512,46 @@ export class Campaign {
     return true;
   }
 
+  sow(site:Site) {
+    if(site.kind!=='crop'||(site.planted??0)>=3||this.cash<12)return false;
+    this.finance(-12,'Sow crop plot');
+    site.planted=(site.planted??0)+1;
+    return true;
+  }
+
+  fertilize(site:Site) {
+    if(!this.mods.fertilizer||!['crop','megaFarm'].includes(site.kind)||site.fertilizer||this.cash<45)return false;
+    this.finance(-45,'Field fertilizer');
+    site.fertilizer=true;
+    return true;
+  }
+
+  private farmReady(site:Site) {
+    const soil=this.getSoil(indexAt(site.x,site.z));
+    const field=site.kind==='crop'||site.kind==='megaFarm';
+    if(site.kind==='soilRecovery'){
+      if(soil.fertility<=.32)return true;
+      site.status='Soil has not been exhausted';return false;
+    }
+    const cell=indexAt(site.x,site.z);
+    if(!treesIn(this.seed,cell).some(tree=>this.isStanding(tree))) {
+      if(soil.vegetation>.13){soil.vegetation=.12;this.landRevision++;}
+      this.landQueue.add(cell);
+    }
+    if(soil.vegetation>.24){site.status='Clear the field canopy';return false;}
+    if(field&&this.mods.irrigation&&soil.moisture<.44&&this.takeWater(site,4,52))soil.moisture=clamp(soil.moisture+.018);
+    if(soil.moisture<.19||soil.fertility<.16){site.status='Field too dry or exhausted';return false;}
+    if(site.kind==='crop'&&!this.mods.cropHarvester&&!site.planted){site.status='Awaiting sowing order';return false;}
+    return true;
+  }
+
   private makeBatch(site:Site,recipe:Recipe, poweredFan=false, crank=false) {
     const [good,baseQuantity]=recipe.output, mill=mills.includes(site.kind);
+    const farming=fields.includes(site.kind), growing=farming&&site.kind!=='soilRecovery';
+    if(farming&&!this.farmReady(site))return false;
     let quantity=baseQuantity;
+    if(growing&&site.fertilizer)quantity+=Math.ceil(baseQuantity*.40);
+    if(growing&&site.intensive)quantity+=Math.ceil(baseQuantity*.26);
     const carry=mill&&this.mods.bladeGuide?(site.yieldCarry??0)+baseQuantity*.10:0;
     quantity+=Math.floor(carry+1e-8);
     if(mill&&this.mods.cutPatterns&&site.layout==='volume')quantity+=1;
@@ -540,6 +595,16 @@ export class Campaign {
       if(this.mods.rackManagement)remaining*=.87;
       if(this.mods.airFans)remaining*=.78;
       if(this.mods.liquidLoop&&site.kind!=='serverRack')remaining*=.62;
+    }
+    if(growing){
+      const i=indexAt(site.x,site.z),soil=this.getSoil(i);
+      if(site.kind==='crop'&&!this.mods.cropHarvester)site.planted=Math.max(0,(site.planted??0)-1);
+      const depletion=site.intensive?.029:.012;
+      soil.fertility=clamp(soil.fertility-depletion);
+      soil.moisture=clamp(soil.moisture-(site.kind==='pasture'?.016:.042));
+      soil.groundwater=clamp(soil.groundwater-(site.kind==='pasture'?.004:.011));
+      if(site.fertilizer){soil.pollution=clamp(soil.pollution+.12);soil.fertility=clamp(soil.fertility-.024);site.fertilizer=false;}
+      this.landQueue.add(i);
     }
     site.jobs.push({good,quantity,quality:clamp(quality),moisture,remaining,offcut});
     site.status=recipe.name;
@@ -819,8 +884,13 @@ export class Campaign {
           switch (def.effect) {
             case 'fire': add(i, 'heat', force * .7); break;
             case 'pump': add(i, 'drainage', force * 1.6); break;
-            case 'grazing': add(i, 'grazing', force * 1.5); break;
-            case 'quarry': add(i, 'removal', force); break;
+            case 'grazing':
+              if(site.kind==='ranch'&&!site.jobs.length)break;
+              add(i,'grazing',force*(this.mods.grazingDensity?2.4:1.5));break;
+            case 'field':
+              if(site.jobs.length){add(i,'grazing',force*(site.intensive?1.7:.88));add(i,'drainage',force*.45);}
+              break;
+            case 'quarry': if(site.kind!=='soilRecovery'||site.jobs.length)add(i,'removal',force);break;
             case 'thermal': add(i, 'heat', force * 1.6); add(i, 'pollution', force); break;
             case 'dryer': add(i, 'heat', force * 1.55); add(i, 'removal', force * .7); break;
             case 'data': add(i, 'heat', force); add(i, 'drainage', force * 1.28); break;
@@ -859,6 +929,7 @@ export class Campaign {
         add(i, 'clearing', 1.1);
         if (project.kind === 'watershed') { add(i, 'drainage', 3.2); add(i, 'grazing', 2.6); }
         if (project.kind === 'quarry') { add(i, 'removal', 2.1); add(i, 'drainage', .8); }
+        if (project.kind === 'dryland') {add(i,'grazing',2.3);add(i,'removal',1.25);add(i,'drainage',1.6);}
         if (project.kind === 'thermal') { add(i, 'heat', 2.7); add(i, 'removal', .58); }
       }
     }
@@ -916,7 +987,7 @@ export class Campaign {
     const soil=this.getSoil(i);
     const before=desertified(soil);
     const wasVisible=soil.vegetation>.03;
-    if(applyLand(soil,{clearing:2.4,drainage:.7,removal:4.5,heat:0,grazing:0,pollution:.18},seconds,this.rain,1,this.clock)
+    if(applyLand(soil,{clearing:2.4,drainage:.7,removal:this.mods.compactor?6.8:4.5,heat:0,grazing:this.mods.compactor?1:0,pollution:.18},seconds,this.rain,1,this.clock)
       ||wasVisible!==(soil.vegetation>.03))this.landRevision++;
     if(!before&&desertified(soil)) {
       this.desertCount++;
@@ -942,7 +1013,7 @@ export class Campaign {
       treeDamage: [...this.treeDamage], removed: [...this.removed], soil: [...this.soil], logs: [...this.logs.values()],
       sites: this.sites, rides: this.rides, stock: this.stock, ownedTools: [...this.ownedTools], ownedUpgrades: [...this.ownedUpgrades],
       tool: this.tool, wear: this.wear, toolWear: this.toolWear, battery: this.battery, districts: [...this.districts], ledger: this.ledger, contracts: this.contracts,
-      stats: this.stats, won: this.won, completionTime: this.completionTime, nextId: this.nextId, projects: this.projects, achievements: [...this.achievements],
+      stats: this.stats, won: this.won, completionTime: this.completionTime, nextId: this.nextId, projects: this.projects, achievements: [...this.achievements], claimed: [...this.claimed],
     };
   }
 
@@ -953,7 +1024,7 @@ export class Campaign {
       sites: s.sites, rides: s.rides, stock: s.stock, ownedTools: new Set(s.ownedTools), ownedUpgrades: new Set(s.ownedUpgrades),
       tool: s.tool, wear: s.wear, toolWear: s.toolWear ?? {}, battery: s.battery, districts: new Set(s.districts), ledger: s.ledger, contracts: s.contracts,
       stats: s.stats, completionTime: s.completionTime, nextId: s.nextId, projects: s.projects,
-      logs: new Map(s.logs.map(l => [l.id, l])), achievements: new Set(s.achievements),
+      logs: new Map(s.logs.map(l => [l.id, l])), achievements: new Set(s.achievements), claimed: new Set(s.claimed??[]),
     });
     game.mods = modifiers(game.ownedUpgrades);
     for (const [i, land] of game.soil) {

@@ -247,6 +247,49 @@ export function siteModel(kind: Facility): SiteModel {
     }
     cylinder(fixed,dark,0,8.02,0,3.65,.16);
     for(const x of [-4.1,4.1])box(fixed,glass,x,1.01,.65,.60,1.46,.22);
+  } else if(['pasture','ranch','crop','megaFarm'].includes(kind)) {
+    const farm=kind==='crop'||kind==='megaFarm',half=size*.74;
+    const soil=mat(farm?'#786952':'#899263');
+    box(fixed,soil,0,.035,0,half*2,.07,half*2);
+    for(const side of [-1,1]){
+      for(let n=0;n<8;n++){
+        const p=(n-3.5)*half*.28;
+        box(fixed,timber,side*half,.41,p,.102,.83,.103);
+        box(fixed,timber,p,.41,side*half,.104,.83,.09);
+      }
+      for(const y of [.30,.61]){
+        box(fixed,timber,side*half,y,0,.05,.09,half*2);
+        box(fixed,timber,0,y,side*half,half*2,.09,.052);
+      }
+    }
+    for(let i=0;i<7;i++){
+      const x=(i-3)*half*.255;
+      if(farm)box(fixed,mat('#625641'),x,.072,0,.26,.08,half*1.83);
+      for(let j=0;j<12;j++){
+        const z=(j-5.5)*half*.16;
+        const size=.080+(i+j)%4*.043;
+        if(farm){
+          cylinder(fixed,mat('#929957'),x,.17,z,.026,.22);
+          const stem=stone(fixed,mat('#c1a66a'),x,.29+size*.25,z,.072,.14,.065);
+          stem.rotation.z=.17;
+        } else {
+          const grass=stone(fixed,mat(j%3?'#a7ac76':'#838e5e'),x,.10,z,size,.083,size*.77);
+          grass.rotation.y=i+j;
+        }
+      }
+    }
+    if(kind==='ranch'){
+      for(let i=0;i<3;i++){
+        const p=new T.Group();
+        p.position.set((i-1)*.74,0,(i%2-.5)*1.61);
+        p.rotation.y=i*2.4;
+        const coat=mat(i%2?'#988270':'#70645b');
+        box(p,coat,0,.55,0,.32,.39,.66);
+        box(p,coat,0,.54,.43,.24,.28,.28);
+        for(const x of [-.085,.085])for(const z of [-.22,.21])box(p,dark,x,.21,z,.048,.36,.056);
+        fixed.add(p);
+      }
+    }
   } else if(kind==='solar'){
     const blue=mat('#425b71',.42,.36);
     for(const x of [-3.24,0,3.24])for(const z of [-2.1,1.87]){
@@ -383,6 +426,9 @@ export function productModel(good: Good, quantity: number) {
       if(good==='modular')for(const y of [.25,.44])box(root,material,0,y,0,1.05,.05,.64);
       for (const x of [-.44,.44]) for (const j of [-.27,.27]) box(root,material,x,.31,j,.10,.62,.10);
       break;
+    } else if(good==='hay'||good==='harvest'||good==='grazingYield'){
+      const bale=cylinder(root,material,(j%4-1.5)*.32,.21+Math.floor(j/4)*.3,0,.17,.32);
+      bale.rotation.z=Math.PI*.5;
     } else if (good === 'paper' || good === 'pulp') {
       const bale = cylinder(root,material,z,.23+j*.10,0,.19,.54);
       bale.rotation.z = Math.PI*.5;

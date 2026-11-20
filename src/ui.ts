@@ -1,11 +1,13 @@
 import { DISTRICTS, TOTAL, facilities, goods, recipes, tools, vehicles, vehicleTypes } from './catalog';
 import type { Facility, Good, Recipe, Tool, VehicleType } from './catalog';
-import { cargoMass, computeSites, consumes, getQuantity, projectPrices, storageSite, mills, waterSites } from './campaign';
+import { cargoMass, computeSites, consumes, fields, getQuantity, projectPrices, storageSite, mills, waterSites } from './campaign';
 import type { Campaign, Project, Site } from './campaign';
 import { conversionLabel, districtName, soilColors, stages } from './land';
 import type { Point } from './land';
 import { bindingOptions, defaults } from './storage';
 import type { Archive, Binding, Preferences } from './storage';
+import { quests } from './quests';
+import type { QuestId } from './quests';
 import { branches } from './upgrade-spec';
 import { forestryUnlocks, upgrades } from './upgrades';
 
@@ -87,7 +89,7 @@ export class UI {
     reticle.append(el('span'),el('span'));
     this.bottom.append(
       el('div','tool-card',el('div','tool-marker','✦'),el('div','tool-details',label('EQUIPPED'),this.toolNode,this.statusLine),this.meter),
-      el('div','nav-keys',this.nav('U','Upgrades','upgrades'),this.nav('B','Build','build'),this.nav('M','Map','map'),this.nav('J','Journal','journal'),this.nav('ESC','Pause','pause')),
+      el('div','nav-keys',this.nav('Q','Gear','inventory'),this.nav('U','Upgrades','upgrades'),this.nav('B','Build','build'),this.nav('M','Map','map'),this.nav('J','Journal','journal'),this.nav('ESC','Pause','pause')),
     );
     this.hud.append(this.top,this.direction,this.objective,reticle,this.hint,this.assist,this.bottom,this.saved,this.touch);
     this.root.replaceChildren(this.menu,this.hud,this.overlay,this.notices);
@@ -381,8 +383,9 @@ export class UI {
         g.districts.has(district)?sub('Permit active'):btn('Purchase permit · $950',()=>{if(g.buyDistrict(district))this.map();},g.cash<950),
         ...Object.entries(projectPrices).map(([key,price])=>{
           const kind=key as Project['kind'], built=g.projects.find(p=>p.district===district);
-          const ready=g.sites.some(s=>s.kind==='forestry')&&g.sites.some(s=>s.kind===(kind==='watershed'?'pump':kind==='quarry'?'quarry':'thermal'));
-          const display={watershed:'Watershed drawdown',quarry:'Regional stripping',thermal:'Thermal exhaustion'}[kind];
+          const ready=g.sites.some(s=>s.kind==='forestry')&&g.sites.some(s=>s.kind===(kind==='watershed'?'pump':kind==='quarry'?'quarry':kind==='dryland'?'soilRecovery':'thermal'))
+            &&(kind!=='dryland'||g.mods.drylandOffice);
+          const display={watershed:'Watershed drawdown',quarry:'Regional stripping',thermal:'Thermal exhaustion',dryland:'Dryland farming and extraction'}[kind];
           return row(display,built?.kind===kind?(built.complete?'Bond paid · all district cells stable':`Commissioned · ${duration(built.phase)}`):'Requires local industrial expertise and a district permit',
             btn(cash(price),()=>{if(g.startProject(district,kind))this.map();},Boolean(built)||!ready||!g.districts.has(district)||g.cash<price));
         })),
@@ -396,9 +399,13 @@ export class UI {
     const g=this.c.game();
     this.panel('Field journal','Production, contracts, lifetime achievements and receipts.',el('div','panel-content',
       cards(tc(value(g.stats.harvest),'Trees harvested'),tc(value(g.stats.produced),'Units refined'),tc(cash(g.stats.earned),'Lifetime earnings'),tc(duration(g.clock),'Time in field')),
-      section('Work plan',row('Start a timber operation','Sell wood at the fire or market. Build a sawbench and sell the products.'),
-        row('Scale production','Use a generator, connect machines, then route output to buyers.'),
-        row('Transform the land','Buy district permits and commission forestry with drainage, soil stripping or thermal conversion.')),
+      section('Field objectives',...(Object.entries(quests) as [QuestId,typeof quests[QuestId]][]).map(([id,objective])=>{
+        const accomplished=g.claimed.has(id), progress=Math.min(objective.target,objective.progress(g));
+        return row(objective.title,`${objective.detail} · ${value(progress)} / ${value(objective.target)}`,
+          btn(accomplished?'Recorded':objective.reward?`Claim ${cash(objective.reward)}`:'Record',()=>{
+            if(g.claimQuest(id))this.c.refresh();
+          },accomplished||progress<objective.target));
+      })),
       section('Operations',
         row('Earnings per field minute',g.clock>2?cash(g.stats.earned/(g.clock/60)):'Begin field work'),
         row('Average swings per harvest',g.stats.harvest?String(Math.round(g.stats.hits/g.stats.harvest)):'No harvest recorded'),
@@ -439,6 +446,14 @@ export class UI {
           s.priority=!s.priority;this.site();
         })):undefined,
         s.kind==='battery'?row('Grid reserve',Math.round(s.reserve??0)+' / 680 charge'):undefined,
+        s.kind==='crop'&&!g.mods.cropHarvester?row('Sowing orders',String(s.planted??0)+' ready',btn('Sow · $12',()=>{
+          g.sow(s);this.site();
+        },g.cash<12||(s.planted??0)>=3)):undefined,
+        (s.kind==='crop'||s.kind==='megaFarm')&&g.mods.fertilizer?row('Fertilizer',s.fertilizer?'Applied to next harvest':'Increases yield and depletes soil',
+          btn('Apply · $45',()=>{g.fertilize(s);this.site();},g.cash<45||Boolean(s.fertilizer))):undefined,
+        fields.includes(s.kind)&&g.mods.override?row('Crop rotation',s.intensive?'Intensive':'Normal',btn('Switch',()=>{
+          s.intensive=!s.intensive;this.site();
+        })):undefined,
         s.kind==='bench'&&g.mods.benchCrank?row('Manual crank','Start a faster hand-sawn batch from the input buffer',
           btn('Crank saw',()=>{if(g.crankBench(s))this.site();},Boolean(s.jobs.length)||getQuantity(s.input,'timber')===0)):undefined,
         g.mods.cutPatterns&&mills.includes(s.kind)?row('Cut pattern',s.layout==='volume'?'Maximize volume':s.layout==='quality'?'Select high-grade cuts':'Standard throughput',

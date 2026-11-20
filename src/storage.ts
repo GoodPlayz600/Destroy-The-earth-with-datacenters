@@ -2,6 +2,7 @@ import { CELLS, DISTRICTS, TOTAL, facilities, goods, species, tools, vehicles } 
 import { VERSION } from './campaign';
 import type { Save } from './campaign';
 import { indexAt } from './land';
+import { quests } from './quests';
 import { upgradesById } from './upgrades';
 
 export const bindingOptions = {
@@ -69,6 +70,7 @@ export function validateSave(data:unknown): Save {
     &&rows(s.sites,20000,x=>object(x)&&identifier(x.id)&&key(x.kind,facilities)&&coordinate(x)&&(x.yaw===undefined||numeric(x.yaw))&&rows(x.input,260,lot)&&rows(x.output,260,lot)
       &&rows(x.jobs,8,job)&&flag(x.on)&&numeric(x.fuel,0,100)&&text(x.status)&&(x.water===undefined||numeric(x.water,0,4200))&&(x.link===undefined||identifier(x.link))
       &&(x.mode===undefined||x.mode==='sell'||x.mode==='charcoal')
+      &&(x.planted===undefined||integer(x.planted,0,3))&&(x.fertilizer===undefined||flag(x.fertilizer))&&(x.intensive===undefined||flag(x.intensive))
       &&(x.priority===undefined||flag(x.priority))&&(x.gridFlow===undefined||numeric(x.gridFlow,0,488))
       &&(x.gridCapacity===undefined||numeric(x.gridCapacity,0,488))&&(x.reserve===undefined||numeric(x.reserve,0,700))&&(x.uptime===undefined||numeric(x.uptime,0,280))&&(x.service===undefined||numeric(x.service,0,15))
       &&(x.yieldCarry===undefined||numeric(x.yieldCarry,0,1))&&(x.layout===undefined||x.layout==='quality'||x.layout==='volume')&&(x.sortHigh===undefined||flag(x.sortHigh))
@@ -83,8 +85,8 @@ export function validateSave(data:unknown): Save {
     &&rows(s.districts,DISTRICTS**2,x=>integer(x,0,DISTRICTS**2-1))&&distinct(s.districts as unknown[])
     &&rows(s.ledger,150,x=>object(x)&&numeric(x.date,0)&&text(x.note)&&numeric(x.amount))
     &&rows(s.contracts,25,x=>object(x)&&key(x.good,goods)&&integer(x.quantity,1,60)&&numeric(x.deadline,0)&&integer(x.payout)&&flag(x.done)&&flag(x.failed)&&(x.dense===undefined||flag(x.dense))&&(x.grade===undefined||numeric(x.grade,0,1)))
-    &&rows(s.projects,DISTRICTS**2,x=>object(x)&&['watershed','quarry','thermal'].includes(String(x.kind))&&integer(x.district,0,DISTRICTS**2-1)&&numeric(x.phase,0)&&(x.complete===undefined||flag(x.complete)))
-    &&rows(s.achievements,30,text)&&object(s.stats)&&['hits','harvest','fire','sold','produced','earned','spent','miles'].every(k=>numeric((s.stats as Record<string,unknown>)[k],0));
+    &&rows(s.projects,DISTRICTS**2,x=>object(x)&&['watershed','quarry','thermal','dryland'].includes(String(x.kind))&&integer(x.district,0,DISTRICTS**2-1)&&numeric(x.phase,0)&&(x.complete===undefined||flag(x.complete)))
+    &&(s.claimed===undefined||(rows(s.claimed,40,x=>key(x,quests))&&distinct(s.claimed)))&&rows(s.achievements,30,text)&&object(s.stats)&&['hits','harvest','fire','sold','produced','earned','spent','miles'].every(k=>numeric((s.stats as Record<string,unknown>)[k],0));
   if(!valid) throw Error('This save contains invalid campaign data.');
   const checked=s as unknown as Save;
   const rides=new Set(checked.rides.map(x=>x.id)), sites=new Set(checked.sites.map(x=>x.id));

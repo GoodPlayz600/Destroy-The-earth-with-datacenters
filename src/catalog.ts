@@ -34,6 +34,7 @@ export const goods = {
   finishedCabinet: ['Finished cabinetry', 560, '#85634d'], floors: ['Floor panels', 208, '#a98567'],
   modular: ['Modular furniture', 780, '#ac8674'],
   finished: ['Planed lumber', 68, '#dab380'], treated: ['Treated outdoor lumber', 122, '#966d51'],
+  hay: ['Pasture hay', 39, '#b3a96e'], harvest: ['Field crops', 79, '#bb985e'], grazingYield: ['Grazing output', 162, '#9d8f6f'],
   ore: ['Crushed stone', 32, '#85877d'], cement: ['Cement', 86, '#bdc3bb'],
   compute: ['Compute batches', 345, '#70babc'],
 } as const;
@@ -72,6 +73,11 @@ export const recipes = {
   charcoal: { name: 'Carbonize timber', input: ['timber', 2], output: ['charcoal', 2], time: 14, power: 0, moisture: .04 },
   pellet: { name: 'Press pellets', input: ['chips', 3], output: ['pellets', 2], time: 12, power: 4, moisture: .1 },
   plywood: { name: 'Press plywood', input: ['boards', 3], output: ['plywood', 2], time: 12, power: 5 },
+  pasture: { name: 'Gather hay', output: ['hay', 3], time: 24, power: 0 },
+  ranch: { name: 'Raise pasture stock', input: ['hay', 2], output: ['grazingYield', 2], time: 23, power: 0, labor: 14 },
+  crop: { name: 'Harvest seasonal crop', output: ['harvest', 4], time: 27, power: 0 },
+  megaFarm: { name: 'Regional crop harvest', output: ['harvest', 18], time: 36, power: 14 },
+  soilRecovery: { name: 'Recover exhausted substrate', output: ['ore', 7], time: 25, power: 10 },
   quarry: { name: 'Crush stone', output: ['ore', 4], time: 22, power: 4 },
   cement: { name: 'Bake cement', input: ['ore', 3], output: ['cement', 3], time: 16, power: 7 },
   serverRack: { name: 'Process local compute', output: ['compute', 1], time: 31, power: 5 },
@@ -83,7 +89,7 @@ export const recipes = {
 export type Facility = keyof typeof recipes | 'fire' | 'market' | 'depot' | 'railDepot' | 'dronePad' | 'generator' | 'substation' | 'portable' | 'pole' | 'battery' | 'biopower' | 'solar' | 'wind' | 'transformer' | 'gridPlant' | 'backbone' | 'gridCampus' | 'pump' | 'pipe' | 'tank' | 'coolTower' | 'grazing' | 'thermal' | 'dryer' | 'forestry' | 'road' | 'belt' | 'rail';
 type Building = {
   name: string; price: number; color: string; size: number; requires?: Facility; research?: string;
-  effect?: 'fire' | 'pump' | 'grazing' | 'quarry' | 'thermal' | 'dryer' | 'forestry' | 'data';
+  effect?: 'fire' | 'pump' | 'grazing' | 'field' | 'quarry' | 'thermal' | 'dryer' | 'forestry' | 'data';
   reach?: number; power?: number; supply?: number;
 };
 export const facilities: Record<Facility, Building> = {
@@ -135,6 +141,11 @@ export const facilities: Record<Facility, Building> = {
   pump: { name: 'Drainage Array', price: 550, color: '#5e8c9e', size: 3, effect: 'pump', reach: 9, power: 5 },
   pipe: { name: 'Cooling Pipeline', price: 85, color: '#5e8c9e', size: 2, requires: 'pump' },
   tank: { name: 'Cooling Reservoir', price: 270, color: '#719496', size: 3, requires: 'pump' },
+  pasture: { name: 'Seeded Pasture', price: 370, color: '#8c9b63', size: 4, research: '20-01' },
+  ranch: { name: 'Fenced Grazing Plot', price: 620, color: '#969261', size: 5, effect:'grazing', reach:4, requires: 'pasture', research:'20-02' },
+  crop: { name: 'Seasonal Crop Field', price: 990, color: '#938b5c', size: 5.5, effect:'field', reach:4, requires: 'pasture', research:'20-03' },
+  megaFarm: { name: 'Mega-Farm Complex', price: 12500, color: '#a49162', size: 10, effect:'field', reach:12, power:14, requires:'crop', research:'20-10' },
+  soilRecovery: { name: 'Exhausted-Soil Extractor', price: 17500, color: '#9b7963', size: 7, effect:'quarry', reach:9, power:10, requires:'megaFarm', research:'20-11' },
   grazing: { name: 'Grazing Station', price: 460, color: '#8c955a', size: 4, effect: 'grazing', reach: 7 },
   quarry: { name: 'Aggregate Quarry', price: 950, color: '#9b826f', size: 5, effect: 'quarry', reach: 11, power: 4 },
   cement: { name: 'Cement Works', price: 1220, color: '#989e90', size: 5, requires: 'quarry' },

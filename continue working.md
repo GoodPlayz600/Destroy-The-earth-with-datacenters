@@ -20,7 +20,7 @@ Continue with the next open requirement in [tasks.md](tasks.md).
 **Needs work**
 
 - Keep the remaining catalog entries visibly unavailable until their intended effects exist.
-- Implement the branching objectives and cross-branch prerequisites throughout research. Review every early upgrade under ordinary progression.
+- Expand the journal into branching objectives and continue adding cross-branch prerequisites throughout research. Review every early upgrade under ordinary progression.
 
 ## [M4 — Vehicles and a real logging operation](progress/M4/continue%20working.md)
 
@@ -44,7 +44,7 @@ Continue with the next open requirement in [tasks.md](tasks.md).
 
 **Needs work**
 
-- Finish the detailed terrain clearing attachments, agricultural chains and advanced mining outputs. Review physically connected utilities and compare real campaign economics for the three strategies.
+- Finish detailed terrain-clearing attachments, deeper agricultural logistics and advanced mining outputs. Review physically connected utilities and compare real campaign economics for the three strategies.
 
 ## [M8 — Massive late-game depth](progress/M8/continue%20working.md)
 

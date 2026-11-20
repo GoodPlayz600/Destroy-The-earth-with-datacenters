@@ -505,3 +505,46 @@ test('storage bridges a short blackout with conserved grid supply',()=>{
   assert.equal(getQuantity(bio.input),0);
   assert.equal(bench.jobs.length,0);
 });
+
+test('farms require cleared soil and real sowing, and crop yields deplete the parcel',()=>{
+  const g=new Campaign();
+  g.cash=45000;
+  const ranchSite={x:-10,z:10}, cropSite={x:5,z:12};
+  for(const point of [ranchSite,cropSite]) {
+    for(const tree of treesIn(g.seed,indexAt(point.x,point.z)))g.fell(tree,baseLog(g,tree.x,tree.z));
+  }
+  for(let n=1;n<=3;n++)assert.ok(g.buyUpgrade('20-'+String(n).padStart(2,'0')));
+  const pasture=build(g,'pasture',ranchSite.x,ranchSite.z);
+  const crop=build(g,'crop',cropSite.x,cropSite.z);
+  const soil=g.getSoil(indexAt(cropSite.x,cropSite.z));
+  run(g,30);
+  assert.equal(getQuantity(crop.output),0);
+  assert.ok(getQuantity(pasture.output,'hay')>0);
+  assert.ok(g.buyUpgrade('20-04'));
+  assert.ok(g.sow(crop));
+  assert.ok(g.fertilize(crop));
+  const start=soil.fertility;
+  run(g,35);
+  assert.equal(getQuantity(crop.output,'harvest'),6);
+  assert.ok(soil.fertility<start);
+  assert.ok(soil.pollution>0);
+  assert.equal(crop.planted,0);
+  assert.equal(crop.fertilizer,false);
+});
+
+test('field objectives use recorded play and pay their reward just once across reloads',()=>{
+  const g=new Campaign(), fire=g.sites[0];
+  assert.equal(g.claimQuest('firstSale'),false);
+  const log=baseLog(g,fire.x,fire.z);
+  g.logs.set(log.id,log);
+  assert.ok(g.acceptLog(fire,log));
+  assert.equal(g.claimQuest('firstSale'),false);
+  run(g,8);
+  const before=g.cash;
+  assert.ok(g.claimQuest('firstSale'));
+  assert.equal(g.cash,before+25);
+  assert.equal(g.claimQuest('firstSale'),false);
+  const loaded=Campaign.restore(validateSave(JSON.parse(JSON.stringify(g.snapshot()))));
+  assert.equal(loaded.claimQuest('firstSale'),false);
+  assert.equal(loaded.cash,before+25);
+});
