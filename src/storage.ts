@@ -70,6 +70,7 @@ export function validateSave(data:unknown): Save {
     &&rows(s.sites,20000,x=>object(x)&&identifier(x.id)&&key(x.kind,facilities)&&coordinate(x)&&(x.yaw===undefined||numeric(x.yaw))&&rows(x.input,260,lot)&&rows(x.output,260,lot)
       &&rows(x.jobs,8,job)&&flag(x.on)&&numeric(x.fuel,0,100)&&text(x.status)&&(x.water===undefined||numeric(x.water,0,4200))&&(x.link===undefined||identifier(x.link))
       &&(x.mode===undefined||x.mode==='sell'||x.mode==='charcoal')
+      &&(x.winch===undefined||(object(x.winch)&&integer(x.winch.log,1)&&numeric(x.winch.ready,0)))
       &&(x.planted===undefined||integer(x.planted,0,3))&&(x.fertilizer===undefined||flag(x.fertilizer))&&(x.intensive===undefined||flag(x.intensive))
       &&(x.priority===undefined||flag(x.priority))&&(x.gridFlow===undefined||numeric(x.gridFlow,0,488))
       &&(x.gridCapacity===undefined||numeric(x.gridCapacity,0,488))&&(x.reserve===undefined||numeric(x.reserve,0,700))&&(x.uptime===undefined||numeric(x.uptime,0,280))&&(x.service===undefined||numeric(x.service,0,15))
@@ -79,12 +80,13 @@ export function validateSave(data:unknown): Save {
       &&(x.shipment===undefined||(object(x.shipment)&&['rail','air'].includes(String(x.shipment.mode))&&lot(x.shipment.load)
         &&identifier(x.shipment.target)&&rows(x.shipment.path,2000,p=>object(p)&&coordinate(p))&&x.shipment.path.length>=2
         &&numeric(x.shipment.elapsed,0)&&numeric(x.shipment.duration,1,10000))))
-    &&rows(s.rides,10000,x=>object(x)&&identifier(x.id)&&key(x.kind,vehicles)&&coordinate(x)&&numeric(x.fuel,0,100)&&numeric(x.wear,0,100)&&numeric(x.yaw)&&(x.hitch===undefined||identifier(x.hitch)))
+    &&rows(s.rides,10000,x=>object(x)&&identifier(x.id)&&key(x.kind,vehicles)&&coordinate(x)&&numeric(x.fuel,0,100)&&numeric(x.wear,0,100)&&numeric(x.yaw)&&(x.hitch===undefined||identifier(x.hitch))&&(x.hitchReady===undefined||numeric(x.hitchReady,0)))
     &&rows(s.stock,150,lot)&&rows(s.ownedTools,Object.keys(tools).length,x=>key(x,tools))&&(s.ownedTools as unknown[]).includes(s.tool)
     &&rows(s.ownedUpgrades,288,x=>typeof x==='string'&&upgradesById.get(x)?.implemented===true)&&distinct(s.ownedUpgrades as unknown[])
     &&rows(s.districts,DISTRICTS**2,x=>integer(x,0,DISTRICTS**2-1))&&distinct(s.districts as unknown[])
     &&rows(s.ledger,150,x=>object(x)&&numeric(x.date,0)&&text(x.note)&&numeric(x.amount))
-    &&rows(s.contracts,25,x=>object(x)&&key(x.good,goods)&&integer(x.quantity,1,60)&&numeric(x.deadline,0)&&integer(x.payout)&&flag(x.done)&&flag(x.failed)&&(x.dense===undefined||flag(x.dense))&&(x.grade===undefined||numeric(x.grade,0,1)))
+    &&rows(s.contracts,25,x=>object(x)&&key(x.good,goods)&&integer(x.quantity,1,60)&&numeric(x.deadline,0)&&integer(x.payout)&&flag(x.done)&&flag(x.failed)&&(x.dense===undefined||flag(x.dense))&&(x.grade===undefined||numeric(x.grade,0,1))&&(x.received===undefined||integer(x.received,0,x.quantity as number))
+      &&(x.plan===undefined||['quick','supply','export'].includes(String(x.plan))))
     &&rows(s.projects,DISTRICTS**2,x=>object(x)&&['watershed','quarry','thermal','dryland'].includes(String(x.kind))&&integer(x.district,0,DISTRICTS**2-1)&&numeric(x.phase,0)&&(x.complete===undefined||flag(x.complete)))
     &&(s.claimed===undefined||(rows(s.claimed,40,x=>key(x,quests))&&distinct(s.claimed)))&&rows(s.achievements,30,text)&&object(s.stats)&&['hits','harvest','fire','sold','produced','earned','spent','miles'].every(k=>numeric((s.stats as Record<string,unknown>)[k],0));
   if(!valid) throw Error('This save contains invalid campaign data.');

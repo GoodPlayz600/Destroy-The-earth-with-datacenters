@@ -573,3 +573,25 @@ test('branch chipping and fire byproducts preserve physically delivered inventor
   assert.equal(getQuantity(fire.output,'ash'),1);
   assert.equal(getQuantity(fire.output,'charcoal'),0);
 });
+
+test('standing delivery contracts lock a rate and credit each shipment once',()=>{
+  const game=new Campaign();
+  game.cash=65000;
+  build(game,'depot',-10,10);
+  for(let n=1;n<=9;n++)assert.ok(game.buyUpgrade('14-'+String(n).padStart(2,'0')));
+  assert.ok(game.acceptContract('boards',false,'supply'));
+  const order=game.contracts[0], starting=game.cash;
+  assert.ok(order.deadline>game.clock+900);
+  for(let batch=0;batch<3;batch++) {
+    put(game.stock,{good:'boards',quantity:9,quality:.86,moisture:.40});
+    assert.ok(game.fulfill(order));
+    assert.equal(order.received,(batch+1)*9);
+    assert.equal(order.done,batch===2);
+    assert.equal(game.fulfill(order),false);
+    run(game,40);
+  }
+  assert.equal(game.cash,starting+order.payout);
+  assert.equal(getQuantity(game.stock),0);
+  const save=Campaign.restore(validateSave(JSON.parse(JSON.stringify(game.snapshot()))));
+  assert.equal(save.contracts[0].received,27);
+});

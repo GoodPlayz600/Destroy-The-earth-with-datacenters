@@ -44,6 +44,7 @@ export class Scene {
   private sky: T.Mesh<T.SphereGeometry,T.ShaderMaterial>;
   private rope = ropeModel();
   private hitches=new Map<string,T.Mesh>();
+  private cables=new Map<string,T.Mesh>();
   private rain = new T.InstancedMesh(new T.CylinderGeometry(.016,.012,.51,4),
     new T.MeshBasicMaterial({color:'#9cb6ac',transparent:true,opacity:.28,depthWrite:false}),145);
   private selection = new T.Mesh(new T.RingGeometry(.2,.235,28),new T.MeshBasicMaterial({color:'#f1d599',side:T.DoubleSide, depthWrite:false, transparent:true, opacity:.8}));
@@ -146,6 +147,8 @@ export class Scene {
     this.fallers.clear();
     for(const hitch of this.hitches.values())hitch.removeFromParent();
     this.hitches.clear();
+    for(const cable of this.cables.values())cable.removeFromParent();
+    this.cables.clear();
     if(this.networkView)this.removeModel(this.networkView);
     this.networkView=undefined;this.networkStamp='';
     this.streamStamp='';
@@ -702,12 +705,42 @@ export class Scene {
     }
   }
 
+  private pullWinches(at:Point) {
+    for(const site of this.game.sites) {
+      if(site.kind!=='winch')continue;
+      const log=site.winch?this.game.logs.get(site.winch.log):undefined;
+      const body=log?this.logViews.get(log.id)?.body:undefined;
+      let cable=this.cables.get(site.id);
+      if(!site.on||!log||!body||distance(site,at)>63||distance(site,log)>25){
+        if(cable){cable.removeFromParent();this.cables.delete(site.id);}
+        if(site.winch&&(!log||log.cargo||log.carrier))site.winch=undefined;
+        continue;
+      }
+      if(!cable){cable=ropeModel();this.world.add(cable);this.cables.set(site.id,cable);}
+      const attach=this.logPosition(log,site,25)!;
+      const anchor=new T.Vector3(site.x,height(site.x,site.z)+.57,site.z);
+      const haul=anchor.clone().sub(attach),span=haul.length();
+      if(site.winch!.ready<=this.game.clock&&span>1.55){
+        const push=haul.clone().normalize().multiplyScalar(Math.min(log.kilograms,130)*.33);
+        push.y*=.45;
+        body.applyImpulseAtPoint(push,attach,true);
+      }
+      cable.position.copy(attach).lerp(anchor,.5);
+      cable.scale.set(.023,span,.023);
+      cable.quaternion.setFromUnitVectors(treeAxis,haul.normalize());
+      cable.visible=true;
+      const reel=this.siteViews.get(site.id)?.moving[0];
+      if(reel&&span>1.55)reel.rotation.x+=.10;
+    }
+  }
+
   private updateSimulation(dt:number, at:Point, yaw:number, held?:{log:Log; mode:'hand'|'rope'|'lift'|'winch'}) {
     this.physicsTime+=dt;
     this.rope.visible=false;
     while(this.physicsTime>=1/60) {
       this.physicsTime-=1/60;
       if(held) this.drag(held.log,at,yaw,held.mode);
+      this.pullWinches(at);
       this.physics.step();
     }
     for(const [id, view] of this.logViews) {

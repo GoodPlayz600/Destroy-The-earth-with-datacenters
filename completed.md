@@ -20,12 +20,12 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 
 ## [M3 — Game economy and progression foundation](progress/M3/completed.md)
 
-- All 288 catalog IDs and prerequisite references load. There are 163 purchasable upgrades across fourteen branches, including tool work, hauling, woodworking, mill production, material finishing and compute.
-- Wallet, receipts, thirteen state-driven journal objectives, timed contracts, IndexedDB autosave and file import/export work. Upgrade and tool wear persistence is tested.
+- All 288 catalog IDs and prerequisite references load. There are 180 purchasable upgrades across fifteen branches, including tool work, hauling, woodworking, mill production, material finishing and compute.
+- Wallet, receipts, thirteen state-driven journal objectives, short, standing and regional contracts, IndexedDB autosave and file import/export work. Upgrade and tool wear persistence is tested.
 
 ## [M4 — Vehicles and a real logging operation](progress/M4/completed.md)
 
-- Sleds, carts, trikes, trailers, pickups, a forklift, a skid steer, trucks and bulldozers have 3D meshes and cargo checks. Suitable vehicles have hitches and powered winches. Motorized vehicles use fuel; work crews reserve and deliver actual logs.
+- Sleds, carts, trikes, trailers, pickups, a forklift, a skid steer, trucks and bulldozers have 3D meshes and cargo checks. Suitable vehicles have hitches and powered winches. Anchored cable drums reel physical logs and two drums can share a load after research. Motorized vehicles use fuel; work crews reserve and deliver actual logs.
 - Chromium and Firefox passed physical pickup loading, driving, unloading to the sawbench and producing boards. Simulation tests verify worker reservations, blocked delivery and hitch persistence.
 
 ## [M5 — Industrial processing and factory network](progress/M5/completed.md)

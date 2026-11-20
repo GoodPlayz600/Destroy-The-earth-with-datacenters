@@ -105,7 +105,7 @@ export const recipes = {
   data: { name: 'Process compute contract', output: ['compute', 2], time: 24, power: 12 },
 } as const satisfies Record<string, Recipe>;
 
-export type Facility = keyof typeof recipes | 'fire' | 'market' | 'depot' | 'railDepot' | 'dronePad' | 'generator' | 'substation' | 'fuelSilo' | 'cogeneration' | 'wastePower' | 'portable' | 'pole' | 'battery' | 'biopower' | 'solar' | 'wind' | 'transformer' | 'gridPlant' | 'backbone' | 'gridCampus' | 'pump' | 'pipe' | 'tank' | 'coolTower' | 'grazing' | 'thermal' | 'dryer' | 'forestry' | 'road' | 'belt' | 'rail';
+export type Facility = keyof typeof recipes | 'fire' | 'market' | 'timberBuyer' | 'specialistBuyer' | 'tradeHub' | 'depot' | 'railDepot' | 'dronePad' | 'generator' | 'substation' | 'fuelSilo' | 'cogeneration' | 'wastePower' | 'portable' | 'pole' | 'battery' | 'biopower' | 'solar' | 'wind' | 'transformer' | 'gridPlant' | 'backbone' | 'gridCampus' | 'pump' | 'pipe' | 'tank' | 'coolTower' | 'grazing' | 'thermal' | 'dryer' | 'forestry' | 'winch' | 'road' | 'belt' | 'rail';
 type Building = {
   name: string; price: number; color: string; size: number; requires?: Facility; research?: string;
   effect?: 'fire' | 'pump' | 'grazing' | 'field' | 'quarry' | 'thermal' | 'dryer' | 'forestry' | 'data';
@@ -116,6 +116,9 @@ export const facilities: Record<Facility, Building> = {
   bench: { name: 'Field Sawbench', price: 75, color: '#567969', size: 2 },
   rack: { name: 'Drying Rack', price: 130, color: '#9e704a', size: 2.5, requires: 'bench' },
   workshop: { name: 'Crate Workshop', price: 195, color: '#ac8052', size: 3, requires: 'bench' },
+  timberBuyer: { name:'Local Timber Buyer', price:255, color:'#819578', size:2.7, research:'14-03' },
+  specialistBuyer: { name:'Specialty Buyers', price:820, color:'#a08f68', size:3.2, research:'14-06' },
+  tradeHub: { name:'Industrial Trade Exchange', price:18400, color:'#8d9985', size:6.5, requires:'specialistBuyer', research:'14-12' },
   market: { name: 'Timber Exchange', price: 160, color: '#5c8878', size: 2.5 },
   depot: { name: 'Freight Depot', price: 520, color: '#76807c', size: 4 },
   railDepot: { name: 'Regional Rail Depot', price: 1600, color: '#8a8170', size: 4.5, requires: 'depot' },
@@ -194,6 +197,7 @@ export const facilities: Record<Facility, Building> = {
   coolTower: { name: 'Mega-Cooling Tower', price: 45000, color: '#81949b', size: 7, requires: 'tank', research: '22-11' },
   hyperscale: { name: 'Hyperscale Desert Cloud', price: 360000, color: '#8c9691', size: 13, power: 81, requires: 'coolTower', research: '22-12', effect: 'data', reach: 31 },
   data: { name: 'Compute Campus', price: 3100, color: '#759096', size: 6, effect: 'data', reach: 15, power: 12, requires: 'pump' },
+  winch: { name: 'Anchored Log Winch', price: 460, color: '#8a8065', size: 2.4, research: '03-09' },
   road: { name: 'Freight Road', price: 22, color: '#6f736a', size: 2 },
   belt: { name: 'Freight Conveyor', price: 120, color: '#7d876b', size: 2, requires: 'depot' },
   rail: { name: 'Freight Rail', price: 250, color: '#938477', size: 2, requires: 'depot' },

@@ -476,7 +476,7 @@ function movement(dt:number) {
       if(!scene.isFalling(obstacle))scene.startFall(obstacle,p);
     }
     ride.yaw=p.yaw;p.x=ride.x;p.z=ride.z;
-    if(trailer){
+    if(trailer&&(trailer.hitchReady??0)<=game.clock){
       const ox=Math.sin(p.yaw),oz=Math.cos(p.yaw), behind=ride.kind==='truck'?5:3.85;
       const tx=clamp(ride.x+ox*behind,-SIZE/2+.7,SIZE/2-.7),tz=clamp(ride.z+oz*behind,-SIZE/2+.7,SIZE/2-.7);
       const follow=Math.min(1,dt*4);

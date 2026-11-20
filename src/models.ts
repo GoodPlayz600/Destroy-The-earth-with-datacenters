@@ -183,7 +183,7 @@ export function siteModel(kind: Facility): SiteModel {
     batch(fixed);
     return { root, moving, glow };
   }
-  if (kind === 'market' || kind === 'depot' || kind === 'railDepot') {
+  if (['market','timberBuyer','specialistBuyer','tradeHub','depot','railDepot'].includes(kind)) {
     box(fixed,timber,0,.14,0,size*1.68,.28,size*1.4);
     for(let n=-1;n<=1;n+=2) for(let m=-1;m<=1;m+=2) box(fixed,timber,n*size*.71,1.45,m*size*.6,.14,2.65,.14);
     box(fixed,paint,0,2.85,0,size*1.87,.16,size*1.62).rotation.x = -.10;
@@ -198,6 +198,17 @@ export function siteModel(kind: Facility): SiteModel {
       for(const x of [-.70,.70])box(fixed,steel,x,.09,size*1.1,.13,.13,5.3);
       for(let i=0;i<7;i++)box(fixed,timber,0,.05,size*1.1+(i-3)*.75,2.1,.11,.17);
     }
+  } else if(kind==='winch') {
+    for(const x of [-.73,.73])box(fixed,steel,x,.41,0,.16,.81,1.25);
+    box(fixed,paint,0,.12,0,1.78,.23,1.32);
+    const reel=new T.Group();
+    reel.position.set(0,.62,0);
+    const roller=cylinder(reel,timber,0,0,0,.37,1.08);
+    roller.rotation.z=Math.PI*.50;
+    for(const x of [-.61,.61])cylinder(reel,steel,x,0,0,.47,.11).rotation.z=Math.PI*.50;
+    batch(reel);
+    root.add(reel);
+    moving.push(reel);
   } else if (kind === 'dronePad') {
     cylinder(fixed,steel,0,.15,0,2.4,.30);
     cylinder(fixed,paint,0,.33,0,2.27,.09);

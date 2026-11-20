@@ -1,6 +1,6 @@
 import { DISTRICTS, TOTAL, facilities, goods, recipes, tools, vehicles, vehicleTypes } from './catalog';
 import type { Facility, Good, Recipe, Tool, VehicleType } from './catalog';
-import { biomassSites, cargoMass, computeSites, consumes, fields, fuelGood, getQuantity, projectPrices, storageSite, mills, waterSites } from './campaign';
+import { biomassSites, buyerSite, cargoMass, computeSites, consumes, fields, fuelGood, getQuantity, projectPrices, storageSite, mills, waterSites } from './campaign';
 import type { Campaign, Project, Site } from './campaign';
 import { conversionLabel, districtName, soilColors, stages } from './land';
 import type { Point } from './land';
@@ -413,6 +413,9 @@ export class UI {
         row('Machine bottlenecks',g.sites.filter(site=>['No grid power','Output full','Awaiting suitable material'].includes(site.status)).map(site=>facilities[site.kind].name+' · '+site.status).join(' / ')||'No blocked production'),
         row('Desert cells per field hour',g.clock>60?value(g.desertCount/(g.clock/3600)):'Collecting data')),
       section('Awards',g.achievements.size?undefined:sub('Earn your first award by felling a tree.'),...Array.from(g.achievements,a=>row(a,'Unlocked'))),
+      g.mods.receiptBook?section('Fire ledger',
+        row('Delivered wood',cash(g.ledger.filter(l=>l.note.includes('Ash Exchange')&&l.amount>0).reduce((sum,l)=>sum+l.amount,0))),
+        row('Fireyard spending',cash(-g.ledger.filter(l=>l.amount<0&&(l.note.includes('Ash Exchange')||l.note.includes('Fire'))).reduce((sum,l)=>sum+l.amount,0)))):undefined,
       section('Recent receipts',g.ledger.length?undefined:sub('Receipts appear after the first transaction.'),
         ...g.ledger.slice(0,18).map(entry=>row(entry.note,duration(entry.date),el('strong',entry.amount>0?'positive':'',`${entry.amount>0?'+':'−'}${cash(Math.abs(entry.amount))}`))))));
   }
@@ -423,22 +426,34 @@ export class UI {
     const def=facilities[s.kind];
     const recipe:Recipe|undefined=Object.hasOwn(recipes,s.kind)?recipes[s.kind as keyof typeof recipes]:undefined;
     const content=el('div','panel-content',cards(tc(s.status,'Facility status'),tc(String(getQuantity(s.output)),'Output stock'),tc(recipe?.power?recipe.power+' kW':String(getQuantity(s.input)),recipe?.power?'Power demand':'Input stock')));
-    if(s.kind==='market') {
+    if(buyerSite(s.kind)) {
       content.append(section('Price comparison',sub('Typical returns per starter sapling. Buyer payout varies with quality and moisture.'),
         row('Ash Exchange','One green sapling, paid after burning',el('strong','','~$17')),
         row('Timber Exchange','One unit of green timber',el('strong','','~$26')),
         row('Field Sawbench','Two green boards, sold at the exchange',el('strong','','~$71'))),
-      section('Sell from your bag',...g.stock.filter(lot=>lot.good!=='compute').map(lot=>row(goods[lot.good][0],`${lot.quantity} units`,btn('Sell one',()=>{g.sellInventory(lot.good,1,lot);this.site();}),
-        btn(`Sell batch · ${cash(g.marketValue(lot))}`,()=>{g.sellInventory(lot.good,lot.quantity,lot);this.site();})))),
+      section('Sell from your bag',...g.stock.filter(lot=>g.buyerAccepts(s,lot)).map(lot=>row(goods[lot.good][0],`${lot.quantity} units`,btn('Sell one',()=>{g.sellInventory(lot.good,1,lot,s);this.site();}),
+        btn(`Sell batch · ${cash(g.marketValue(lot,s))}`,()=>{g.sellInventory(lot.good,lot.quantity,lot,s);this.site();})))),
       section('Freight contracts',...g.contracts.slice(0,4).map(deal=>row(goods[deal.good][0],
-        `${deal.quantity} units${deal.grade?' · '+Math.round(deal.grade*100)+'% minimum grade':''} · ${deal.done?'Closed':deal.failed?'Expired':duration(deal.deadline-g.clock)+' remaining'}`,
-        btn('Fulfill · '+cash(deal.payout),()=>{g.fulfill(deal);this.site();},deal.done||deal.failed||getQuantity(g.stock.filter(l=>l.quality>=(deal.grade??0)),deal.good)<deal.quantity))),
-        ...(['boards','dry','crates','paper','compute',...(g.mods.bioOrders?['briquettes','pellets']:[]),...(g.mods.exportOrders?['packed']:[]),...(g.mods.certified?['finished','treated']:[])] as Good[]).map(kind=>btn('Contract · '+goods[kind][0],()=>{g.acceptContract(kind);this.site();},g.contracts.some(c=>!c.done&&!c.failed))),
+        `${deal.received??0} / ${deal.quantity} units${deal.grade?' · '+Math.round(deal.grade*100)+'% minimum grade':''} · ${deal.done?'Closed':deal.failed?'Expired':duration(deal.deadline-g.clock)+' remaining'}`,
+        btn('Fulfill · '+cash(deal.payout),()=>{g.fulfill(deal);this.site();},deal.done||deal.failed||getQuantity(g.stock.filter(l=>l.quality>=(deal.grade??0)),deal.good)<Math.min(deal.plan==='supply'?9:999,deal.quantity-(deal.received??0))))),
+        ...(['boards','dry','crates','paper','compute',...(g.mods.ashContracts?['timber']:[]),...(g.mods.bioOrders?['briquettes','pellets']:[]),...(g.mods.exportOrders?['packed']:[]),...(g.mods.certified?['finished','treated']:[])] as Good[]).map(kind=>btn('Contract · '+goods[kind][0],()=>{g.acceptContract(kind);this.site();},!g.canTakeContract())),
         g.mods.denseCompute?btn('Contract · High-density compute',()=>{g.acceptContract('compute',true);this.site();},
-          g.contracts.some(c=>!c.done&&!c.failed)):undefined),
+          !g.canTakeContract()):undefined),
+      g.mods.shortOrders||g.mods.supplyDeals||g.mods.exportMarket?section('Delivery programs',
+        g.mods.shortOrders?btn('Accept quick timber order',()=>{g.acceptContract('timber',false,'quick');this.site();},!g.canTakeContract()):undefined,
+        g.mods.supplyDeals?btn('Accept standing board order',()=>{g.acceptContract('boards',false,'supply');this.site();},!g.canTakeContract()):undefined,
+        g.mods.exportMarket?btn('Accept graded furniture export',()=>{g.acceptContract('furniture',false,'export');this.site();},!g.canTakeContract()):undefined):el('span'),
+      g.mods.bulletin?section('Timber price bulletin',...([.56,.77,.93].map(grade=>{
+        const lot={good:'timber' as Good,quantity:1,quality:grade,moisture:.50};
+        return row(Math.round(grade*100)+'% grade','One unit of timber',el('strong','',cash(g.marketValue(lot,s))));
+      })),g.mods.forecast?row('Tomorrow’s board bid',(()=>{
+        const lot={good:'boards' as Good,quantity:1,quality:.87,moisture:.42};
+        const estimate=g.marketValue(lot,s,g.clock+180);
+        return cash(estimate-4)+'–'+cash(estimate+4)+' per unit';
+      })()):undefined):el('span'),
       g.mods.commissions?section('Custom-order studio',...(['finishedCabinet','floors','modular'] as Good[]).map(good=>row(goods[good][0],
-        'Commission graded stock for a specialist customer',btn('Standard',()=>{g.acceptCommission(good);this.site();},g.contracts.some(c=>!c.done&&!c.failed)),
-        btn('Premium',()=>{g.acceptCommission(good,true);this.site();},g.contracts.some(c=>!c.done&&!c.failed))))):el('span'));
+        'Commission graded stock for a specialist customer',btn('Standard',()=>{g.acceptCommission(good);this.site();},!g.canTakeContract()),
+        btn('Premium',()=>{g.acceptCommission(good,true);this.site();},!g.canTakeContract())))):el('span'));
     } else {
       content.append(section('Operation',row('Run schedule',s.on?'Enabled while in the field':'Stopped',btn(s.on?'Stop':'Start',()=>{s.on=!s.on;this.site();})),
         g.mods.meter?row('Grid meter',def.supply?`${Math.round(s.gridFlow??0)} / ${Math.round(s.gridCapacity??0)} kW delivered`:
@@ -478,14 +493,24 @@ export class UI {
         s.shipment?row('Shipment on the move',`${s.shipment.load.quantity} × ${goods[s.shipment.load.good][0]} · ${Math.max(0,Math.ceil(s.shipment.duration-s.shipment.elapsed))}s`):undefined,
         sub(!s.link&&s.kind==='railDepot'?'Lay connected track between the depot and its destination.':
           !s.link&&s.kind==='dronePad'?'Power the charger, then choose a destination up to 320 m away.':s.link?`Connected to ${facilities[g.sites.find(t=>t.id===s.link)!.kind].name}`:'Choose a compatible facility within 16 m or bridge the gap with freight infrastructure.'),
-        ...g.sites.filter(target=>target!==s && (target.kind==='market'||storageSite(target.kind)||Object.hasOwn(recipes,target.kind)||biomassSites.includes(target.kind)||target.kind==='fire')).map(target=>
-          row(facilities[target.kind].name,`${Math.round(Math.hypot(s.x-target.x,s.z-target.z))} m`,btn('Connect',()=>{
+        ...g.sites.filter(target=>target!==s && (buyerSite(target.kind)||storageSite(target.kind)||Object.hasOwn(recipes,target.kind)||biomassSites.includes(target.kind)||target.kind==='fire')).map(target=>
+          row(facilities[target.kind].name,`${Math.round(Math.hypot(s.x-target.x,s.z-target.z))} m${g.mods.brokerage?' · estimated '+cash(Math.max(2,Math.round(Math.hypot(s.x-target.x,s.z-target.z)*.055)))+' freight per dispatch':''}`,btn('Connect',()=>{
             if(!g.connect(s,target))this.notice('Route out of reach, disconnected or already in use');
             this.site();
           },s.link===target.id)))));
     }
-    if(s.kind==='forestry') {
-      const options=g.sites.filter(target=>target.kind==='market'||storageSite(target.kind)||(Object.hasOwn(recipes,target.kind)&&(recipes[target.kind as keyof typeof recipes] as Recipe).input?.[0]==='timber'));
+    if(s.kind==='winch') {
+      const logs=[...g.logs.values()].filter(log=>!log.cargo&&!log.carrier&&Math.hypot(s.x-log.x,s.z-log.z)<=22&&log.kilograms<=420);
+      content.append(section('Cable',sub('Attach the powered drum to an actual log within 22 m. Resume play to reel it in.'),
+        s.winch?btn('Release cable',()=>{g.assignWinch(s);this.site();}):undefined,
+        ...logs.map(log=>row('Log '+log.id,`${Math.round(log.kilograms)} kg · ${Math.round(Math.hypot(s.x-log.x,s.z-log.z))} m away`,
+          btn(s.winch?.log===log.id?'Attached':'Attach cable',()=>{
+            if(!g.assignWinch(s,log))this.notice('Another winch already has this log');
+            this.site();
+          },s.winch?.log===log.id)))));
+    }
+    if(s.kind==='forestry'||(g.mods.yardmaster&&storageSite(s.kind))) {
+      const options=g.sites.filter(target=>buyerSite(target.kind)||storageSite(target.kind)||(Object.hasOwn(recipes,target.kind)&&(recipes[target.kind as keyof typeof recipes] as Recipe).input?.[0]==='timber'));
       content.append(section('Log hauler',sub(s.haul?.status??'Hire a worker to collect physical fallen logs within 85 m.'),
         ...options.filter(target=>target!==s&&Math.hypot(s.x-target.x,s.z-target.z)<=110).map(target=>
           row(facilities[target.kind].name,'Timber receiving station',btn(s.haul?'Assign':'Hire · $340',()=>{

@@ -9,6 +9,7 @@ import { forestryUnlocks, modifiers, upgradeFacility, upgradesById } from './upg
 export const VERSION = 1;
 export type Log = Point & { id: number; y: number; q: [number, number, number, number]; kind: number; length: number; kilograms: number; units: number; moisture: number; quality: number; cargo?: string; carrier?: string; part?:'branch' };
 export type Haul = Point & { target: string; log?: number; phase: 'waiting'|'pickup'|'delivery'|'return'; status: string; };
+export const buyerSite=(kind:Facility)=>['market','timberBuyer','specialistBuyer','tradeHub'].includes(kind);
 export const storageSite = (kind:Facility) => kind==='depot'||kind==='railDepot'||kind==='dronePad'||kind==='fuelSilo';
 export type Shipment = { mode:'rail'|'air'; load:Stack; target:string; path:Point[]; duration:number; elapsed:number; };
 type Batch = Stack & { remaining: number; payout?: number; offcut?: number; residue?:Good };
@@ -22,14 +23,14 @@ export const utilityNodes:Facility[]=['substation','pole','transformer','backbon
 export const waterSites:Facility[]=['pump','tank','coolTower'];
 const kilns: Facility[] = ['smallKiln','kiln'];
 export const consumes = (recipe: Recipe | undefined, good: Good) => recipe?.input?.[0]===good||recipe?.secondary?.[0]===good;
-export const takesLogs=(kind:Facility) => storageSite(kind)||kind==='fire'||kind==='market'||(isRecipe(kind)&&(recipes[kind] as Recipe).input?.[0]&&['timber','branches'].includes((recipes[kind] as Recipe).input![0]));
+export const takesLogs=(kind:Facility) => storageSite(kind)||kind==='fire'||buyerSite(kind)||(isRecipe(kind)&&(recipes[kind] as Recipe).input?.[0]&&['timber','branches'].includes((recipes[kind] as Recipe).input![0]));
 export type Site = Point & {
   id: string; kind: Facility; yaw?:number; input: Stack[]; output: Stack[]; jobs: Batch[];
-  on: boolean; fuel: number; status: string; planted?:number; fertilizer?:boolean; intensive?:boolean; water?: number; reserve?:number; priority?:boolean; gridFlow?:number; gridCapacity?:number; uptime?:number; service?:number; yieldCarry?:number; layout?: 'quality'|'volume'; sortHigh?:boolean; link?: string; haul?: Haul; shipment?:Shipment; mode?: 'sell' | 'charcoal';
+  on: boolean; fuel: number; status: string; winch?:{log:number; ready:number}; planted?:number; fertilizer?:boolean; intensive?:boolean; water?: number; reserve?:number; priority?:boolean; gridFlow?:number; gridCapacity?:number; uptime?:number; service?:number; yieldCarry?:number; layout?: 'quality'|'volume'; sortHigh?:boolean; link?: string; haul?: Haul; shipment?:Shipment; mode?: 'sell' | 'charcoal';
 };
-export type Ride = Point & { id: string; kind: VehicleType; yaw: number; fuel: number; wear: number; hitch?:string };
+export type Ride = Point & { id: string; kind: VehicleType; yaw: number; fuel: number; wear: number; hitch?:string; hitchReady?:number };
 export type Ledger = { date: number; note: string; amount: number };
-export type Contract = { good: Good; quantity: number; deadline: number; payout: number; done: boolean; failed: boolean; dense?:boolean; grade?:number };
+export type Contract = { good: Good; quantity: number; deadline: number; payout: number; done: boolean; failed: boolean; dense?:boolean; grade?:number; received?:number; plan?:'quick'|'supply'|'export' };
 export type Project = { kind: 'watershed' | 'quarry' | 'thermal' | 'dryland'; district: number; phase: number; complete?: boolean };
 type RecordRow = { hits: number; harvest: number; fire: number; sold: number; produced: number; earned: number; spent: number; miles: number };
 export type Save = ReturnType<Campaign['snapshot']>;
@@ -250,7 +251,8 @@ export class Campaign {
 
   logStack(log: Log): Stack { return { good: log.part==='branch'?'branches':'timber', quantity: log.units, quality: log.quality, moisture: log.moisture }; }
   fireValue(log: Log) {
-    return Math.round((log.units * 13 + log.kilograms * .2) * (this.mods.sortDry && log.moisture < .45 ? 1.22 : 1));
+    return Math.round((log.units*13+log.kilograms*.2)*(this.mods.sortDry&&log.moisture<.45?1.22:1)
+      *(this.mods.ashContracts&&log.units>=3?1.18:1));
   }
 
   acceptLog(site: Site, log: Log) {
@@ -263,8 +265,10 @@ export class Campaign {
         remaining: (1.6 + log.kilograms * .044) / this.mods.burnSpeed,
         payout: toCharcoal ? 0 : this.fireValue(log),
       });
-    } else if (site.kind === 'market') {
-      this.sellStack(this.logStack(log));
+    } else if (buyerSite(site.kind)) {
+      const stack=this.logStack(log);
+      if(!this.buyerAccepts(site,stack))return false;
+      this.sellAt(site,stack);
     } else {
       const recipe: Recipe | undefined = isRecipe(site.kind) ? recipes[site.kind] : undefined;
       if (!storageSite(site.kind) && !consumes(recipe,this.logStack(log).good)) return false;
@@ -291,47 +295,92 @@ export class Campaign {
     return stack ? put(destination, stack, capacity) : false;
   }
 
-  marketValue(stack:Stack) {
-    const certified=this.mods.certified&&['boards','dry','finished','treated'].includes(stack.good)&&stack.quality>=.90&&stack.moisture<=.18;
-    return Math.round(priceFor(stack)*(certified?1.26:1));
+  buyerAccepts(site:Site,stack:Stack) {
+    if(stack.good==='compute')return false;
+    if(site.kind==='timberBuyer')return stack.good==='timber'||stack.good==='branches';
+    if(site.kind==='specialistBuyer')return stack.quality>=.80&&stack.moisture<=.38;
+    return buyerSite(site.kind);
   }
 
-  sellStack(stack: Stack) {
-    const payout=this.marketValue(stack);
-    this.finance(payout, `${goods[stack.good][0]} ×${stack.quantity} · Timber Exchange`);
-    this.stats.sold += stack.quantity;
+  marketValue(stack:Stack,site?:Site,at=this.clock) {
+    const rate=1+Math.sin(at/89)*.11+Math.sin(at/281)*.065;
+    const certified=(this.mods.certified||this.mods.buyerCert)&&['boards','dry','finished','treated'].includes(stack.good)
+      &&stack.quality>=.90&&stack.moisture<=.18;
+    const premium=site?.kind==='specialistBuyer'?1.30:1;
+    return Math.round(priceFor(stack)*rate*premium*(certified?1.26:1));
+  }
+
+  private creditDelivery(contract:Contract,quantity:number) {
+    const before=contract.received??0;
+    contract.received=before+quantity;
+    contract.done=contract.received>=contract.quantity;
+    const paid=Math.floor(contract.payout*contract.received/contract.quantity)-Math.floor(contract.payout*before/contract.quantity);
+    this.finance(paid,`${contract.done?'Contract fulfilled':'Contract shipment'} · ${goods[contract.good][0]}`);
+    this.notice(`${contract.done?'Contract complete':'Shipment accepted'} · +$${paid}`);
+  }
+
+  private sellAt(site:Site,stack:Stack) {
+    if(site.kind==='tradeHub'&&this.mods.tradeOptimizer) {
+      for(const c of this.contracts){
+        if(c.good!==stack.good||c.done||c.failed||stack.quality<(c.grade??0))continue;
+        const delivered=Math.min(stack.quantity,c.quantity-(c.received??0));
+        if(delivered<=0)continue;
+        this.creditDelivery(c,delivered);
+        stack={...stack,quantity:stack.quantity-delivered};
+        if(!stack.quantity)return;
+      }
+    }
+    this.sellStack(stack,site);
+  }
+
+  sellStack(stack:Stack,site?:Site) {
+    const payout=this.marketValue(stack,site);
+    this.finance(payout,`${goods[stack.good][0]} ×${stack.quantity} · ${site?facilities[site.kind].name:'Timber Exchange'}`);
+    this.stats.sold+=stack.quantity;
     this.notice(`+$${payout} · ${goods[stack.good][0]}`);
   }
 
-  sellInventory(good: Good, quantity: number, lot?:Stack) {
-    if(good==='compute')return false;
+  sellInventory(good: Good,quantity: number,lot?:Stack,site?:Site) {
+    if(good==='compute'||!Number.isInteger(quantity)||quantity<=0)return false;
+    const acceptable=(stack:Stack)=>stack.good===good&&(!site||this.buyerAccepts(site,stack));
     if(lot) {
       const index=this.stock.indexOf(lot);
-      if(index<0||lot.good!==good||!Number.isInteger(quantity)||quantity<=0||quantity>lot.quantity) return false;
+      if(index<0||!acceptable(lot)||quantity>lot.quantity)return false;
       const shipped={...lot,quantity};
       lot.quantity-=quantity;
       if(!lot.quantity)this.stock.splice(index,1);
-      this.sellStack(shipped);
+      if(site)this.sellAt(site,shipped);
+      else this.sellStack(shipped);
       return true;
     }
-    const stack = take(this.stock, good, quantity);
-    if (!stack) return false;
-    this.sellStack(stack);
+    if(getQuantity(this.stock.filter(acceptable),good)<quantity)return false;
+    const stack=take(this.stock,good,quantity,site?.kind==='specialistBuyer'?.8:0,site?.kind==='specialistBuyer'?.38:1);
+    if(!stack)return false;
+    if(site)this.sellAt(site,stack);
+    else this.sellStack(stack);
     return true;
   }
 
-  acceptContract(good: Good, dense=false) {
-    if(dense&&(good!=='compute'||!this.mods.denseCompute))return false;
-    if (this.contracts.some(c => !c.done && !c.failed)) return false;
-    if(good==='packed'&&!this.mods.exportOrders||['briquettes','pellets'].includes(good)&&!this.mods.bioOrders)return false;
-    const quantity = good === 'compute' ? (dense?54:this.mods.uplink?22:12) : good==='packed'?48:['briquettes','pellets'].includes(good)?24:['finished','treated'].includes(good)?16:8;
-    this.contracts.unshift({ good, quantity, deadline: this.clock + (dense||good==='packed'?1200:good==='compute'?480:360), payout: Math.round(goods[good][1] * quantity * (dense?2.5:1.5)), done: false, failed: false, dense });
-    this.contracts.length = Math.min(this.contracts.length, 25);
+  canTakeContract() {
+    return this.contracts.filter(c=>!c.done&&!c.failed).length<(this.mods.tradeOptimizer?3:1);
+  }
+
+  acceptContract(good:Good,dense=false,plan?:Contract['plan']) {
+    if(dense&&(good!=='compute'||!this.mods.denseCompute)||!this.canTakeContract())return false;
+    if(plan==='quick'&&!this.mods.shortOrders||plan==='supply'&&!this.mods.supplyDeals||plan==='export'&&!this.mods.exportMarket)return false;
+    if(good==='timber'&&!this.mods.ashContracts&&plan!=='quick'||good==='packed'&&!this.mods.exportOrders||['briquettes','pellets'].includes(good)&&!this.mods.bioOrders)return false;
+    const quantity=plan==='quick'?4:plan==='supply'?27:plan==='export'?54:good==='compute'?(dense?54:this.mods.uplink?22:12):
+      good==='packed'?48:good==='timber'?32:['briquettes','pellets'].includes(good)?24:['finished','treated'].includes(good)?16:8;
+    const expires=plan==='quick'?160:plan==='supply'?1100:plan==='export'?1350:dense||good==='packed'?1200:good==='compute'?480:360;
+    const rate=dense?2.5:plan==='export'?2.2:plan==='supply'?1.7:1.5;
+    this.contracts.unshift({good,quantity,deadline:this.clock+expires,payout:Math.round(goods[good][1]*quantity*rate),done:false,failed:false,dense,
+      grade:plan==='export'?.83:undefined,plan});
+    this.contracts.length=Math.min(this.contracts.length,25);
     return true;
   }
 
   acceptCommission(good:Good,premium=false) {
-    if(!this.mods.commissions||!['finishedCabinet','floors','modular'].includes(good)||this.contracts.some(c=>!c.done&&!c.failed)) return false;
+    if(!this.mods.commissions||!['finishedCabinet','floors','modular'].includes(good)||!this.canTakeContract()) return false;
     const quantity=premium?25:12;
     this.contracts.unshift({good,quantity,deadline:this.clock+(premium?990:570),payout:Math.round(goods[good][1]*quantity*(premium?2.15:1.65)),
       done:false,failed:false,grade:premium?.92:.81});
@@ -339,11 +388,12 @@ export class Campaign {
     return true;
   }
 
-  fulfill(contract: Contract) {
-    if (contract.done || contract.failed || contract.deadline <= this.clock || !take(this.stock,contract.good,contract.quantity,contract.grade)) return false;
-    contract.done = true;
-    this.finance(contract.payout, `Contract fulfilled · ${goods[contract.good][0]}`);
-    this.notice(`Contract complete · +$${contract.payout}`);
+  fulfill(contract:Contract) {
+    if(contract.done||contract.failed||contract.deadline<=this.clock)return false;
+    const need=contract.quantity-(contract.received??0);
+    const batch=contract.plan==='supply'?Math.min(9,need):need;
+    if(!take(this.stock,contract.good,batch,contract.grade))return false;
+    this.creditDelivery(contract,batch);
     return true;
   }
 
@@ -380,13 +430,24 @@ export class Campaign {
     return ride;
   }
 
+  assignWinch(site:Site,log?:Log) {
+    if(site.kind!=='winch'||!site.on)return false;
+    if(!log){site.winch=undefined;return true;}
+    if(log.cargo||log.carrier||!this.logs.has(log.id)||distance(site,log)>22||log.kilograms>420)return false;
+    const attached=this.sites.filter(s=>s!==site&&s.winch?.log===log.id).length;
+    if(attached>=(this.mods.extraAnchor?2:1))return false;
+    site.winch={log:log.id,ready:this.clock+this.mods.couplerTime};
+    return true;
+  }
+
   toggleTrailer(tow:Ride) {
     if(!this.mods.hitch||vehicleTypes[tow.kind].trailer||tow.kind==='sled'||tow.kind==='cart')return false;
     const attached=this.rides.find(v=>v.hitch===tow.id);
-    if(attached){attached.hitch=undefined;return true;}
+    if(attached){attached.hitch=undefined;attached.hitchReady=undefined;return true;}
     const trailer=this.rides.find(v=>vehicleTypes[v.kind].trailer&&!v.hitch&&distance(tow,v)<5.9);
     if(!trailer)return false;
     trailer.hitch=tow.id;
+    trailer.hitchReady=this.clock+this.mods.couplerTime;
     return true;
   }
 
@@ -472,7 +533,10 @@ export class Campaign {
         return;
       }
       if(!target.on){site.status='Freight held · receiver offline';return;}
-      if(target.kind==='market') this.sellStack(now.load);
+      if(buyerSite(target.kind)) {
+        if(!this.buyerAccepts(target,now.load)){site.status='Freight held · buyer rejected grade';return;}
+        this.sellAt(target,now.load);
+      }
       else if(!put(storageSite(target.kind)?target.output:target.input,now.load,this.capacity(target))) {
         site.status='Freight held · receiver full';
         return;
@@ -487,12 +551,12 @@ export class Campaign {
     if(!path){site.status=rail?'Freight blocked · broken track':'Freight blocked · out of range';return;}
     const length=path.slice(1).reduce((n,p,index)=>n+distance(p,path[index]),0);
     const recipe: Recipe | undefined = isRecipe(target.kind) ? recipes[target.kind] : undefined;
-    const lot=site.output.find(l=>storageSite(target.kind)&&(target.kind!=='fuelSilo'||fuelGood(l.good))||target.kind==='market'&&l.good!=='compute'||consumes(recipe,l.good)||biomassSites.includes(target.kind)&&fuelGood(l.good));
+    const lot=site.output.find(l=>storageSite(target.kind)&&(target.kind!=='fuelSilo'||fuelGood(l.good))||this.buyerAccepts(target,l)||consumes(recipe,l.good)||biomassSites.includes(target.kind)&&fuelGood(l.good));
     if(!lot){site.status=site.output.length?'Freight blocked · incompatible cargo':'Waiting for freight';return;}
-    const available=target.kind==='market'?capacity:this.capacity(target)-getQuantity(storageSite(target.kind)?target.output:target.input);
+    const available=buyerSite(target.kind)?capacity:this.capacity(target)-getQuantity(storageSite(target.kind)?target.output:target.input);
     const amount=Math.min(lot.quantity,capacity,available);
     if(amount<=0){site.status='Freight blocked · receiver full';return;}
-    const fee=Math.max(2,Math.round(length*(rail?.021:.055)));
+    const fee=Math.max(2,Math.round(length*(rail?.021:.055)*(this.mods.freightDiscount&&amount>=16?.66:1)));
     if(this.cash<fee){site.status='Freight blocked · dispatch costs';return;}
     const load=take(site.output,lot.good,amount);
     if(!load)return;
@@ -629,12 +693,12 @@ export class Campaign {
   }
 
   private computeRemaining() {
-    const order=this.contracts.find(c=>c.good==='compute'&&!c.done&&!c.failed);
-    if(!order)return 0;
+    const ordered=this.contracts.reduce((sum,c)=>sum+(c.good==='compute'&&!c.done&&!c.failed?c.quantity-(c.received??0):0),0);
+    if(!ordered)return 0;
     const pledged=getQuantity(this.stock,'compute')+this.sites.reduce((n,site)=>n+getQuantity(site.output,'compute')
       +site.jobs.reduce((total,job)=>total+(job.good==='compute'?job.quantity:0),0)
       +(site.shipment?.load.good==='compute'?site.shipment.load.quantity:0),0);
-    return Math.max(0,order.quantity-pledged);
+    return Math.max(0,ordered-pledged);
   }
 
   private gridReach(from:Point,to:Point,span=78) {
@@ -793,11 +857,11 @@ export class Campaign {
       if (target.kind === 'fire' && this.mods.stoker) continue;
       const recipe: Recipe | undefined = isRecipe(target.kind) ? recipes[target.kind] : undefined;
       const lot = site.output.find(s => (!site.sortHigh||!this.mods.sortingCamera||s.quality>=.84)
-        &&(storageSite(target.kind) && (target.kind!=='fuelSilo'||fuelGood(s.good)) || target.kind === 'market' && s.good!=='compute' || consumes(recipe,s.good)));
+        &&(storageSite(target.kind) && (target.kind!=='fuelSilo'||fuelGood(s.good)) || this.buyerAccepts(target,s) || consumes(recipe,s.good)));
       if (!lot) { site.status = 'Route blocked · incompatible cargo'; continue; }
-      if (target.kind === 'market') {
+      if (buyerSite(target.kind)) {
         const shipped = take(site.output, lot.good, Math.min(4, lot.quantity));
-        if (shipped) this.sellStack(shipped);
+        if (shipped) this.sellAt(target,shipped);
       } else {
         const buffer = storageSite(target.kind) ? target.output : target.input;
         const n = Math.min(site.kind==='fuelSilo'?12:4, lot.quantity, this.capacity(target) - getQuantity(buffer));
@@ -809,8 +873,8 @@ export class Campaign {
   }
 
   assignHauler(base:Site,target:Site) {
-    const supported=target.kind==='market'||storageSite(target.kind)||(isRecipe(target.kind)&&(recipes[target.kind] as Recipe).input?.[0]==='timber');
-    if(base.kind!=='forestry'||!supported||distance(base,target)>110||base.haul?.log) return false;
+    const supported=buyerSite(target.kind)||storageSite(target.kind)||(isRecipe(target.kind)&&(recipes[target.kind] as Recipe).input?.[0]==='timber');
+    if((base.kind!=='forestry'&&!(this.mods.yardmaster&&storageSite(base.kind)))||!supported||distance(base,target)>110||base.haul?.log) return false;
     if(!base.haul) {
       if(this.cash<340) return false;
       this.finance(-340,'Hire local log hauler');
