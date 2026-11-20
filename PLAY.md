@@ -42,4 +42,4 @@ The browser review checks the opening from a fresh campaign and imports prepared
 
 Heavy equipment and utilities unlock through the 24 research branches. Use the survey's remaining-cell markers to find unconverted ground. Site panels show deliveries, production buffers, power, water, and dispatch assignments. In a developed campaign, authorized crews can work on marked parcels while you continue harvesting and hauling.
 
-Run `npm run test:performance` to exercise all 64 districts simultaneously and report simulation tick times and serialized save size. The benchmark uses a funded scenario for repeatable measurement.
+Run `npm run test:performance` to exercise all 64 districts, reload the completed save, and measure another 180 simulation ticks. The funded scenario reports tick times and serialized save size. The browser review also samples five seconds of animation in a prepared industrial save at 960 × 660 with low graphics. Compare frame times on the same device and graphics settings.

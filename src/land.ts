@@ -66,6 +66,7 @@ export type Soil = {
 export const defaultSoil = (): Soil => ({ vegetation: 1, moisture: .68, groundwater: .85, fertility: .9, heat: .12, pollution: 0, erosion: 0, substrate: 0, stable: 0, stage: 0, clearedFor: 0, lastTick: 0 });
 export const desertRules = { vegetation: .03, moisture: .12, groundwater: .18, fertility: .22, heat: .76, substrate: .7, stabilization: 60 };
 export const showsGroundCracks=(soil:Soil)=>soil.stage>=5&&soil.erosion>=.49;
+export const irreversibleSoil=(soil:Soil)=>soil.substrate>=.85&&soil.fertility<=.24;
 export type Pressure = { clearing: number; drainage: number; removal: number; heat: number; grazing: number; pollution: number; runoff?: number };
 export const noPressure = (): Pressure => ({ clearing: 0, drainage: 0, removal: 0, heat: 0, grazing: 0, pollution: 0 });
 
@@ -92,7 +93,7 @@ export function desertified(s: Soil) {
 export function applyLand(s: Soil, p: Pressure, seconds: number, rain: number, standing: number, tick: number) {
   const oldStage = s.stage;
   const hadCracks=showsGroundCracks(s);
-  const irreversible = s.substrate >= .85 && s.fertility <= .24;
+  const irreversible=irreversibleSoil(s);
   const stressed = p.clearing || p.grazing || p.removal || p.heat || p.drainage;
   s.groundwater = clamp(s.groundwater + seconds * (rain * .00035 * (irreversible ? 0 : 1) - p.drainage * .0028 - p.removal * .0005));
   s.heat = clamp(s.heat + seconds * (p.heat * .007 - (s.heat - .12) * .0017));

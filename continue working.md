@@ -41,9 +41,8 @@ The M0–M9 milestone review covers the build, simulation, browser playthroughs 
 
 ## [M8 — Massive late-game depth](progress/M8/continue%20working.md)
 
-**Reviewed**
-
-- Measure sustained frame rates and balance on hardware running a long-lived industrial save. The simulation benchmark is recorded in the review evidence.
+- Inactive, irreversibly stable soil can leave the simulation queue until an industry or direct ground action affects it. The renderer indexes facilities and cargo once per frame.
+- The review measures continued ticks after reloading a completed campaign and samples a prepared industrial save in each browser. Sustained performance and balance on player hardware still need a long campaign playtest.
 
 ## [M9 — Actual 100% ending and final polish](progress/M9/continue%20working.md)
 
