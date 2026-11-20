@@ -68,6 +68,17 @@ export function meetsDesert(s: Soil) {
     && (s.groundwater <= desertRules.groundwater || s.fertility <= desertRules.fertility || s.heat >= desertRules.heat)
     && s.substrate >= desertRules.substrate;
 }
+export type Blocker='vegetation'|'moisture'|'ground'|'substrate'|'time';
+export function blockers(s:Soil):Blocker[] {
+  const needs:Blocker[]=[];
+  if(s.vegetation>desertRules.vegetation)needs.push('vegetation');
+  if(s.moisture>desertRules.moisture)needs.push('moisture');
+  if(s.groundwater>desertRules.groundwater&&s.fertility>desertRules.fertility&&s.heat<desertRules.heat)needs.push('ground');
+  if(s.substrate<desertRules.substrate)needs.push('substrate');
+  if(!needs.length&&s.stable<desertRules.stabilization)needs.push('time');
+  return needs;
+}
+
 export function desertified(s: Soil) {
   return s.stable >= desertRules.stabilization && meetsDesert(s);
 }

@@ -20,7 +20,7 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 
 ## [M3 — Game economy and progression foundation](progress/M3/completed.md)
 
-- All 288 catalog IDs and prerequisite references load. There are 192 purchasable upgrades across sixteen branches, including tool work, hauling, woodworking, mill production, material finishing and compute.
+- All 288 catalog IDs and prerequisite references load. There are 216 purchasable upgrades across eighteen branches, including tool work, hauling, woodworking, mill production, material finishing and compute.
 - Wallet, receipts, thirteen state-driven journal objectives, short, standing and regional contracts, IndexedDB autosave and file import/export work. Upgrade and tool wear persistence is tested.
 
 ## [M4 — Vehicles and a real logging operation](progress/M4/completed.md)
@@ -30,7 +30,7 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 
 ## [M5 — Industrial processing and factory network](progress/M5/completed.md)
 
-- Fifty-four recipes cover timber, boards, kiln drying, crates, pallets, cabinetry, modular furniture, engineered beams, pulp/paper, charcoal, pellets, plywood, treated lumber, floor panels, pasture and crops, stone, cement, compute, export packaging, chip drying and fuel processing.
+- Fifty-five recipes cover timber, boards, kiln drying, crates, pallets, cabinetry, modular furniture, engineered beams, pulp/paper, charcoal, pellets, plywood, treated lumber, floor panels, pasture and crops, stone, cement, compute, export packaging, chip drying and fuel processing.
 - Output limits, input quality, stored electricity, biomass fuel and combined generation are simulation-tested. Sawmill research changes yield, chip recovery, output grade and concurrent batches. The paper chain consumes water and supports offcut recovery. Biomass generators consume real stored fuel and route ash to a second product chain. Freight tests preserve shipments across a reload.
 
 ## [M6 — World conversion and map progress](progress/M6/completed.md)
@@ -41,11 +41,11 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 ## [M7 — Heavy industry and multiple victory strategies](progress/M7/completed.md)
 
 - Tested independent drainage, quarrying and thermal district campaigns. Data centers reserve live compute orders, draw linked electricity and bounded cooling, and pay on fulfillment. Manual wells, water carts, high-flow pipelines, reservoirs, drainage ditches and industrial pump schedules also work.
-- A dozer can strip soil, and log crews and heavy cutters operate in the field. Pasture, grazing, row crops, fertilizer and irrigation interact with soil fertility and water. Late agricultural research unlocks a fourth district conversion plan.
+- A dozer can strip soil, and log crews and heavy cutters operate in the field. Pasture, grazing, row crops, fertilizer and irrigation interact with soil fertility and water. Late agricultural research adds a district conversion plan. Power and heat research adds recovery, emissions settings, urban heat, dust systems and a fifth district strategy.
 
 ## [M8 — Massive late-game depth](progress/M8/completed.md)
 
-- Survey overlays, remaining-cell markers, district contracts, achievements and capped opt-in offline progress are implemented. Rail and drone freight reserve stock, charge dispatch fees and persist in-flight cargo.
+- Survey overlays, aerial previews, climate readings, remaining-cell filters and queued cleanup jobs, district contracts, achievements and capped opt-in offline progress are implemented. Rail and drone freight reserve stock, charge dispatch fees and persist in-flight cargo.
 - The full catalog is present with unavailable entries clearly marked.
 
 ## [M9 — Actual 100% ending and final polish](progress/M9/completed.md)

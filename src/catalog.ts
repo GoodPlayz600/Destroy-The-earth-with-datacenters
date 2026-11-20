@@ -96,6 +96,7 @@ export const recipes = {
   ranch: { name: 'Raise pasture stock', input: ['hay', 2], output: ['grazingYield', 2], time: 23, power: 0, labor: 14 },
   crop: { name: 'Harvest seasonal crop', output: ['harvest', 4], time: 27, power: 0 },
   megaFarm: { name: 'Regional crop harvest', output: ['harvest', 18], time: 36, power: 14 },
+  megascraper: { name:'Strip mineral substrate', output:['ore',16], time:28, power:21 },
   soilRecovery: { name: 'Recover exhausted substrate', output: ['ore', 7], time: 25, power: 10 },
   quarry: { name: 'Crush stone', output: ['ore', 4], time: 22, power: 4 },
   cement: { name: 'Bake cement', input: ['ore', 3], output: ['cement', 3], time: 16, power: 7 },
@@ -105,10 +106,10 @@ export const recipes = {
   data: { name: 'Process compute contract', output: ['compute', 2], time: 24, power: 12 },
 } as const satisfies Record<string, Recipe>;
 
-export type Facility = keyof typeof recipes | 'fire' | 'market' | 'timberBuyer' | 'specialistBuyer' | 'tradeHub' | 'depot' | 'railDepot' | 'dronePad' | 'generator' | 'substation' | 'fuelSilo' | 'cogeneration' | 'wastePower' | 'portable' | 'pole' | 'battery' | 'biopower' | 'solar' | 'wind' | 'transformer' | 'gridPlant' | 'backbone' | 'gridCampus' | 'pump' | 'pipe' | 'tank' | 'handPump' | 'borePump' | 'pumpStation' | 'deepPump' | 'tankFarm' | 'flowPipe' | 'ditch' | 'coolTower' | 'grazing' | 'thermal' | 'dryer' | 'forestry' | 'winch' | 'road' | 'belt' | 'rail';
+export type Facility = keyof typeof recipes | 'fire' | 'market' | 'timberBuyer' | 'specialistBuyer' | 'tradeHub' | 'depot' | 'railDepot' | 'dronePad' | 'generator' | 'substation' | 'fuelSilo' | 'cogeneration' | 'wastePower' | 'portable' | 'pole' | 'battery' | 'biopower' | 'solar' | 'wind' | 'transformer' | 'gridPlant' | 'backbone' | 'gridCampus' | 'pump' | 'pipe' | 'tank' | 'climateTower' | 'megaDryer' | 'heatDuct' | 'dustworks' | 'heatRecovery' | 'heatRelay' | 'heatIsland' | 'stormTower' | 'handPump' | 'borePump' | 'pumpStation' | 'deepPump' | 'tankFarm' | 'flowPipe' | 'ditch' | 'coolTower' | 'grazing' | 'thermal' | 'dryer' | 'forestry' | 'winch' | 'road' | 'belt' | 'rail';
 type Building = {
   name: string; price: number; color: string; size: number; requires?: Facility; research?: string;
-  effect?: 'fire' | 'pump' | 'ditch' | 'grazing' | 'field' | 'quarry' | 'thermal' | 'dryer' | 'forestry' | 'data';
+  effect?: 'fire' | 'pump' | 'ditch' | 'grazing' | 'field' | 'duct' | 'dust' | 'island' | 'storm' | 'quarry' | 'thermal' | 'dryer' | 'forestry' | 'data';
   reach?: number; power?: number; supply?: number;
 };
 export const facilities: Record<Facility, Building> = {
@@ -192,6 +193,15 @@ export const facilities: Record<Facility, Building> = {
   ranch: { name: 'Fenced Grazing Plot', price: 620, color: '#969261', size: 5, effect:'grazing', reach:4, requires: 'pasture', research:'20-02' },
   crop: { name: 'Seasonal Crop Field', price: 990, color: '#938b5c', size: 5.5, effect:'field', reach:4, requires: 'pasture', research:'20-03' },
   megaFarm: { name: 'Mega-Farm Complex', price: 12500, color: '#a49162', size: 10, effect:'field', reach:12, power:14, requires:'crop', research:'20-10' },
+  climateTower: { name:'Climate Monitoring Tower', price:5900, color:'#8e9c91', size:3.6, research:'24-04', power:3 },
+  megaDryer: { name:'Mega-Dryer Array', price:68500, color:'#b9a177', size:12, research:'24-10', effect:'dryer', reach:40, power:91, requires:'dryer' },
+  heatDuct: { name:'Industrial Exhaust Duct', price:1250, color:'#9d8b70', size:2.9, research:'23-03', effect:'duct', reach:6, power:3 },
+  dustworks: { name:'Dust Generator', price:4650, color:'#b69a6e', size:4.7, research:'23-05', effect:'dust', reach:11, power:8 },
+  heatRecovery: { name:'Thermal Recovery Plant', price:8200, color:'#ae966f', size:5.2, research:'23-06', power:6 },
+  heatRelay: { name:'Regional Heat Exchanger', price:11400, color:'#b58960', size:5, research:'23-08', effect:'duct', reach:12, power:10 },
+  megascraper: { name:'Soil Removal Megarig', price:28000, color:'#a29b74', size:8.5, research:'23-09', effect:'quarry', reach:20, power:21 },
+  heatIsland: { name:'Urban Heat Island', price:33000, color:'#a49a78', size:8, research:'23-10', effect:'island', reach:23, power:12 },
+  stormTower: { name:'Dust Storm Amplifier', price:43500, color:'#b0a17e', size:8, research:'23-11', effect:'storm', reach:26, power:24 },
   soilRecovery: { name: 'Exhausted-Soil Extractor', price: 17500, color: '#9b7963', size: 7, effect:'quarry', reach:9, power:10, requires:'megaFarm', research:'20-11' },
   grazing: { name: 'Grazing Station', price: 460, color: '#8c955a', size: 4, effect: 'grazing', reach: 7 },
   quarry: { name: 'Aggregate Quarry', price: 950, color: '#9b826f', size: 5, effect: 'quarry', reach: 11, power: 4 },
@@ -225,6 +235,7 @@ export const vehicles = {
   pickup: { name: 'Field Pickup', cost: 680, speed: 13, capacity: 260, motor: true, color: '#788b63' },
   skid: { name: 'Skid Steer', cost: 1300, speed: 8, capacity: 450, motor: true, color: '#ca9d44', forks:true },
   truck: { name: 'Logging Truck', cost: 2180, speed: 15, capacity: 850, motor: true, color: '#b98d50' },
+  roller: { name:'Surface Compaction Roller', cost:2830, speed:7.3, capacity:0, motor:true, color:'#b99350', research:'23-04' },
   dozer: { name: 'Tracked Bulldozer', cost: 3150, speed: 8, capacity: 490, motor: true, color: '#d5a849' },
 };
 export type VehicleType = keyof typeof vehicles;

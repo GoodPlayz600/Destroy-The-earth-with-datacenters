@@ -11,7 +11,7 @@ export const bindingOptions = {
   drop: ['Drop, push or cut log','KeyG'], rope: ['Attach / detach rope','KeyR'], tool: ['Equipment','KeyQ'],
   inventory: ['Inventory','Tab'], build: ['Construction','KeyB'], map: ['Survey map','KeyM'],
   upgrades: ['Upgrades','KeyU'], journal: ['Journal','KeyJ'], ride: ['Drive / leave vehicle','KeyF'],
-  load: ['Load / unload cargo','KeyL'], lift: ['Lift log','KeyC'], hitch: ['Couple or detach trailer','KeyH'],
+  load: ['Load / unload cargo','KeyL'], lift: ['Lift log','KeyC'], hitch: ['Couple or detach trailer','KeyH'], probe: ['Read soil probe','KeyX'],
 };
 export type Binding = keyof typeof bindingOptions;
 export type Preferences = {
@@ -68,7 +68,8 @@ export function validateSave(data:unknown): Save {
       &&Math.abs(Math.hypot(...x.q as number[])-1)<.01&&integer(x.kind,0,species.length-1)&&numeric(x.length,.05,40)&&numeric(x.kilograms,.1,1000)
       &&integer(x.units,1,20)&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1)&&(x.cargo===undefined||identifier(x.cargo))&&(x.carrier===undefined||identifier(x.carrier))&&(x.part===undefined||x.part==='branch'))
     &&rows(s.sites,20000,x=>object(x)&&identifier(x.id)&&key(x.kind,facilities)&&coordinate(x)&&(x.yaw===undefined||numeric(x.yaw))&&rows(x.input,260,lot)&&rows(x.output,260,lot)
-      &&rows(x.jobs,8,job)&&flag(x.on)&&numeric(x.fuel,0,100)&&text(x.status)&&(x.water===undefined||numeric(x.water,0,4200))&&(x.waterMode===undefined||['all','farm','industry'].includes(String(x.waterMode)))
+      &&rows(x.jobs,8,job)&&(x.scrubbers===undefined||flag(x.scrubbers))&&flag(x.on)&&numeric(x.fuel,0,100)&&text(x.status)&&(x.water===undefined||numeric(x.water,0,4200))&&(x.climate===undefined||rows(x.climate,12,c=>object(c)&&numeric(c.time,0)&&integer(c.desert,0,1024)&&numeric(c.moisture,0,1)&&numeric(c.heat,0,1)))
+      &&(x.waterMode===undefined||['all','farm','industry'].includes(String(x.waterMode)))
       &&(x.waterRate===undefined||['normal','conserve','deplete'].includes(String(x.waterRate)))&&(x.link===undefined||identifier(x.link))
       &&(x.mode===undefined||x.mode==='sell'||x.mode==='charcoal')
       &&(x.winch===undefined||(object(x.winch)&&integer(x.winch.log,1)&&numeric(x.winch.ready,0)))
@@ -88,7 +89,9 @@ export function validateSave(data:unknown): Save {
     &&rows(s.ledger,150,x=>object(x)&&numeric(x.date,0)&&text(x.note)&&numeric(x.amount))
     &&rows(s.contracts,25,x=>object(x)&&key(x.good,goods)&&integer(x.quantity,1,60)&&numeric(x.deadline,0)&&integer(x.payout)&&flag(x.done)&&flag(x.failed)&&(x.dense===undefined||flag(x.dense))&&(x.grade===undefined||numeric(x.grade,0,1))&&(x.received===undefined||integer(x.received,0,x.quantity as number))
       &&(x.plan===undefined||['quick','supply','export'].includes(String(x.plan))))
-    &&rows(s.projects,DISTRICTS**2,x=>object(x)&&['watershed','quarry','thermal','dryland'].includes(String(x.kind))&&integer(x.district,0,DISTRICTS**2-1)&&numeric(x.phase,0)&&(x.complete===undefined||flag(x.complete)))
+    &&rows(s.projects,DISTRICTS**2,x=>object(x)&&['watershed','quarry','thermal','dryland','integrated'].includes(String(x.kind))&&integer(x.district,0,DISTRICTS**2-1)&&numeric(x.phase,0)&&(x.complete===undefined||flag(x.complete)))
+    &&(s.cleanup===undefined||rows(s.cleanup,96,x=>object(x)&&integer(x.cell,0,TOTAL-1)&&identifier(x.crew)&&numeric(x.travel,0)))
+    &&(s.prototypes===undefined||rows(s.prototypes,2,x=>x==='edge'||x==='motor'))&&(s.scienceSpent===undefined||integer(s.scienceSpent,0,32))
     &&(s.claimed===undefined||(rows(s.claimed,40,x=>key(x,quests))&&distinct(s.claimed)))&&rows(s.achievements,30,text)&&object(s.stats)&&['hits','harvest','fire','sold','produced','earned','spent','miles'].every(k=>numeric((s.stats as Record<string,unknown>)[k],0));
   if(!valid) throw Error('This save contains invalid campaign data.');
   const checked=s as unknown as Save;
@@ -96,6 +99,7 @@ export function validateSave(data:unknown): Save {
   if(rides.size!==checked.rides.length||sites.size!==checked.sites.length
     ||!distinct(checked.logs.map(l=>l.id))||!distinct(checked.soil.map(([i])=>i))||!distinct(checked.projects.map(p=>p.district))
     ||checked.logs.some(log=>log.cargo&&!rides.has(log.cargo)||log.carrier&&!sites.has(log.carrier))
+    ||checked.cleanup?.some(job=>!sites.has(job.crew))
     ||checked.rides.some(v=>v.hitch&&(v.hitch===v.id||!rides.has(v.hitch)))
     ||checked.sites.some(site=>site.link&&!sites.has(site.link)||site.haul&&!sites.has(site.haul.target)||site.shipment&&!sites.has(site.shipment.target))
     ||[...checked.logs.map(l=>l.id),...Array.from(rides,x=>Number(x.slice(1))),...Array.from(sites,x=>Number(x.slice(1)))].some(i=>i>=checked.nextId)) {

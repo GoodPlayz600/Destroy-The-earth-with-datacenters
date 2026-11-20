@@ -301,6 +301,22 @@ export function siteModel(kind: Facility): SiteModel {
         fixed.add(p);
       }
     }
+  } else if(kind==='climateTower'){
+    for(const x of [-.8,.8])for(const z of [-.8,.8])segment(fixed,steel,new T.Vector3(x,0,z),new T.Vector3(x*.38,7.4,z*.38),.065);
+    for(let n=0;n<6;n++)box(fixed,paint,0,.6+n*1.17,0,1.40-n*.17,.055,.89-n*.095);
+    cylinder(fixed,amber,0,7.72,0,.13,.83);
+    for(const x of [-.37,.37])box(fixed,glass,x,7.62,0,.40,.24,.11);
+  } else if(kind==='heatDuct'||kind==='heatRelay'||kind==='stormTower'||kind==='dustworks'){
+    box(fixed,steel,0,.12,0,size*1.32,.24,size*1.37);
+    for(const x of [-size*.38,size*.38]){
+      const rise=kind==='stormTower'?size*1.6:size*.90;
+      cylinder(fixed,paint,x,rise*.50,0,size*.14,rise);
+      cylinder(fixed,steel,x,rise-.08,0,size*.19,.25);
+      cylinder(fixed,dark,x,rise+.08,0,size*.127,.09);
+      box(fixed,dark,x,.58,.70,.41,.50,1.5);
+    }
+    const manifold=cylinder(fixed,paint,0,.82,0,.28,size*1.04);
+    manifold.rotation.z=Math.PI*.5;
   } else if(kind==='solar'){
     const blue=mat('#425b71',.42,.36);
     for(const x of [-3.24,0,3.24])for(const z of [-2.1,1.87]){
@@ -500,6 +516,12 @@ export function vehicleModel(type: VehicleType) {
         rib.rotation.x=Math.PI*.5;
       }
       box(fixed,glass,.51,.90,.36,.06,.28,.22);
+    }
+    if(type==='roller'){
+      const drum=cylinder(fixed,steel,0,.42,-1.54,.46,1.70);
+      drum.rotation.z=Math.PI*.5;
+      for(const x of [-.82,.82])box(fixed,paint,x,.62,-1.21,.16,.31,.82);
+      box(fixed,amber,0,.95,-1.44,.94,.15,.19);
     }
     if (type === 'dozer') {
       box(fixed,amber,0,.46,-1.82,1.93,.53,.19).rotation.x = -.19;

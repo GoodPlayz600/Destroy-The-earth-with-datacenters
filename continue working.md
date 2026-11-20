@@ -50,7 +50,7 @@ Continue with the next open requirement in [tasks.md](tasks.md).
 
 **Needs work**
 
-- Implement and review every remaining upgrade, additional regional freight and drone tasks, worker specialization, repair and long-contract systems. Profile large bases on target hardware and record frame time and save size.
+- Implement and review the remaining 72 upgrades, additional regional freight and drone tasks, worker specialization, repair and long-contract systems. Profile large bases on target hardware and record frame time and save size.
 
 ## [M9 — Actual 100% ending and final polish](progress/M9/continue%20working.md)
 

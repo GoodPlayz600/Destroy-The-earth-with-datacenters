@@ -41,6 +41,7 @@ let selectedSite:Site|undefined;
 let ride:Ride|undefined;
 let selectedBuild:Facility|undefined;
 let waypoint:Point|undefined;
+let survey:{point:Point;age:number}|undefined;
 let selectedVehicle:VehicleType|undefined;
 let held: {log:Log;mode:'hand'|'rope'|'lift'|'winch'}|undefined;
 let recording:Binding|undefined;
@@ -71,6 +72,7 @@ const ui=new UI(root,{
   build:(f)=>{selectedBuild=f;selectedVehicle=undefined;resume();},
   ride:(v)=>{selectedVehicle=v;selectedBuild=undefined;resume();},
   waypoint:(p)=>{waypoint={x:p.x,z:p.z};show('Survey point marked');resume();},
+  survey:(point)=>{survey={point,age:0};resume();},
   site:()=>selectedSite,touch:handleTouch,fullscreen:()=>{
     if(document.fullscreenElement) void document.exitFullscreen();
     else void document.documentElement.requestFullscreen().catch(()=>show('Fullscreen is unavailable in this browser'));
@@ -125,7 +127,7 @@ function applySettings() {
 }
 function resetSession(next:Campaign) {
   game=next;scene.replace(next);held=undefined;ride=undefined;waypoint=undefined;selectedSite=undefined;
-  selectedBuild=undefined;selectedVehicle=undefined;airborne=0;vY=0;swing=0;victoryAge=game.won?-2:-1;lastHarvest=game.stats.harvest;
+  selectedBuild=undefined;selectedVehicle=undefined;survey=undefined;airborne=0;vY=0;swing=0;victoryAge=game.won?-2:-1;lastHarvest=game.stats.harvest;
   collapseControls();
 }
 function begin(kind:'resume'|'new'|'plus') {
@@ -190,7 +192,7 @@ async function restoreArchive(slot:string) {
 }
 
 function look(dx:number,dy:number) {
-  if(!active())return;
+  if(!active()||survey)return;
   const angle=.0022*prefs.sensitivity;
   game.player.yaw-=dx*angle;
   game.player.pitch=clamp(game.player.pitch-dy*angle,-1.54,1.54);
@@ -387,6 +389,14 @@ function onAction(a:string,pressed:boolean) {
     case 'lift':attach('lift');break;
     case 'ride':toggleRide();break;
     case 'load':moveCargo();break;
+    case 'probe': {
+      if(!game.mods.probe){show('Install the Soil Moisture Probe in Upgrades');break;}
+      const p=game.player,i=indexAt(p.x-Math.sin(p.yaw)*5,p.z-Math.cos(p.yaw)*5);
+      if(i<0)break;
+      const soil=game.soil.get(i);
+      show(`Cell ${i} · moisture ${((soil?.moisture??.68)*100).toFixed(1)}% · groundwater ${((soil?.groundwater??.85)*100).toFixed(1)}%`);
+      break;
+    }
     case 'hitch': {
       const towing=ride??nearRide();
       if(!towing||!game.toggleTrailer(towing))show('Requires hitch research and an eligible nearby trailer');
@@ -417,6 +427,7 @@ window.addEventListener('keydown',e=>{
   }
   if(e.code==='Escape') {
     if(page){e.preventDefault();resume();}
+    else if(survey){survey=undefined;}
     else if(selectedBuild||selectedVehicle){selectedBuild=undefined;selectedVehicle=undefined;}
     else if(started&&!atMenu){e.preventDefault();open('pause');}
     return;
@@ -441,7 +452,7 @@ function placement() {
 }
 function swingTool() {
   if(ride)return;
-  if(!active()||swing>0)return;
+  if(!active()||swing>0||survey)return;
   if(selectedBuild||selectedVehicle){
     using=false;
     const point=placement();
@@ -491,6 +502,7 @@ function movement(dt:number) {
       const angle=Math.atan2(ride.x-trailer.x,ride.z-trailer.z)+Math.PI;
       trailer.yaw+=Math.atan2(Math.sin(angle-trailer.yaw),Math.cos(angle-trailer.yaw))*follow;
     }
+    if(ride.kind==='roller'&&ahead)game.compactGround({x:ride.x,z:ride.z},dt);
     if(ride.kind==='dozer'&&using&&ahead>=0) {
       bladeCycle+=dt;
       if(bladeCycle>=.24) {
@@ -566,8 +578,13 @@ function frame(now:number) {
   if(playing&&victoryAge<0){
     swing=Math.max(0,swing-dt);
     dropTime=Math.max(0,dropTime-dt);
-    movement(dt);
-    if(using)swingTool();
+    if(survey){
+      survey.age+=dt;
+      if(survey.age>=7){survey=undefined;show('Survey drone returned');}
+    }else{
+      movement(dt);
+      if(using)swingTool();
+    }
     game.tick(dt,!inputs.has('sprint')||(!inputs.has('forward')&&!inputs.has('right')&&!inputs.has('left')&&!inputs.has('back')),held?.log.id);
     if(held&&(!game.logs.has(held.log.id)||distance(held.log,p)>Math.max(held.mode==='winch'?17:8,held.log.length+4)))letGo();
     if(!held&&dropTime===0) {
@@ -588,7 +605,7 @@ function frame(now:number) {
   if(game.stats.harvest>lastHarvest){lastHarvest=game.stats.harvest;sound.fall();void persist();}
   for(const notice of game.notices.splice(0)){show(notice);if(notice.startsWith('+$'))sound.cash();}
   const land=game.soil.get(indexAt(p.x,p.z));
-  const targeting=atMenu||page||victoryAge>=0?{}:targetHint();
+  const targeting=atMenu||page||victoryAge>=0?{}:survey?{hint:{title:'Aerial survey',detail:'Esc to return to the field'}}:targetHint();
   const aimed=selectedBuild?facilities[selectedBuild].name:selectedVehicle?vehicles[selectedVehicle].name:undefined;
   const point=aimed?placement():undefined;
   const problem=selectedBuild&&point?game.siteIssue(selectedBuild,point):'';
@@ -598,7 +615,7 @@ function frame(now:number) {
     hint:targeting.hint,running:playing,direction:`${orientation[scale]}  /  ${Math.round(p.x)} E  ${Math.round(-p.z)} N`,elapsed:game.clock,waypoint,aimedBuild:aimed,
     buildIssue:problem,saved:saveLabel,touch:onTouch});
   sound.ambient(game.clock,game.rain,(land?.stage??0)<3,Boolean(ride&&vehicles[ride.kind].motor),playing);
-  scene.render({dt,at:p,y:height(p.x,p.z)+(ride?1.89:1.64)+airborne,yaw:p.yaw,pitch:p.pitch,menu:atMenu,active:playing&&victoryAge<0,
+  scene.render({dt,at:p,y:height(p.x,p.z)+(ride?1.89:1.64)+airborne,yaw:p.yaw,pitch:p.pitch,menu:atMenu,active:playing&&victoryAge<0&&!survey,survey,
     swing:swing>0?1-swing/swingPeriod:0,reverse,reduced:prefs.reduced,stride,held,target:targeting.point,drive:ride,
     build:point?{point,valid:!problem,size:selectedBuild?facilities[selectedBuild].size:1.9}:undefined,
     waypoint,flyover:victoryAge>=0?victoryAge:undefined});

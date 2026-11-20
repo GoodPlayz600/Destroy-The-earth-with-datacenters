@@ -18,6 +18,8 @@ const delivered = [
   '18-01','18-02','18-03','18-04','18-05','18-06','18-07','18-08','18-09','18-10','18-11','18-12',
   '19-01','19-02','19-03','19-04','19-05','19-06','19-07','19-08','19-09','19-10','19-11','19-12',
   '20-01','20-02','20-03','20-04','20-05','20-06','20-07','20-08','20-09','20-10','20-11','20-12',
+  '24-01','24-02','24-03','24-04','24-05','24-06','24-07','24-08','24-09','24-10','24-11','24-12',
+  '23-01','23-02','23-03','23-04','23-05','23-06','23-07','23-08','23-09','23-10','23-11','23-12',
   '22-01','22-02','22-03','22-04','22-05','22-06','22-07','22-08','22-09','22-10','22-11','22-12',
 ];
 const working = new Set(delivered);
@@ -37,6 +39,8 @@ export const upgradeFacility: Record<string, Facility> = { '04-08': 'depot', '04
   '18-09':'thermal','18-11':'transformer','18-12':'backbone',
   '19-03':'handPump','19-09':'pumpStation','19-12':'tankFarm',
   '20-04':'crop','20-06':'pump','20-11':'megaFarm','20-12':'soilRecovery',
+  '24-05':'climateTower','24-07':'forestry','24-11':'megaDryer',
+  '23-03':'thermal','23-06':'heatDuct','23-08':'heatRecovery','23-12':'stormTower',
   '22-03':'serverRack','22-05':'serverHall','22-07':'generator','22-09':'data','22-12':'coolTower',
 };
 
@@ -79,6 +83,9 @@ export function modifiers(owns: ReadonlySet<string>) {
     groundScan:has('19-03'), aquiferMap:has('19-09'), diversion:has('19-10'), waterBoard:has('19-11'),
     fertilizer:has('20-04'), cropHarvester:has('20-05'), irrigation:has('20-06'), grazingDensity:has('20-07'),
     override:has('20-08'), compactor:has('20-09'), drylandOffice:has('20-12'),
+    researchDesk:has('24-01'), surveyor:has('24-02'), prototypes:has('24-03'), droneSurvey:has('24-05'),
+    filters:has('24-06'), cleanupDispatch:has('24-07'), diagnostics:has('24-08'), census:has('24-09'), lastPixel:has('24-11'),
+    probe:has('23-01'), soilOverlay:has('23-02'), emissions:has('23-07'), megaPlan:has('23-12'),
     uplink:has('22-02'), rackManagement:has('22-03'), airFans:has('22-05'), liquidLoop:has('22-06'), backup:has('22-07'),
     serverService:has('22-08'), campus:has('22-09'), denseCompute:has('22-10'),
     chain: has('05-07') ? .68 : 1, heavyTeeth: has('05-09') ? 1.35 : 1, wedges: has('05-10'), forestryMastery: has('05-12'),

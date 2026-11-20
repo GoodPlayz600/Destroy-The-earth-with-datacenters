@@ -51,6 +51,7 @@ export class Scene {
   private ghost = new T.Mesh(new T.BoxGeometry(1,1,1),buildTint);
   private marker = new T.Mesh(new T.ConeGeometry(.6,1.7,5),new T.MeshStandardMaterial({color:'#ecc47a',emissive:'#da8938',emissiveIntensity:.3}));
   private heldTool?: T.Group;
+  private trophy?:T.Group;
   private toolKind = '';
   private quality = 'medium';
   private streamStamp = '';
@@ -147,6 +148,7 @@ export class Scene {
     this.fallers.clear();
     for(const hitch of this.hitches.values())hitch.removeFromParent();
     this.hitches.clear();
+    this.trophy?.removeFromParent();this.trophy=undefined;
     for(const cable of this.cables.values())cable.removeFromParent();
     this.cables.clear();
     if(this.networkView)this.removeModel(this.networkView);
@@ -791,9 +793,9 @@ export class Scene {
   render(args: {
     dt:number; at:Point; y:number; yaw:number; pitch:number; menu:boolean; active:boolean; swing:number; reverse:boolean;
     reduced:boolean; stride:number; held?:{log:Log;mode:'hand'|'rope'|'lift'|'winch'}; target?:Point; build?:{point:Point;valid:boolean;size:number}; drive?:Ride;
-    flyover?:number; waypoint?:Point;
+    flyover?:number; waypoint?:Point; survey?:{point:Point;age:number};
   }) {
-    const {dt,at,y,yaw,pitch,menu,active,swing,reverse,reduced,stride,held,target,build,drive,flyover,waypoint}=args;
+    const {dt,at,y,yaw,pitch,menu,active,swing,reverse,reduced,stride,held,target,build,drive,flyover,waypoint,survey}=args;
     this.frameAge+=dt;
     const sun=Math.sin(.7+this.game.clock/235)*.52+.56;
     const day=clamp(sun,.15,1);
@@ -807,6 +809,10 @@ export class Scene {
     if(menu) {
       this.camera.position.set(3.3+Math.sin(this.frameAge*.13)*1.3,3.1,-.5+Math.cos(this.frameAge*.11)*.7);
       this.camera.lookAt(0,3.2,-12);
+    } else if(survey) {
+      const {point,age}=survey,a=age*.24;
+      this.camera.position.set(point.x+Math.cos(a)*45,Math.max(20,height(point.x,point.z)+31),point.z+Math.sin(a)*45);
+      this.camera.lookAt(point.x,height(point.x,point.z),point.z);
     } else if(flyover!==undefined) {
       const a=flyover*.22;
       this.camera.position.set(at.x+Math.cos(a)*34,Math.min(37,9+flyover*4),at.z+Math.sin(a)*34);
@@ -832,8 +838,23 @@ export class Scene {
     this.stream({x:this.camera.position.x,z:this.camera.position.z},false,at);
     this.syncRides(at,this.frameAge,active?dt:0,drive);
     this.syncLogs(at);
-    this.syncSites(this.frameAge,at);
+    this.syncSites(this.frameAge,survey?survey.point:at);
+    if(this.game.ownedUpgrades.has('24-12')&&!this.trophy){
+      const monument=new T.Group();
+      monument.position.set(2.8,height(2.8,-1.7),-1.7);
+      box(monument,mat('#8b7b61'),0,.19,0,.90,.38,.87);
+      box(monument,mat('#b59461',.62),0,.64,0,.28,.52,.30);
+      const emblem=box(monument,mat('#d7b779',.54),0,1.08,0,.64,.64,.18);
+      emblem.rotation.y=.38;
+      emblem.rotation.z=Math.PI*.25;
+      this.trophy=monument;
+      this.world.add(monument);
+    }
     this.syncUtility(at);
+    if(active&&!menu&&this.quality!=='low'&&Math.random()<dt*.13&&
+      (this.game.soil.get(indexAt(at.x,at.z))?.stage??0)>=4){
+      this.impact(new T.Vector3(at.x+(Math.random()-.5)*12,height(at.x,at.z)+.6,at.z-4),'dust',4);
+    }
     if(active) this.updateSimulation(dt,at,yaw,held);
     this.syncCrew(at,dt,this.frameAge);
     this.syncFreight(at,dt,active);
@@ -871,7 +892,7 @@ export class Scene {
     arm.rotation.set(-.72-motion*.52,.0+motion*.33*side,-.52+motion*.82*side+(reduced?0:Math.sin(this.frameAge*4)*.025));
     this.renderer.clear();
     this.renderer.render(this.world,this.camera);
-    if(!menu&&!drive&&flyover===undefined) {
+    if(!menu&&!drive&&flyover===undefined&&!survey) {
       this.renderer.clearDepth();
       this.renderer.render(toolScene,this.toolCamera);
     }

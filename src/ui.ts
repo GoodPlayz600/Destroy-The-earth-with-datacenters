@@ -2,8 +2,8 @@ import { DISTRICTS, TOTAL, facilities, goods, recipes, tools, vehicles, vehicleT
 import type { Facility, Good, Recipe, Tool, VehicleType } from './catalog';
 import { biomassSites, buyerSite, cargoMass, computeSites, consumes, fields, fuelGood, getQuantity, projectPrices, storageSite, mills, waterSites, waterPumps, waterCapacity } from './campaign';
 import type { Campaign, Project, Site } from './campaign';
-import { conversionLabel, districtName, soilColors, stages } from './land';
-import type { Point } from './land';
+import { blockers, conversionLabel, desertRules, districtCenter, districtName, soilColors, stages } from './land';
+import type { Blocker, Point } from './land';
 import { bindingOptions, defaults } from './storage';
 import type { Archive, Binding, Preferences } from './storage';
 import { quests } from './quests';
@@ -45,7 +45,7 @@ type Controller={
   game:()=>Campaign; prefs:Preferences; open:(page:Page)=>void; begin:(kind:'resume'|'new'|'plus')=>void;
   resume:()=>void; menu:()=>void; refresh:()=>void; save:()=>void; download:()=>void; restore:(file:File)=>void;
   archives:()=>Archive[]; restoreArchive:(slot:string)=>void; applySettings:()=>void; binding:(key:Binding)=>void; build:(f:Facility)=>void; ride:(v:VehicleType)=>void;
-  waypoint:(p:Point)=>void; site:()=>Site|undefined; touch:(key:string,pressed:boolean)=>void; fullscreen:()=>void;
+  survey:(p:Point)=>void; waypoint:(p:Point)=>void; site:()=>Site|undefined; touch:(key:string,pressed:boolean)=>void; fullscreen:()=>void;
 };
 
 export class UI {
@@ -71,7 +71,8 @@ export class UI {
   private bindingKey?:Binding;
   private branch=0;
   private district=36;
-  private layer:'stage'|'moisture'|'heat'|'groundwater'='stage';
+  private filter?:Blocker;
+  private layer:'stage'|'moisture'|'heat'|'groundwater'|'vegetation'|'fertility'|'erosion'='stage';
   private signature='';
   private noticeTimers=new Map<HTMLElement,number>();
 
@@ -340,11 +341,18 @@ export class UI {
     branches.forEach((title,n)=>tabs.append(action(title,()=>{this.branch=n;this.tech();},n===this.branch?'branch selected':'branch')));
     const displayed=upgrades.slice(this.branch*12,this.branch*12+12);
     const available=upgrades.filter(u=>u.implemented).length;
+    const research=g.mods.researchDesk?section('Research desk',sub(`${g.science} research points from production and survey milestones`),
+      g.mods.prototypes?row('Prototype cutting edge','More cutting force on mature trunks',btn(g.prototypes.has('edge')?'Installed':'12 points',()=>{
+        if(g.develop('edge'))this.c.refresh();
+      },g.prototypes.has('edge')||g.science<12)):undefined,
+      g.mods.prototypes?row('Efficient motor assembly','Reduces the charge drawn by powered tools',btn(g.prototypes.has('motor')?'Installed':'20 points',()=>{
+        if(g.develop('motor'))this.c.refresh();
+      },g.prototypes.has('motor')||g.science<20)):undefined):undefined;
     this.panel('Upgrades',`${g.ownedUpgrades.size} installed · ${available} available designs · ${cash(g.cash)} in the wallet`,el('div','panel-content',
-      tabs,section(branches[this.branch],...displayed.map(item=>{
+      tabs,research,section(branches[this.branch],...displayed.map(item=>{
         const owned=g.ownedUpgrades.has(item.id),prereq=item.previous&&!g.ownedUpgrades.has(item.previous);
-        const unavailable=!item.implemented;
-        return row(item.name,unavailable?'In development':item.description,btn(owned?'Installed':unavailable?'Unavailable':prereq?'Requires previous':cash(item.price),()=>{
+        const unavailable=!item.implemented||(item.id==='24-12'&&!g.won);
+        return row(item.name,item.id==='24-12'&&!g.won?'Requires completed campaign':unavailable?'In development':item.description,btn(owned?'Installed':unavailable?'Unavailable':prereq?'Requires previous':cash(item.price),()=>{
           if(!g.buyUpgrade(item.id))this.notice('Required facility or funds unavailable');
           this.c.refresh();
         },owned||unavailable||Boolean(prereq)||g.cash<item.price));
@@ -356,10 +364,12 @@ export class UI {
     const grid=el('div','map-grid');
     const aquifer=(i:number)=>g.soil.get(i)?.groundwater??.85;
     const controls=el('div','controls-row survey-controls');
-    for(const [name,id] of [['Biome stage','stage'],['Soil moisture','moisture'],['Water table','groundwater'],['Heat','heat']] as const) {
+    const availableLayers=[['Biome stage','stage'],['Soil moisture','moisture'],['Water table','groundwater'],['Heat','heat']] as const;
+    const researchLayers=[['Vegetation','vegetation'],['Fertility','fertility'],['Erosion','erosion']] as const;
+    for(const [name,id] of [...availableLayers,...(g.mods.soilOverlay?researchLayers:[])]) {
       controls.append(action(name,()=>{this.layer=id;this.map();},this.layer===id?'branch selected':'branch'));
     }
-    const metrics=Array.from({length:DISTRICTS**2},()=>({moisture:.68*1024,groundwater:.85*1024,heat:.12*1024}));
+    const metrics=Array.from({length:DISTRICTS**2},()=>({moisture:.68*1024,groundwater:.85*1024,heat:.12*1024,vegetation:1024,fertility:.9*1024,erosion:0}));
     const layers=Array.from({length:DISTRICTS**2},()=>Array(7).fill(0) as number[]);
     for(const [i,s] of g.soil) {
       const x=Math.floor((i%256)/32),z=Math.floor(i/256/32);
@@ -368,6 +378,7 @@ export class UI {
       metrics[district].moisture+=s.moisture-.68;
       metrics[district].groundwater+=s.groundwater-.85;
       metrics[district].heat+=s.heat-.12;
+      metrics[district].vegetation+=s.vegetation-1;metrics[district].fertility+=s.fertility-.9;metrics[district].erosion+=s.erosion;
     }
     for(let i=0;i<DISTRICTS**2;i++) {
       const b=action('',()=>{this.district=i;this.map();},i===this.district?'zone active':'zone');
@@ -380,14 +391,22 @@ export class UI {
       grid.append(b);
     }
     const district=this.district,count=g.desertByDistrict[district];
+    const labels:Record<Blocker,string>={vegetation:'Clear vegetation',moisture:'Dry surface',ground:'Lower groundwater or fertility',substrate:'Expose substrate',time:'Wait for stabilization'};
+    const survey=g.scan(district,16,this.filter);
+    const filtered=el('div','controls-row survey-controls');
+    if(g.mods.filters){
+      const names:([Blocker|undefined,string])[]=[[undefined,'All blockers'],...Object.entries(labels) as [Blocker,string][]];
+      for(const [type,name] of names)filtered.append(action(name,()=>{this.filter=type;this.map();},this.filter===type?'branch selected':'branch'));
+    }
     const selected=el('div','panel-content',cards(tc(conversionLabel(g.desertCount)+'%','Campaign desert'),tc(value(g.desertCount)+' / '+value(TOTAL),'Stable cells')),controls,grid,
-      section('District '+districtName(district),sub(`${count} / 1,024 cells stable`),
+      section('District '+districtName(district),sub(`${count} / 1,024 cells stable${g.mods.census?' · '+(1024-count)+' remaining · '+desertRules.stabilization+'s verified hold':''}`),
+        g.mods.droneSurvey?btn('Fly survey drone',()=>this.c.survey(districtCenter(district))):undefined,
         g.districts.has(district)?sub('Permit active'):btn('Purchase permit · $950',()=>{if(g.buyDistrict(district))this.map();},g.cash<950),
         ...Object.entries(projectPrices).map(([key,price])=>{
           const kind=key as Project['kind'], built=g.projects.find(p=>p.district===district);
-          const ready=g.sites.some(s=>s.kind==='forestry')&&g.sites.some(s=>s.kind===(kind==='watershed'?'pump':kind==='quarry'?'quarry':kind==='dryland'?'soilRecovery':'thermal'))
-            &&(kind!=='dryland'||g.mods.drylandOffice);
-          const display={watershed:'Watershed drawdown',quarry:'Regional stripping',thermal:'Thermal exhaustion',dryland:'Dryland farming and extraction'}[kind];
+          const ready=g.sites.some(s=>s.kind==='forestry')&&g.sites.some(s=>s.kind===(kind==='watershed'?'pump':kind==='quarry'?'quarry':kind==='dryland'?'soilRecovery':kind==='integrated'?'stormTower':'thermal'))
+            &&(kind!=='dryland'||g.mods.drylandOffice)&&(kind!=='integrated'||g.mods.megaPlan);
+          const display={watershed:'Watershed drawdown',quarry:'Regional stripping',thermal:'Thermal exhaustion',dryland:'Dryland farming and extraction',integrated:'Integrated conversion program'}[kind];
           return row(display,built?.kind===kind?(built.complete?'Bond paid · all district cells stable':`Commissioned · ${duration(built.phase)}`):'Requires local industrial expertise and a district permit',
             btn(cash(price),()=>{if(g.startProject(district,kind))this.map();},Boolean(built)||!ready||!g.districts.has(district)||g.cash<price));
         })),
@@ -395,9 +414,20 @@ export class UI {
         sub('District averages use the groundwater in their individual cells. Pump outlets serve facilities within their pipe network.'),
         ...[district-DISTRICTS,district+DISTRICTS,district-1,district+1].filter(i=>i>=0&&i<DISTRICTS**2&&Math.abs(Math.floor(i/DISTRICTS)-Math.floor(district/DISTRICTS))+
           Math.abs(i%DISTRICTS-district%DISTRICTS)===1).map(i=>row(districtName(i),Math.round(metrics[i].groundwater/10.24)+'% mean groundwater'))):undefined,
-      section('Remaining-cell survey',...g.scan(district,12).map(({i,at,soil})=>row(`Cell ${i} · ${stages[soil.stage]}`,
-        `Vegetation ${Math.round(soil.vegetation*100)}% · Soil moisture ${Math.round(soil.moisture*100)}% · Substrate ${Math.round(soil.substrate*100)}%${g.mods.groundScan?' · Water table '+Math.round(aquifer(i)*100)+'%':''}`,
-        btn('Mark',()=>this.c.waypoint(at))))));
+      section('Remaining-cell survey',filtered,
+        g.mods.lastPixel?btn('Queue visible cleanup jobs',()=>{for(const {i}of survey)g.dispatchCleanup(i);this.map();},!survey.length||!g.districts.has(district)):undefined,
+        ...survey.map(({i,at,soil})=>{
+          const pending=g.cleanup.find(job=>job.cell===i);
+          const actual=`Vegetation ${Math.round(soil.vegetation*100)}% · Moisture ${(soil.moisture*100).toFixed(g.mods.surveyor?1:0)}% · Substrate ${Math.round(soil.substrate*100)}%`;
+          const water=g.mods.groundScan?' · Water table '+Math.round(aquifer(i)*100)+'%':'';
+          const precise=g.mods.surveyor?' · Roots active '+(soil.vegetation>.03&&soil.fertility>.22?'yes':'no'):'';
+          const next=g.mods.diagnostics?' · '+blockers(soil).map(blocker=>labels[blocker]).join(' / '):'';
+          return row(`Cell ${i} · ${stages[soil.stage]}`,actual+water+precise+next+(pending?` · Crew ${pending.travel?'in transit':'working'}`:''),
+            btn('Mark',()=>this.c.waypoint(at)),g.mods.cleanupDispatch?btn('Dispatch · $80',()=>{
+              if(!g.dispatchCleanup(i))this.notice('A suitable crew, district permit and funds are required');
+              this.map();
+            },Boolean(pending)||!g.districts.has(district)||g.cash<80):undefined);
+        })));
     this.panel('Land survey','The survey tracks every cell, including the ground beneath machinery and roads.',selected);
   }
 
@@ -461,6 +491,8 @@ export class UI {
         btn('Premium',()=>{g.acceptCommission(good,true);this.site();},!g.canTakeContract())))):el('span'));
     } else {
       content.append(section('Operation',row('Run schedule',s.on?'Enabled while in the field':'Stopped',btn(s.on?'Stop':'Start',()=>{s.on=!s.on;this.site();})),
+        g.mods.emissions&&def.effect==='thermal'?row('Emissions policy',s.scrubbers?'Scrubbers on · lower output and emissions':'Full power · higher heat and emissions',
+          btn('Switch',()=>{s.scrubbers=!s.scrubbers;this.site();})):undefined,
         g.mods.meter?row('Grid meter',def.supply?`${Math.round(s.gridFlow??0)} / ${Math.round(s.gridCapacity??0)} kW delivered`:
           `${Math.round(s.gridFlow??0)} kW drawn`):undefined,
         g.mods.priority?row('Dispatch order',s.priority?'Priority load':'Normal load',btn('Change',()=>{
@@ -511,6 +543,9 @@ export class UI {
             this.site();
           },s.link===target.id)))));
     }
+    if(s.kind==='climateTower')content.append(section('Climate history',
+      s.climate?.length?undefined:sub('Resume play with grid power to record regional readings.'),
+      ...(s.climate??[]).map(sample=>row(duration(sample.time),`${sample.desert} stable cells · ${Math.round(sample.moisture*100)}% soil moisture · ${Math.round(sample.heat*100)}% heat index`))));
     if(s.kind==='winch') {
       const logs=[...g.logs.values()].filter(log=>!log.cargo&&!log.carrier&&Math.hypot(s.x-log.x,s.z-log.z)<=22&&log.kilograms<=420);
       content.append(section('Cable',sub('Attach the powered drum to an actual log within 22 m. Resume play to reel it in.'),

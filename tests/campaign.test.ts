@@ -618,3 +618,47 @@ test('water cart transfers conserve the finite volume drawn from a manual pump',
   assert.equal(ride.water,0);
   assert.doesNotThrow(()=>validateSave(JSON.parse(JSON.stringify(g.snapshot()))));
 });
+
+test('scrubbers change heat, pollution and offered grid output in the same parcel',()=>{
+  const ordinary=new Campaign(), filtered=new Campaign();
+  ordinary.cash=filtered.cash=12000;
+  const normal=build(ordinary,'thermal',7,13), clean=build(filtered,'thermal',7,13);
+  clean.scrubbers=true;
+  run(ordinary,90);run(filtered,90);
+  const tile=indexAt(normal.x,normal.z);
+  const raw=ordinary.getSoil(tile), controlled=filtered.getSoil(tile);
+  assert.ok(raw.pollution>controlled.pollution);
+  assert.ok(raw.heat>controlled.heat);
+  assert.ok((normal.gridCapacity??0)>(clean.gridCapacity??0));
+  assert.ok(normal.fuel<100);
+});
+
+test('survey research spends earned science and the last-cell crew operates through actual soil rules',()=>{
+  const g=new Campaign();
+  g.cash=10000000;
+  g.stats.produced=900;
+  for(let i=1;i<=4;i++)assert.ok(g.buyUpgrade('24-'+String(i).padStart(2,'0')));
+  const climate=build(g,'climateTower',11,13), generator=build(g,'generator',-9,10);
+  build(g,'forestry',1,13);
+  for(let i=5;i<=7;i++)assert.ok(g.buyUpgrade('24-'+String(i).padStart(2,'0')));
+  assert.equal(g.science,56);
+  assert.ok(g.develop('edge'));
+  assert.equal(g.science,44);
+  assert.equal(g.develop('edge'),false);
+  run(g,26);
+  assert.ok((climate.climate?.length??0)>0);
+  assert.ok(generator.fuel<100);
+  const i=indexAt(111,111), initial=g.cash;
+  assert.ok(g.dispatchCleanup(i));
+  assert.equal(g.cash,initial-80);
+  assert.equal(g.dispatchCleanup(i),false);
+  assert.equal(g.desertCount,0);
+  run(g,730);
+  assert.ok(desertified(g.getSoil(i)));
+  assert.equal(g.cleanup.length,0);
+  assert.ok(g.desertCount>0);
+  assert.equal(g.won,false);
+  const restored=Campaign.restore(validateSave(JSON.parse(JSON.stringify(g.snapshot()))));
+  assert.equal(restored.prototypes.has('edge'),true);
+  assert.equal(restored.desertCount,g.desertCount);
+});
