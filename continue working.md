@@ -10,15 +10,13 @@ The M0–M9 milestone review covers the build, simulation, browser playthroughs 
 
 ## [M2 — First profitable refining branch](progress/M2/continue%20working.md)
 
-**Reviewed**
-
-- Playtest the rope, sled, cart and wheelbarrow on a continuous early campaign route.
+- Cargo loading checks the selected bed's reach. The build panel names the required sled and cart research, and touch players can use the rope after researching it.
+- Continue measuring the time and earnings of an uninterrupted campaign from the knife through all the manual hauling unlocks.
 
 ## [M3 — Game economy and progression foundation](progress/M3/continue%20working.md)
 
-**Reviewed**
-
-- Measure ordinary progression through the early branches and standing contracts.
+- Standing board orders show the next shipment's quantity and payout. Active orders stay available as completed orders accumulate.
+- Measure when players reach standing contracts in an ordinary campaign.
 
 ## [M4 — Vehicles and a real logging operation](progress/M4/continue%20working.md)
 

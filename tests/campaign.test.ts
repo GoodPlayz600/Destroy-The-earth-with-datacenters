@@ -583,19 +583,65 @@ test('standing delivery contracts lock a rate and credit each shipment once',()=
   for(let n=1;n<=9;n++)assert.ok(game.buyUpgrade('14-'+String(n).padStart(2,'0')));
   assert.ok(game.acceptContract('boards',false,'supply'));
   const order=game.contracts[0], starting=game.cash;
+  const bench=build(game,'bench',1,4), productionBudget=game.cash;
   assert.ok(order.deadline>game.clock+900);
   for(let batch=0;batch<3;batch++) {
-    put(game.stock,{good:'boards',quantity:9,quality:.86,moisture:.40});
+    while(getQuantity(bench.output,'boards')<9){
+      const log=baseLog(game,bench.x,bench.z);
+      game.logs.set(log.id,log);
+      assert.ok(game.acceptLog(bench,log));
+      run(game,6);
+    }
+    assert.ok(game.transfer(bench,'boards',9,true));
+    const quote=game.deliveryQuote(order)!;
+    const expected=Math.floor(order.payout*(batch+1)/3)-Math.floor(order.payout*batch/3);
+    assert.deepEqual(quote,{quantity:9,payout:expected,available:9});
+    const balance=game.cash;
     assert.ok(game.fulfill(order));
+    assert.equal(game.cash,balance+expected);
     assert.equal(order.received,(batch+1)*9);
     assert.equal(order.done,batch===2);
     assert.equal(game.fulfill(order),false);
     run(game,40);
   }
-  assert.equal(game.cash,starting+order.payout);
+  assert.equal(productionBudget,starting-facilities.bench.price);
+  assert.equal(game.cash,productionBudget+order.payout);
   assert.equal(getQuantity(game.stock),0);
   const save=Campaign.restore(validateSave(JSON.parse(JSON.stringify(game.snapshot()))));
   assert.equal(save.contracts[0].received,27);
+});
+
+test('contract history retains a standing order after newer orders close',()=>{
+  const game=new Campaign();
+  game.ownedUpgrades.add('14-09');
+  game.ownedUpgrades.add('14-12');
+  game.mods=modifiers(game.ownedUpgrades);
+  assert.ok(game.acceptContract('boards',false,'supply'));
+  const order=game.contracts[0];
+  for(let n=0;n<27;n++){
+    assert.ok(game.acceptContract('paper'));
+    const recent=game.contracts[0];
+    put(game.stock,{good:'paper',quantity:recent.quantity,quality:.88,moisture:.4});
+    assert.ok(game.fulfill(recent));
+  }
+  assert.equal(game.contracts.length,25);
+  assert.equal(game.contracts.at(-1),order);
+  const restored=Campaign.restore(validateSave(JSON.parse(JSON.stringify(game.snapshot()))));
+  assert.deepEqual(restored.contracts.at(-1),JSON.parse(JSON.stringify(order)));
+});
+
+test('manual hauling equipment unlocks from its listed construction research',()=>{
+  const game=new Campaign();
+  game.cash=3000;
+  const point={x:0,z:11};
+  assert.ok(game.acquireRide('wheelbarrow',point));
+  assert.equal(game.acquireRide('sled',point),undefined);
+  assert.equal(game.acquireRide('cart',point),undefined);
+  for(let n=1;n<=5;n++)assert.ok(game.buyUpgrade(`03-0${n}`));
+  assert.ok(game.acquireRide('sled',point));
+  assert.equal(game.acquireRide('cart',point),undefined);
+  for(let n=6;n<=7;n++)assert.ok(game.buyUpgrade(`03-0${n}`));
+  assert.ok(game.acquireRide('cart',point));
 });
 
 test('water cart transfers conserve the finite volume drawn from a manual pump',()=>{

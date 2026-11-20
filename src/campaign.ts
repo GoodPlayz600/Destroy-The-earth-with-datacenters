@@ -43,6 +43,7 @@ export type Site = Point & {
 export type Ride = Point & { id: string; kind: VehicleType; yaw: number; fuel: number; wear: number; hitch?:string; hitchReady?:number; attachment?:'saw'|'tow'; water?:number; freight?:Stack };
 export type Ledger = { date: number; note: string; amount: number };
 export type Contract = { good: Good; quantity: number; deadline: number; payout: number; done: boolean; failed: boolean; dense?:boolean; grade?:number; received?:number; plan?:'quick'|'supply'|'export' };
+export const isOpenContract=(contract:Contract,clock:number)=>!contract.done&&!contract.failed&&contract.deadline>clock;
 export type Project = { kind: 'watershed' | 'quarry' | 'thermal' | 'dryland' | 'integrated' | 'continental'; district: number; phase: number; complete?: boolean };
 type RecordRow = { hits: number; harvest: number; fire: number; sold: number; produced: number; earned: number; spent: number; miles: number };
 export type Save = ReturnType<Campaign['snapshot']>;
@@ -446,11 +447,15 @@ export class Campaign {
     return Math.round(priceFor(stack)*rate*premium*(certified?1.26:1));
   }
 
-  private creditDelivery(contract:Contract,quantity:number) {
+  private deliveryValue(contract:Contract,quantity:number) {
     const before=contract.received??0;
-    contract.received=before+quantity;
+    return Math.floor(contract.payout*(before+quantity)/contract.quantity)-Math.floor(contract.payout*before/contract.quantity);
+  }
+
+  private creditDelivery(contract:Contract,quantity:number) {
+    const paid=this.deliveryValue(contract,quantity);
+    contract.received=(contract.received??0)+quantity;
     contract.done=contract.received>=contract.quantity;
-    const paid=Math.floor(contract.payout*contract.received/contract.quantity)-Math.floor(contract.payout*before/contract.quantity);
     this.finance(paid,`${contract.done?'Contract fulfilled':'Contract shipment'} · ${goods[contract.good][0]}`);
     this.notice(`${contract.done?'Contract complete':'Shipment accepted'} · +$${paid}`);
   }
@@ -458,7 +463,7 @@ export class Campaign {
   private sellAt(site:Site,stack:Stack) {
     if(site.kind==='tradeHub'&&this.mods.tradeOptimizer) {
       for(const c of this.contracts){
-        if(c.good!==stack.good||c.done||c.failed||stack.quality<(c.grade??0))continue;
+        if(c.good!==stack.good||!isOpenContract(c,this.clock)||stack.quality<(c.grade??0))continue;
         const delivered=Math.min(stack.quantity,c.quantity-(c.received??0));
         if(delivered<=0)continue;
         this.creditDelivery(c,delivered);
@@ -498,7 +503,15 @@ export class Campaign {
   }
 
   canTakeContract() {
-    return this.contracts.filter(c=>!c.done&&!c.failed).length<(this.mods.tradeOptimizer?3:1);
+    return this.contracts.filter(c=>isOpenContract(c,this.clock)).length<(this.mods.tradeOptimizer?3:1);
+  }
+
+  private recordContract(contract:Contract) {
+    this.contracts.unshift(contract);
+    if(this.contracts.length>25) {
+      const oldestClosed=this.contracts.map(item=>isOpenContract(item,this.clock)).lastIndexOf(false);
+      this.contracts.splice(oldestClosed,1);
+    }
   }
 
   acceptContract(good:Good,dense=false,plan?:Contract['plan']) {
@@ -509,27 +522,32 @@ export class Campaign {
       good==='packed'?48:good==='timber'?32:['briquettes','pellets'].includes(good)?24:['finished','treated'].includes(good)?16:8;
     const expires=plan==='quick'?160:plan==='supply'?1100:plan==='export'?1350:dense||good==='packed'?1200:good==='compute'?480:360;
     const rate=dense?2.5:plan==='export'?2.2:plan==='supply'?1.7:1.5;
-    this.contracts.unshift({good,quantity,deadline:this.clock+expires,payout:Math.round(goods[good][1]*quantity*rate),done:false,failed:false,dense,
+    this.recordContract({good,quantity,deadline:this.clock+expires,payout:Math.round(goods[good][1]*quantity*rate),done:false,failed:false,dense,
       grade:plan==='export'?.83:undefined,plan});
-    this.contracts.length=Math.min(this.contracts.length,25);
     return true;
   }
 
   acceptCommission(good:Good,premium=false) {
     if(!this.mods.commissions||!['finishedCabinet','floors','modular'].includes(good)||!this.canTakeContract()) return false;
     const quantity=premium?25:12;
-    this.contracts.unshift({good,quantity,deadline:this.clock+(premium?990:570),payout:Math.round(goods[good][1]*quantity*(premium?2.15:1.65)),
+    this.recordContract({good,quantity,deadline:this.clock+(premium?990:570),payout:Math.round(goods[good][1]*quantity*(premium?2.15:1.65)),
       done:false,failed:false,grade:premium?.92:.81});
-    this.contracts.length=Math.min(this.contracts.length,25);
     return true;
   }
 
-  fulfill(contract:Contract) {
-    if(contract.done||contract.failed||contract.deadline<=this.clock)return false;
+  deliveryQuote(contract:Contract) {
+    if(!isOpenContract(contract,this.clock))return;
     const need=contract.quantity-(contract.received??0);
-    const batch=contract.plan==='supply'?Math.min(9,need):need;
-    if(!take(this.stock,contract.good,batch,contract.grade))return false;
-    this.creditDelivery(contract,batch);
+    const quantity=contract.plan==='supply'?Math.min(9,need):need;
+    if(quantity<=0)return;
+    const available=getQuantity(this.stock.filter(lot=>lot.quality>=(contract.grade??0)),contract.good);
+    return {quantity,payout:this.deliveryValue(contract,quantity),available};
+  }
+
+  fulfill(contract:Contract) {
+    const quote=this.deliveryQuote(contract);
+    if(!quote||!take(this.stock,contract.good,quote.quantity,contract.grade))return false;
+    this.creditDelivery(contract,quote.quantity);
     return true;
   }
 
@@ -566,7 +584,7 @@ export class Campaign {
   acquireRide(kind: VehicleType, point: Point) {
     const vehicle = vehicleTypes[kind];
     if(vehicle.research&&!this.ownedUpgrades.has(vehicle.research))return;
-    if (this.cash < vehicle.cost || (kind === 'sled' && !this.mods.sled) || (kind === 'cart' && !this.mods.cart)
+    if (this.cash < vehicle.cost
       || indexAt(point.x, point.z) < 0 || (Math.hypot(point.x, point.z) > 29 && !this.districts.has(districtAt(indexAt(point.x, point.z))))) return;
     const ride: Ride = { ...point, id: 'v' + this.nextId++, kind, yaw: this.player.yaw, fuel: 100, wear: 0 };
     this.rides.push(ride);
@@ -971,7 +989,7 @@ export class Campaign {
   }
 
   private computeRemaining() {
-    const ordered=this.contracts.reduce((sum,c)=>sum+(c.good==='compute'&&!c.done&&!c.failed?c.quantity-(c.received??0):0),0);
+    const ordered=this.contracts.reduce((sum,c)=>sum+(c.good==='compute'&&isOpenContract(c,this.clock)?c.quantity-(c.received??0):0),0);
     if(!ordered)return 0;
     const pledged=getQuantity(this.stock,'compute')+this.sites.reduce((n,site)=>n+getQuantity(site.output,'compute')
       +site.jobs.reduce((total,job)=>total+(job.good==='compute'?job.quantity:0),0)
@@ -1607,7 +1625,7 @@ export class Campaign {
         if(first&&this.dispatchCleanup(first.i))break;
       }
     } else if(this.policy==='revenue') {
-      const active=this.contracts.find(c=>!c.done&&!c.failed);
+      const active=this.contracts.find(c=>isOpenContract(c,this.clock));
       for(const site of this.sites) if(site.staffed)site.priority=site.jobs.some(job=>job.good===active?.good)||
         (isRecipe(site.kind)&&recipes[site.kind].output[0]===active?.good);
     }
