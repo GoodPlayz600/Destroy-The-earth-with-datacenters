@@ -105,10 +105,10 @@ export const recipes = {
   data: { name: 'Process compute contract', output: ['compute', 2], time: 24, power: 12 },
 } as const satisfies Record<string, Recipe>;
 
-export type Facility = keyof typeof recipes | 'fire' | 'market' | 'timberBuyer' | 'specialistBuyer' | 'tradeHub' | 'depot' | 'railDepot' | 'dronePad' | 'generator' | 'substation' | 'fuelSilo' | 'cogeneration' | 'wastePower' | 'portable' | 'pole' | 'battery' | 'biopower' | 'solar' | 'wind' | 'transformer' | 'gridPlant' | 'backbone' | 'gridCampus' | 'pump' | 'pipe' | 'tank' | 'coolTower' | 'grazing' | 'thermal' | 'dryer' | 'forestry' | 'winch' | 'road' | 'belt' | 'rail';
+export type Facility = keyof typeof recipes | 'fire' | 'market' | 'timberBuyer' | 'specialistBuyer' | 'tradeHub' | 'depot' | 'railDepot' | 'dronePad' | 'generator' | 'substation' | 'fuelSilo' | 'cogeneration' | 'wastePower' | 'portable' | 'pole' | 'battery' | 'biopower' | 'solar' | 'wind' | 'transformer' | 'gridPlant' | 'backbone' | 'gridCampus' | 'pump' | 'pipe' | 'tank' | 'handPump' | 'borePump' | 'pumpStation' | 'deepPump' | 'tankFarm' | 'flowPipe' | 'ditch' | 'coolTower' | 'grazing' | 'thermal' | 'dryer' | 'forestry' | 'winch' | 'road' | 'belt' | 'rail';
 type Building = {
   name: string; price: number; color: string; size: number; requires?: Facility; research?: string;
-  effect?: 'fire' | 'pump' | 'grazing' | 'field' | 'quarry' | 'thermal' | 'dryer' | 'forestry' | 'data';
+  effect?: 'fire' | 'pump' | 'ditch' | 'grazing' | 'field' | 'quarry' | 'thermal' | 'dryer' | 'forestry' | 'data';
   reach?: number; power?: number; supply?: number;
 };
 export const facilities: Record<Facility, Building> = {
@@ -160,6 +160,13 @@ export const facilities: Record<Facility, Building> = {
   gridCampus: { name: 'Gigawatt Utility Campus', price: 103000, color: '#978c74', size: 12, supply: 488, research: '18-12', effect:'thermal', reach:30 },
   generator: { name: 'Grid Generator', price: 305, color: '#be964b', size: 3, supply: 28 },
   substation: { name: 'Grid Relay', price: 195, color: '#897f64', size: 2 },
+  handPump: { name:'Hand Pump', price:220, color:'#6f8790', size:1.8, research:'19-01' },
+  borePump: { name:'Electric Bore Pump', price:1200, color:'#698d9b', size:3.2, research:'19-04', effect:'pump', reach:12, power:9, requires:'pump' },
+  flowPipe: { name:'High-Flow Pipeline', price:180, color:'#729ca1', size:2, research:'19-05', requires:'pump' },
+  tankFarm: { name:'Water Tank Farm', price:1450, color:'#879b95', size:5, research:'19-06', requires:'tank' },
+  ditch: { name:'Surface Drainage Ditch', price:410, color:'#837960', size:2.4, effect:'ditch', reach:4, research:'19-07' },
+  pumpStation: { name:'Industrial Pump Station', price:7200, color:'#71969d', size:6, effect:'pump', reach:19, power:20, requires:'borePump', research:'19-08' },
+  deepPump: { name:'Deep Drying Network', price:25200, color:'#8d9393', size:8, effect:'pump', reach:32, power:43, requires:'pumpStation', research:'19-12' },
   pump: { name: 'Drainage Array', price: 550, color: '#5e8c9e', size: 3, effect: 'pump', reach: 9, power: 5 },
   pipe: { name: 'Cooling Pipeline', price: 85, color: '#5e8c9e', size: 2, requires: 'pump' },
   tank: { name: 'Cooling Reservoir', price: 270, color: '#719496', size: 3, requires: 'pump' },
@@ -212,6 +219,7 @@ export const vehicles = {
   towAtv: { name: 'ATV Tow Rig', cost: 595, speed: 12.8, capacity: 180, motor: true, color:'#c0a14b', research:'06-05' },
   trailer: { name: 'Timber Trailer', cost: 750, speed: 0, capacity: 600, motor: false, color:'#8f845f', trailer:true, research:'06-06' },
   towPickup: { name: 'Work Pickup', cost: 1700, speed: 14.5, capacity: 340, motor: true, color:'#879369', research:'06-07' },
+  waterCart: { name:'Water Transfer Cart', cost:390, speed:7.4, capacity:0, motor:true, color:'#718fa0', research:'19-02' },
   forklift: { name: 'Log Forklift', cost: 1900, speed: 6.8, capacity: 610, motor: true, color:'#c4a454', forks:true },
   atv: { name: 'Forestry ATV', cost: 370, speed: 11, capacity: 130, motor: true, color: '#c08a39' },
   pickup: { name: 'Field Pickup', cost: 680, speed: 13, capacity: 260, motor: true, color: '#788b63' },

@@ -1,6 +1,6 @@
 import { DISTRICTS, TOTAL, facilities, goods, recipes, tools, vehicles, vehicleTypes } from './catalog';
 import type { Facility, Good, Recipe, Tool, VehicleType } from './catalog';
-import { biomassSites, buyerSite, cargoMass, computeSites, consumes, fields, fuelGood, getQuantity, projectPrices, storageSite, mills, waterSites } from './campaign';
+import { biomassSites, buyerSite, cargoMass, computeSites, consumes, fields, fuelGood, getQuantity, projectPrices, storageSite, mills, waterSites, waterPumps, waterCapacity } from './campaign';
 import type { Campaign, Project, Site } from './campaign';
 import { conversionLabel, districtName, soilColors, stages } from './land';
 import type { Point } from './land';
@@ -354,6 +354,7 @@ export class UI {
   private map() {
     const g=this.c.game();
     const grid=el('div','map-grid');
+    const aquifer=(i:number)=>g.soil.get(i)?.groundwater??.85;
     const controls=el('div','controls-row survey-controls');
     for(const [name,id] of [['Biome stage','stage'],['Soil moisture','moisture'],['Water table','groundwater'],['Heat','heat']] as const) {
       controls.append(action(name,()=>{this.layer=id;this.map();},this.layer===id?'branch selected':'branch'));
@@ -390,8 +391,12 @@ export class UI {
           return row(display,built?.kind===kind?(built.complete?'Bond paid · all district cells stable':`Commissioned · ${duration(built.phase)}`):'Requires local industrial expertise and a district permit',
             btn(cash(price),()=>{if(g.startProject(district,kind))this.map();},Boolean(built)||!ready||!g.districts.has(district)||g.cash<price));
         })),
+      g.mods.aquiferMap?section('Aquifer connectivity',
+        sub('District averages use the groundwater in their individual cells. Pump outlets serve facilities within their pipe network.'),
+        ...[district-DISTRICTS,district+DISTRICTS,district-1,district+1].filter(i=>i>=0&&i<DISTRICTS**2&&Math.abs(Math.floor(i/DISTRICTS)-Math.floor(district/DISTRICTS))+
+          Math.abs(i%DISTRICTS-district%DISTRICTS)===1).map(i=>row(districtName(i),Math.round(metrics[i].groundwater/10.24)+'% mean groundwater'))):undefined,
       section('Remaining-cell survey',...g.scan(district,12).map(({i,at,soil})=>row(`Cell ${i} · ${stages[soil.stage]}`,
-        `Vegetation ${Math.round(soil.vegetation*100)}% · Soil moisture ${Math.round(soil.moisture*100)}% · Substrate ${Math.round(soil.substrate*100)}%`,
+        `Vegetation ${Math.round(soil.vegetation*100)}% · Soil moisture ${Math.round(soil.moisture*100)}% · Substrate ${Math.round(soil.substrate*100)}%${g.mods.groundScan?' · Water table '+Math.round(aquifer(i)*100)+'%':''}`,
         btn('Mark',()=>this.c.waypoint(at))))));
     this.panel('Land survey','The survey tracks every cell, including the ground beneath machinery and roads.',selected);
   }
@@ -477,7 +482,14 @@ export class UI {
         g.mods.sortingCamera?row('Sorting gate',s.sortHigh?'Route high-grade batches only':'Route all compatible stock',
           btn('Change',()=>{s.sortHigh=!s.sortHigh;this.site();})):undefined,
         def.supply&&!['solar','wind',...biomassSites].includes(s.kind)?row('Fuel',Math.floor(s.fuel)+'%',btn('Refuel · $25',()=>{if(g.cash>=25){g.finance(-25,'Generator fuel');s.fuel=100;this.site();}},g.cash<25||s.fuel===100)):undefined,
-        waterSites.includes(s.kind)?row('Cooling water',Math.floor(s.water??0)+' L stored · feed a nearby compute campus or extend with pipe'):undefined,
+        waterSites.includes(s.kind)?row('Water storage',Math.floor(s.water??0)+' / '+waterCapacity(s.kind)+' L'):undefined,
+        s.kind==='handPump'?row('Manual extraction','Draw water from the current cell',btn('Pump',()=>{g.pumpByHand(s);this.site();})):undefined,
+        waterSites.includes(s.kind)&&g.mods.diversion?row('Allocation',s.waterMode??'all',btn('Switch priority',()=>{
+          s.waterMode=s.waterMode==='farm'?'industry':s.waterMode==='industry'?'all':'farm';this.site();
+        })):undefined,
+        waterPumps.includes(s.kind)&&s.kind!=='handPump'&&g.mods.waterBoard?row('Pump schedule',s.waterRate??'normal',btn('Switch rate',()=>{
+          s.waterRate=s.waterRate==='conserve'?'deplete':s.waterRate==='deplete'?'normal':'conserve';this.site();
+        })):undefined,
         computeSites.includes(s.kind)?row('Compute scheduling',s.kind==='serverRack'?'Requires a live compute contract and electricity.':
           'Requires a live compute contract, electricity and cooling water. Inspect the flow at the pump or reservoir.'):undefined,
         computeSites.includes(s.kind)&&g.mods.backup?row('Battery reserve',Math.floor(s.reserve??0)+' / 700 charge'):undefined,

@@ -595,3 +595,26 @@ test('standing delivery contracts lock a rate and credit each shipment once',()=
   const save=Campaign.restore(validateSave(JSON.parse(JSON.stringify(game.snapshot()))));
   assert.equal(save.contracts[0].received,27);
 });
+
+test('water cart transfers conserve the finite volume drawn from a manual pump',()=>{
+  const g=new Campaign();
+  g.cash=10000;
+  assert.ok(g.buyUpgrade('19-01'));
+  assert.ok(g.buyUpgrade('19-02'));
+  const pump=build(g,'handPump',0,8), tankSite=build(g,'pump',-9,10);
+  const soil=g.getSoil(indexAt(0,8));
+  const before=soil.groundwater;
+  for(let i=0;i<4;i++)assert.ok(g.pumpByHand(pump)>0);
+  assert.ok(soil.groundwater<before);
+  const ride=g.acquireRide('waterCart',{x:0,z:10})!;
+  assert.ok(ride);
+  assert.equal(g.waterCargo(ride,pump),44);
+  assert.equal(pump.water,0);
+  assert.equal(ride.water,44);
+  assert.equal(g.waterCargo(ride,tankSite,true),0);
+  ride.x=-8;ride.z=10;
+  assert.equal(g.waterCargo(ride,tankSite,true),44);
+  assert.equal(tankSite.water,44);
+  assert.equal(ride.water,0);
+  assert.doesNotThrow(()=>validateSave(JSON.parse(JSON.stringify(g.snapshot()))));
+});

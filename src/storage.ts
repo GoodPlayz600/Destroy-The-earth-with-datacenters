@@ -68,7 +68,8 @@ export function validateSave(data:unknown): Save {
       &&Math.abs(Math.hypot(...x.q as number[])-1)<.01&&integer(x.kind,0,species.length-1)&&numeric(x.length,.05,40)&&numeric(x.kilograms,.1,1000)
       &&integer(x.units,1,20)&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1)&&(x.cargo===undefined||identifier(x.cargo))&&(x.carrier===undefined||identifier(x.carrier))&&(x.part===undefined||x.part==='branch'))
     &&rows(s.sites,20000,x=>object(x)&&identifier(x.id)&&key(x.kind,facilities)&&coordinate(x)&&(x.yaw===undefined||numeric(x.yaw))&&rows(x.input,260,lot)&&rows(x.output,260,lot)
-      &&rows(x.jobs,8,job)&&flag(x.on)&&numeric(x.fuel,0,100)&&text(x.status)&&(x.water===undefined||numeric(x.water,0,4200))&&(x.link===undefined||identifier(x.link))
+      &&rows(x.jobs,8,job)&&flag(x.on)&&numeric(x.fuel,0,100)&&text(x.status)&&(x.water===undefined||numeric(x.water,0,4200))&&(x.waterMode===undefined||['all','farm','industry'].includes(String(x.waterMode)))
+      &&(x.waterRate===undefined||['normal','conserve','deplete'].includes(String(x.waterRate)))&&(x.link===undefined||identifier(x.link))
       &&(x.mode===undefined||x.mode==='sell'||x.mode==='charcoal')
       &&(x.winch===undefined||(object(x.winch)&&integer(x.winch.log,1)&&numeric(x.winch.ready,0)))
       &&(x.planted===undefined||integer(x.planted,0,3))&&(x.fertilizer===undefined||flag(x.fertilizer))&&(x.intensive===undefined||flag(x.intensive))
@@ -80,7 +81,7 @@ export function validateSave(data:unknown): Save {
       &&(x.shipment===undefined||(object(x.shipment)&&['rail','air'].includes(String(x.shipment.mode))&&lot(x.shipment.load)
         &&identifier(x.shipment.target)&&rows(x.shipment.path,2000,p=>object(p)&&coordinate(p))&&x.shipment.path.length>=2
         &&numeric(x.shipment.elapsed,0)&&numeric(x.shipment.duration,1,10000))))
-    &&rows(s.rides,10000,x=>object(x)&&identifier(x.id)&&key(x.kind,vehicles)&&coordinate(x)&&numeric(x.fuel,0,100)&&numeric(x.wear,0,100)&&numeric(x.yaw)&&(x.hitch===undefined||identifier(x.hitch))&&(x.hitchReady===undefined||numeric(x.hitchReady,0)))
+    &&rows(s.rides,10000,x=>object(x)&&identifier(x.id)&&key(x.kind,vehicles)&&coordinate(x)&&numeric(x.fuel,0,100)&&numeric(x.wear,0,100)&&numeric(x.yaw)&&(x.hitch===undefined||identifier(x.hitch))&&(x.hitchReady===undefined||numeric(x.hitchReady,0))&&(x.water===undefined||numeric(x.water,0,210)))
     &&rows(s.stock,150,lot)&&rows(s.ownedTools,Object.keys(tools).length,x=>key(x,tools))&&(s.ownedTools as unknown[]).includes(s.tool)
     &&rows(s.ownedUpgrades,288,x=>typeof x==='string'&&upgradesById.get(x)?.implemented===true)&&distinct(s.ownedUpgrades as unknown[])
     &&rows(s.districts,DISTRICTS**2,x=>integer(x,0,DISTRICTS**2-1))&&distinct(s.districts as unknown[])

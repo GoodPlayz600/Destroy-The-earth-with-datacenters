@@ -16,6 +16,7 @@ const delivered = [
   '13-01','13-02','13-03','13-04','13-05','13-06','13-07','13-08','13-09','13-10','13-11','13-12',
   '14-01','14-02','14-03','14-04','14-05','14-06','14-07','14-08','14-09','14-10','14-11','14-12',
   '18-01','18-02','18-03','18-04','18-05','18-06','18-07','18-08','18-09','18-10','18-11','18-12',
+  '19-01','19-02','19-03','19-04','19-05','19-06','19-07','19-08','19-09','19-10','19-11','19-12',
   '20-01','20-02','20-03','20-04','20-05','20-06','20-07','20-08','20-09','20-10','20-11','20-12',
   '22-01','22-02','22-03','22-04','22-05','22-06','22-07','22-08','22-09','22-10','22-11','22-12',
 ];
@@ -34,6 +35,7 @@ export const upgradeFacility: Record<string, Facility> = { '04-08': 'depot', '04
   '13-01':'charcoal','13-03':'charcoalDrum','13-12':'ashRefiner',
   '14-07':'depot','14-12':'specialistBuyer',
   '18-09':'thermal','18-11':'transformer','18-12':'backbone',
+  '19-03':'handPump','19-09':'pumpStation','19-12':'tankFarm',
   '20-04':'crop','20-06':'pump','20-11':'megaFarm','20-12':'soilRecovery',
   '22-03':'serverRack','22-05':'serverHall','22-07':'generator','22-09':'data','22-12':'coolTower',
 };
@@ -74,6 +76,7 @@ export function modifiers(owns: ReadonlySet<string>) {
     brokerage:has('14-07'), buyerCert:has('14-08'), supplyDeals:has('14-09'), forecast:has('14-10'), exportMarket:has('14-11'),
     tradeOptimizer:has('14-12'),
     meter:has('18-04'), priority:has('18-10'),
+    groundScan:has('19-03'), aquiferMap:has('19-09'), diversion:has('19-10'), waterBoard:has('19-11'),
     fertilizer:has('20-04'), cropHarvester:has('20-05'), irrigation:has('20-06'), grazingDensity:has('20-07'),
     override:has('20-08'), compactor:has('20-09'), drylandOffice:has('20-12'),
     uplink:has('22-02'), rackManagement:has('22-03'), airFans:has('22-05'), liquidLoop:has('22-06'), backup:has('22-07'),

@@ -20,15 +20,20 @@ const paperLines:Facility[]=['paper','reelPress','rollFinish','exportPaper','cor
 const pulpLines:Facility[]=['screenedPulper','bulkPulp'];
 export const computeSites:Facility[]=['serverRack','serverHall','data','hyperscale'];
 export const utilityNodes:Facility[]=['substation','pole','transformer','backbone'];
-export const waterSites:Facility[]=['pump','tank','coolTower'];
+export const waterPumps:Facility[]=['handPump','pump','borePump','pumpStation','deepPump'];
+export const waterStores:Facility[]=['tank','coolTower','tankFarm'];
+export const waterSites:Facility[]=[...waterPumps,...waterStores];
+export const waterPipes:Facility[]=['pipe','flowPipe'];
+export const waterCapacity=(kind:Facility)=>kind==='tank'?1200:kind==='coolTower'||kind==='tankFarm'?4200:
+  kind==='pumpStation'||kind==='deepPump'?410:160;
 const kilns: Facility[] = ['smallKiln','kiln'];
 export const consumes = (recipe: Recipe | undefined, good: Good) => recipe?.input?.[0]===good||recipe?.secondary?.[0]===good;
 export const takesLogs=(kind:Facility) => storageSite(kind)||kind==='fire'||buyerSite(kind)||(isRecipe(kind)&&(recipes[kind] as Recipe).input?.[0]&&['timber','branches'].includes((recipes[kind] as Recipe).input![0]));
 export type Site = Point & {
   id: string; kind: Facility; yaw?:number; input: Stack[]; output: Stack[]; jobs: Batch[];
-  on: boolean; fuel: number; status: string; winch?:{log:number; ready:number}; planted?:number; fertilizer?:boolean; intensive?:boolean; water?: number; reserve?:number; priority?:boolean; gridFlow?:number; gridCapacity?:number; uptime?:number; service?:number; yieldCarry?:number; layout?: 'quality'|'volume'; sortHigh?:boolean; link?: string; haul?: Haul; shipment?:Shipment; mode?: 'sell' | 'charcoal';
+  on: boolean; fuel: number; status: string; winch?:{log:number; ready:number}; planted?:number; fertilizer?:boolean; intensive?:boolean; water?: number; waterMode?:'all'|'farm'|'industry'; waterRate?:'normal'|'conserve'|'deplete'; reserve?:number; priority?:boolean; gridFlow?:number; gridCapacity?:number; uptime?:number; service?:number; yieldCarry?:number; layout?: 'quality'|'volume'; sortHigh?:boolean; link?: string; haul?: Haul; shipment?:Shipment; mode?: 'sell' | 'charcoal';
 };
-export type Ride = Point & { id: string; kind: VehicleType; yaw: number; fuel: number; wear: number; hitch?:string; hitchReady?:number };
+export type Ride = Point & { id: string; kind: VehicleType; yaw: number; fuel: number; wear: number; hitch?:string; hitchReady?:number; water?:number };
 export type Ledger = { date: number; note: string; amount: number };
 export type Contract = { good: Good; quantity: number; deadline: number; payout: number; done: boolean; failed: boolean; dense?:boolean; grade?:number; received?:number; plan?:'quick'|'supply'|'export' };
 export type Project = { kind: 'watershed' | 'quarry' | 'thermal' | 'dryland'; district: number; phase: number; complete?: boolean };
@@ -402,6 +407,7 @@ export class Campaign {
     if (i < 0 || (Math.hypot(at.x, at.z) > 29 && !this.districts.has(districtAt(i)))) return 'Purchase this district first';
     if (this.cash < def.price) return 'Insufficient funds';
     if(def.research&&!this.ownedUpgrades.has(def.research)) return 'Requires facility research';
+    if(kind==='deepPump'&&!this.sites.some(s=>s.kind==='flowPipe'&&distance(s,at)<65))return 'Connect a high-flow pipeline first';
     if (def.requires && !this.sites.some(s => s.kind === def.requires)) return `Requires ${facilities[def.requires].name}`;
     if (this.sites.some(s => distance(s, at) < Math.max(2, facilities[s.kind].size + def.size - 1.4))) return 'Leave room around equipment';
     if (['road', 'belt', 'rail', 'pipe'].indexOf(kind) < 0 && treesIn(this.seed, i).some(t => this.isStanding(t) && distance(t, at) < def.size)) return 'Clear trees from the footprint';
@@ -572,8 +578,37 @@ export class Campaign {
     return this.takeWater(site,requested,this.mods.campus?65:46);
   }
 
+  pumpByHand(site:Site) {
+    if(site.kind!=='handPump'||!site.on)return 0;
+    const cell=indexAt(site.x,site.z), soil=this.getSoil(cell);
+    const drawn=Math.max(0,Math.min(11,soil.groundwater*350,waterCapacity(site.kind)-(site.water??0)));
+    if(!drawn)return 0;
+    soil.groundwater=clamp(soil.groundwater-drawn/350);
+    soil.moisture=clamp(soil.moisture-drawn/700);
+    site.water=(site.water??0)+drawn;
+    this.landQueue.add(cell);
+    return drawn;
+  }
+
+  waterCargo(cart:Ride,site:Site,unload=false) {
+    if(cart.kind!=='waterCart'||!waterSites.includes(site.kind)||distance(cart,site)>5.5)return 0;
+    const stored=site.water??0, held=cart.water??0;
+    const moved=unload?Math.min(held,waterCapacity(site.kind)-stored):Math.min(210-held,stored);
+    if(moved<=0)return 0;
+    cart.water=held+(unload?-moved:moved);
+    site.water=stored+(unload?moved:-moved);
+    return moved;
+  }
+
+  private waterReach(from:Point,to:Point,range:number) {
+    return this.reachable(from,to,waterPipes,range)||
+      this.sites.some(node=>node.kind==='flowPipe'&&node.on&&distance(from,node)<=range+20&&this.reachable(node,to,waterPipes,range+32));
+  }
+
   private takeWater(site:Site,requested:number,range:number) {
-    const stores=this.sites.filter(source=>source.on&&waterSites.includes(source.kind)&&this.reachable(site,source,['pipe'],range));
+    const farm=fields.includes(site.kind);
+    const stores=this.sites.filter(source=>source.on&&waterSites.includes(source.kind)&&this.waterReach(site,source,range)
+      &&(source.waterMode!=='farm'||farm)&&(source.waterMode!=='industry'||!farm));
     if(stores.reduce((total,source)=>total+(source.water??0),0)<requested) return false;
     let remaining=requested;
     for(const source of stores) {
@@ -797,16 +832,18 @@ export class Campaign {
       site.gridFlow=watts;
       this.roadPower.set(site.id, true);
       site.status = 'Operational';
-      if (site.kind === 'pump') {
+      if(waterPumps.includes(site.kind)&&site.kind!=='handPump') {
         const aquifer=this.soil.get(indexAt(site.x,site.z))?.groundwater??.85;
-        site.water=Math.min(160,(site.water??0)+dt*36*aquifer);
+        const rating=site.kind==='deepPump'?178:site.kind==='pumpStation'?113:site.kind==='borePump'?66:36;
+        const rate=site.waterRate==='conserve'?.43:site.waterRate==='deplete'?1.36:1;
+        site.water=Math.min(waterCapacity(site.kind),(site.water??0)+dt*rating*rate*aquifer);
         site.status=site.water>1?'Extracting cooling water':'Aquifer exhausted';
       }
-      if (site.kind === 'tank'||site.kind==='coolTower') {
-        const maximum=site.kind==='coolTower'?4200:1200;
-        const flow=site.kind==='coolTower'?140:24;
+      if(waterStores.includes(site.kind)) {
+        const maximum=waterCapacity(site.kind);
+        const flow=site.kind==='coolTower'?140:site.kind==='tankFarm'?92:24;
         for(const source of this.sites) {
-          if(source.kind!=='pump'||!source.on||!this.reachable(site,source,['pipe'],46)) continue;
+          if(!waterPumps.includes(source.kind)||!source.on||!this.waterReach(site,source,46)) continue;
           const transfer=Math.min(source.water??0,flow*dt,maximum-(site.water??0));
           if(transfer<=0)continue;
           source.water=(source.water??0)-transfer;
@@ -946,7 +983,7 @@ export class Campaign {
     const add = (i: number, effect: keyof Pressure, n: number) => {
       let row = pressure.get(i);
       if (!row) { row = noPressure(); pressure.set(i, row); }
-      row[effect] += n;
+      row[effect] = (row[effect]??0)+n;
       this.landQueue.add(i);
     };
     for (const site of this.sites) {
@@ -964,7 +1001,13 @@ export class Campaign {
           const force = .35 + falloff * .9;
           switch (def.effect) {
             case 'fire': add(i, 'heat', force * .7); break;
-            case 'pump': add(i, 'drainage', force * 1.6); break;
+            case 'pump': {
+              const rating=site.kind==='deepPump'?3.25:site.kind==='pumpStation'?2.3:site.kind==='borePump'?1.9:1.6;
+              const flow=site.waterRate==='conserve'?.44:site.waterRate==='deplete'?1.36:1;
+              add(i,'drainage',force*rating*flow);
+              break;
+            }
+            case 'ditch': add(i,'runoff',force*1.4); break;
             case 'grazing':
               if(site.kind==='ranch'&&!site.jobs.length)break;
               add(i,'grazing',force*(this.mods.grazingDensity?2.4:1.5));break;

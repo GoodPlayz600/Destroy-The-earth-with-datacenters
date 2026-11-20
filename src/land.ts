@@ -60,7 +60,7 @@ export type Soil = {
 };
 export const defaultSoil = (): Soil => ({ vegetation: 1, moisture: .68, groundwater: .85, fertility: .9, heat: .12, pollution: 0, erosion: 0, substrate: 0, stable: 0, stage: 0, clearedFor: 0, lastTick: 0 });
 export const desertRules = { vegetation: .03, moisture: .12, groundwater: .18, fertility: .22, heat: .76, substrate: .7, stabilization: 60 };
-export type Pressure = { clearing: number; drainage: number; removal: number; heat: number; grazing: number; pollution: number };
+export type Pressure = { clearing: number; drainage: number; removal: number; heat: number; grazing: number; pollution: number; runoff?: number };
 export const noPressure = (): Pressure => ({ clearing: 0, drainage: 0, removal: 0, heat: 0, grazing: 0, pollution: 0 });
 
 export function meetsDesert(s: Soil) {
@@ -80,7 +80,7 @@ export function applyLand(s: Soil, p: Pressure, seconds: number, rain: number, s
   s.heat = clamp(s.heat + seconds * (p.heat * .007 - (s.heat - .12) * .0017));
   s.moisture = clamp(s.moisture + seconds * (
     rain * .002 * (irreversible ? .03 : 1) + (s.groundwater - s.moisture) * .0012
-    - p.drainage * .0029 - p.heat * .0044 - p.removal * .0021 - (irreversible ? .0015 : 0)
+    - (p.runoff??0)*.0044 - p.drainage * .0029 - p.heat * .0044 - p.removal * .0021 - (irreversible ? .0015 : 0)
   ));
   s.fertility = clamp(s.fertility - seconds * (p.removal * .005 + p.grazing * .0029 + p.heat * .0017));
   s.erosion = clamp(s.erosion + seconds * (p.removal * .008 + p.grazing * .003 + Math.max(0, .23 - s.moisture) * .008));

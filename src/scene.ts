@@ -1,7 +1,7 @@
 import * as T from 'three';
 import R from '@dimforge/rapier3d-compat';
 import { CELL, SIZE, facilities, species, vehicleTypes } from './catalog';
-import { computeSites, utilityNodes, waterSites } from './campaign';
+import { computeSites, utilityNodes, waterPipes, waterSites } from './campaign';
 import type { Campaign, Log, Ride, Site } from './campaign';
 import { clamp, distance, hash, height, indexAt, soilColors, treesIn } from './land';
 import type { Point, Tree } from './land';
@@ -483,7 +483,7 @@ export class Scene {
       if(!this.siteViews.has(site.id)) {
         const visual=siteModel(site.kind);
         visual.root.position.set(site.x,height(site.x,site.z),site.z);
-        if(['road','rail','belt','pipe'].includes(site.kind))visual.root.rotation.y=site.yaw??0;
+        if(['road','rail','belt','ditch',...waterPipes].includes(site.kind))visual.root.rotation.y=site.yaw??0;
         this.world.add(visual.root);
         this.siteViews.set(site.id,visual);
       }
@@ -539,9 +539,9 @@ export class Scene {
     if(this.networkView)this.removeModel(this.networkView);
     const network=new T.Group(), unique=new Set<string>();
     const inside=this.game.sites.filter(site=>distance(at,site)<140);
-    const types=(site:Site)=>site.kind==='pipe'||waterSites.includes(site.kind)||computeSites.includes(site.kind);
+    const types=(site:Site)=>waterPipes.includes(site.kind)||waterSites.includes(site.kind)||computeSites.includes(site.kind);
     for(const node of inside){
-      const electric=utilityNodes.includes(node.kind), pipe=node.kind==='pipe';
+      const electric=utilityNodes.includes(node.kind), pipe=waterPipes.includes(node.kind);
       if(!electric&&!pipe)continue;
       const maximum=electric?(node.kind==='backbone'?140:78):46;
       const peers=inside.filter(other=>other!==node&&(electric?utilityNodes.includes(other.kind)||Boolean(facilities[other.kind].supply):types(other))

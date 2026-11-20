@@ -345,10 +345,25 @@ export function siteModel(kind: Facility): SiteModel {
       box(fixed,glass,x,1.03,.652,.44,.25,.11);
       if(kind==='transformer')for(let n=0;n<4;n++)cylinder(fixed,steel,x,1.44+n*.13,0,.22,.11);
     }
-  } else if (kind === 'pipe' || kind === 'tank') {
-    if (kind==='pipe') {
+  } else if(kind==='handPump'){
+    cylinder(fixed,steel,0,.10,0,.79,.19);
+    cylinder(fixed,paint,0,.66,0,.18,1.18);
+    cylinder(fixed,steel,0,1.26,0,.24,.24);
+    const arm=cylinder(fixed,paint,0,1.38,-.48,.064,1.16);
+    arm.rotation.x=Math.PI*.50;
+    box(fixed,steel,.30,1.0,0,.40,.16,.16);
+    box(fixed,steel,.47,.86,0,.12,.28,.15);
+  } else if(kind==='ditch'){
+    box(fixed,mat('#645a49'),0,.015,0,.57,.03,5.4);
+    for(const x of [-.51,.51]){
+      const slope=box(fixed,mat('#817360'),x,.08,0,.57,.16,5.4);
+      slope.rotation.z=x*.44;
+      for(let j=0;j<9;j++)stone(fixed,mat('#87816a'),x*1.39,.14,(j-4)*.55,.32,.18,.24);
+    }
+  } else if (kind === 'pipe' || kind === 'flowPipe'||kind === 'tank'||kind==='tankFarm') {
+    if (kind==='pipe'||kind==='flowPipe') {
       for (const x of [-1.4,1.4]) box(fixed,steel,x,.27,0,.26,.54,.54);
-      const body=cylinder(fixed,paint,0,.59,0,.24,5.2);
+      const body=cylinder(fixed,paint,0,.59,0,kind==='flowPipe'?.32:.24,5.2);
       body.rotation.z=Math.PI*.5;
       for(const x of [-2.53,-1.34,1.34,2.53]) cylinder(fixed,steel,x,.59,0,.32,.15).rotation.z=Math.PI*.5;
     } else {
@@ -358,6 +373,10 @@ export function siteModel(kind: Facility): SiteModel {
       for(const y of [.52,1.4,2.4,3.1]) cylinder(fixed,steel,0,y,0,1.94,.08);
       for(let n=0;n<12;n++) box(fixed,steel,.93,.27+n*.23,1.68,.46,.07,.16);
       box(fixed,glass,-.5,1.55,1.88,.18,1.54,.12);
+      if(kind==='tankFarm')for(const x of [-2.25,2.25]){
+        cylinder(fixed,paint,x,1.23,.24,.92,2.46);
+        for(const y of [.77,1.65,2.32])cylinder(fixed,steel,x,y,.24,.96,.10);
+      }
     }
   } else if (kind === 'road' || kind === 'rail' || kind === 'belt') {
     const rail = kind === 'rail', belt = kind === 'belt';
@@ -472,6 +491,15 @@ export function vehicleModel(type: VehicleType) {
       box(fixed,glass,-.666,1.43,-.61,.075,.33,.44);
       box(fixed,glass,.666,1.43,-.61,.075,.33,.44);
       box(fixed,paint,0,1.70,-.58,1.42,.11,.76);
+    }
+    if(type==='waterCart'){
+      const tank=cylinder(fixed,paint,0,.91,.33,.53,1.43);
+      tank.rotation.x=Math.PI*.5;
+      for(const z of [-.18,.74]){
+        const rib=cylinder(fixed,steel,0,.91,z,.55,.098);
+        rib.rotation.x=Math.PI*.5;
+      }
+      box(fixed,glass,.51,.90,.36,.06,.28,.22);
     }
     if (type === 'dozer') {
       box(fixed,amber,0,.46,-1.82,1.93,.53,.19).rotation.x = -.19;

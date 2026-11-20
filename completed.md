@@ -20,7 +20,7 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 
 ## [M3 — Game economy and progression foundation](progress/M3/completed.md)
 
-- All 288 catalog IDs and prerequisite references load. There are 180 purchasable upgrades across fifteen branches, including tool work, hauling, woodworking, mill production, material finishing and compute.
+- All 288 catalog IDs and prerequisite references load. There are 192 purchasable upgrades across sixteen branches, including tool work, hauling, woodworking, mill production, material finishing and compute.
 - Wallet, receipts, thirteen state-driven journal objectives, short, standing and regional contracts, IndexedDB autosave and file import/export work. Upgrade and tool wear persistence is tested.
 
 ## [M4 — Vehicles and a real logging operation](progress/M4/completed.md)
@@ -40,7 +40,7 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 
 ## [M7 — Heavy industry and multiple victory strategies](progress/M7/completed.md)
 
-- Tested independent drainage, quarrying and thermal district campaigns. Data centers reserve live compute orders, use bounded cooling, draw power from connected generators, and only pay on contract fulfillment.
+- Tested independent drainage, quarrying and thermal district campaigns. Data centers reserve live compute orders, draw linked electricity and bounded cooling, and pay on fulfillment. Manual wells, water carts, high-flow pipelines, reservoirs, drainage ditches and industrial pump schedules also work.
 - A dozer can strip soil, and log crews and heavy cutters operate in the field. Pasture, grazing, row crops, fertilizer and irrigation interact with soil fertility and water. Late agricultural research unlocks a fourth district conversion plan.
 
 ## [M8 — Massive late-game depth](progress/M8/completed.md)

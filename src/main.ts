@@ -9,7 +9,7 @@ import './style.css';
 import { Vector3 } from 'three';
 import { SIZE, facilities, recipes, species, tools, vehicles, vehicleTypes } from './catalog';
 import type { Facility, Tool, VehicleType } from './catalog';
-import { Campaign, cargoMass, takesLogs } from './campaign';
+import { Campaign, cargoMass, takesLogs, waterSites } from './campaign';
 import type { Log, Ride, Save, Site } from './campaign';
 import { clamp, distance, height, indexAt } from './land';
 import type { Point, Tree } from './land';
@@ -331,6 +331,13 @@ function toggleRide() {
 function moveCargo() {
   const towing=ride??nearRide();
   if(!towing){show('Move closer to a vehicle');return;}
+  if(towing.kind==='waterCart'){
+    const station=game.sites.filter(s=>waterSites.includes(s.kind)&&distance(towing,s)<5.5).sort((a,b)=>distance(towing,a)-distance(towing,b))[0];
+    const unload=Boolean(towing.water)&&((station?.water??0)<30||buttonAlt);
+    const volume=station?game.waterCargo(towing,station,unload):0;
+    show(volume?`${unload?'Delivered':'Loaded'} ${Math.round(volume)} L · tank ${Math.round(towing.water??0)} L`:'Move within reach of a pump or reservoir');
+    return;
+  }
   const trailer=game.rides.find(v=>v.hitch===towing.id);
   const v=trailer??towing, def=vehicleTypes[v.kind];
   const nearby=held?.log??nearLog(def.forks?5.8:4.1);
@@ -458,7 +465,7 @@ function movement(dt:number) {
   const sideways=Number(inputs.has('right'))-Number(inputs.has('left'));
   if(ride) {
     const def=vehicleTypes[ride.kind], trailer=game.rides.find(v=>v.hitch===ride!.id);
-    const totalMass=cargoMass(game.logs.values(),ride.id)+(trailer?85+cargoMass(game.logs.values(),trailer.id):0);
+    const totalMass=(ride.water??0)+cargoMass(game.logs.values(),ride.id)+(trailer?85+cargoMass(game.logs.values(),trailer.id):0);
     const mass=totalMass, terrain=game.soil.get(indexAt(ride.x,ride.z));
     if(def.motor&&(ride.fuel<=0||ride.wear>=100))return;
     p.yaw-=sideways*dt*(def.motor?1.22:1.88);
@@ -466,7 +473,7 @@ function movement(dt:number) {
     const rough=Math.abs(height(ride.x+1.6,ride.z)-height(ride.x,ride.z-1.6));
     const ground=1-Math.min(.28,rough*.34)*game.mods.suspension;
     const onRoad=game.sites.some(site=>site.kind==='road'&&distance(site,ride!)<2.8);
-    const speed=def.speed*(1-clamp(mass/def.capacity,0,1)*.47)*(ride.kind==='sled'?game.mods.sledSpeed:1)*mud*ground*(onRoad?1.19:1);
+    const speed=def.speed*(1-clamp(mass/Math.max(1,def.capacity||210),0,1)*.47)*(ride.kind==='sled'?game.mods.sledSpeed:1)*mud*ground*(onRoad?1.19:1);
     const movement=dt*speed*ahead*(ahead<0?.48:1);
     const nx=clamp(ride.x-Math.sin(p.yaw)*movement,-SIZE/2+.7,SIZE/2-.7),nz=clamp(ride.z-Math.cos(p.yaw)*movement,-SIZE/2+.7,SIZE/2-.7);
     const obstacle=scene.visibleTrees.find(t=>game.isStanding(t)&&distance(t,{x:nx,z:nz})<species[t.kind].radius*t.scale+.69);
@@ -496,7 +503,7 @@ function movement(dt:number) {
       }
     } else bladeCycle=0;
     if(def.motor&&ahead){
-      ride.fuel=Math.max(0,ride.fuel-dt*(.24+mass/def.capacity*.19)*game.mods.fleetEfficiency);
+      ride.fuel=Math.max(0,ride.fuel-dt*(.24+mass/Math.max(1,def.capacity||210)*.19)*game.mods.fleetEfficiency);
       ride.wear=Math.min(100,ride.wear+dt*.10);
     }
     game.stats.miles+=Math.abs(movement)/1609.344;
