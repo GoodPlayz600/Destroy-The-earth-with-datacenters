@@ -10,7 +10,7 @@ import { Vector3 } from 'three';
 import { SIZE, facilities, recipes, species, tools, vehicles, vehicleTypes } from './catalog';
 import type { Facility, Tool, VehicleType } from './catalog';
 import { Campaign, cargoMass, freightVehicles, takesLogs, waterSites } from './campaign';
-import type { Log, Ride, Save, Site } from './campaign';
+import type { Challenge, Log, Ride, Save, Site } from './campaign';
 import { clamp, distance, indexAt } from './land';
 import type { Point, Tree } from './land';
 import { Scene, initializePhysics } from './scene';
@@ -132,13 +132,13 @@ function resetSession(next:Campaign) {
   selectedBuild=undefined;selectedVehicle=undefined;survey=undefined;airborne=0;vY=0;swing=0;victoryAge=game.won?-2:-1;lastHarvest=game.stats.harvest;
   collapseControls();
 }
-function begin(kind:'resume'|'new'|'plus') {
+function begin(kind:'resume'|'new'|'plus',challenge:Challenge='standard') {
   if(kind!=='resume') {
     if(hasSave||startedBefore) {
       const current=structuredClone(game.snapshot());
       latestSave=latestSave.catch(()=>{}).then(()=>saveCampaign(current,`archive-${current.seed}-${Date.now()}`));
     }
-    const next=new Campaign(kind==='plus'?(game.seed+10739)%2147483647:crypto.getRandomValues(new Uint32Array(1))[0]%2147483647);
+    const next=new Campaign(kind==='plus'?(game.seed+10739)%2147483647:crypto.getRandomValues(new Uint32Array(1))[0]%2147483647,kind==='plus'?game.challenge:challenge);
     resetSession(next);
   }
   started=true;startedBefore=true;atMenu=false;hasSave=true;
@@ -756,7 +756,7 @@ async function boot() {
     applySettings();
     ui.showMenu(hasSave,saveError);
     if(import.meta.env.DEV&&new URLSearchParams(location.search).has('review')) {
-      Object.defineProperty(window,'clearcutReview',{value:()=>structuredClone(game.snapshot()),configurable:false});
+      Object.defineProperty(window,'clearcutReview',{value:()=>structuredClone({...game.snapshot(),observed:{airborne,look:prefs.look}}),configurable:false});
     }
     requestAnimationFrame(frame);
   } catch(error) {

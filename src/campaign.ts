@@ -7,6 +7,7 @@ import type { QuestId } from './quests';
 import { forestryUnlocks, modifiers, upgradeFacility, upgradesById } from './upgrades';
 
 export const VERSION = 1;
+export type Challenge='standard'|'noCompute'|'leanPower';
 export type Log = Point & { id: number; y: number; q: [number, number, number, number]; kind: number; length: number; kilograms: number; units: number; moisture: number; quality: number; cargo?: string; carrier?: string; part?:'branch'; roll?:number };
 export type Haul = Point & { target: string; alternate?:string; due?:number; log?: number; phase: 'waiting'|'pickup'|'delivery'|'return'; status: string; };
 export const buyerSite=(kind:Facility)=>['market','timberBuyer','specialistBuyer','tradeHub'].includes(kind);
@@ -50,6 +51,8 @@ const baseSites: [Facility, number, number][] = [['fire', -6.5, 0], ['market', 7
 const rootStats = (): RecordRow => ({ hits: 0, harvest: 0, fire: 0, sold: 0, produced: 0, earned: 0, spent: 0, miles: 0 });
 const isRecipe = (kind: Facility): kind is keyof typeof recipes => Object.hasOwn(recipes, kind);
 const allDistricts = DISTRICTS ** 2;
+const pressureFields=['clearing','drainage','removal','heat','grazing','pollution','runoff'] as const;
+const pressureSlots:Record<keyof Pressure,number>={clearing:0,drainage:1,removal:2,heat:3,grazing:4,pollution:5,runoff:6};
 export const projectPrices = { watershed: 6200, quarry: 8200, thermal: 9500, dryland: 12500, integrated: 24000, continental:32000 };
 export const fields:Facility[]=['pasture','crop','megaFarm','soilRecovery'];
 
@@ -89,6 +92,7 @@ export const cargoMass = (logs: Iterable<Log>, id: string) => Array.from(logs).r
 
 export class Campaign {
   seed: number;
+  challenge:Challenge='standard';
   clock = 0;
   cash = 0;
   treeDamage = new Map<number, number>();
@@ -134,15 +138,23 @@ export class Campaign {
   claimed = new Set<QuestId>();
   private tickTime = 0;
   private landQueue = new Set<number>();
+  private pressures=new Float64Array(TOTAL*pressureFields.length);
   readonly routePackets=new Map<string,{at:number;good:Good;from:Point;to:Point}>();
   private roadPower = new Map<string, boolean>();
 
-  constructor(seed = 20831) {
-    this.seed = seed;
+  constructor(seed=20831,challenge:Challenge='standard') {
+    this.seed=seed;
+    this.challenge=challenge;
     for (const [kind,x,z] of baseSites)this.sites.push(this.makeSite(kind,x,z));
     for(const [x,z]of [[18,-20],[-24,13]]){
       const ruin=this.makeSite('ruin',x,z);ruin.on=false;ruin.status='Abandoned';this.sites.push(ruin);
     }
+  }
+
+  eventAt(time=this.clock) {
+    if(time<300)return 'Clear weather';
+    const events=['Market shortage','Thunderstorm','Dry front','Busy freight lanes','Clear weather'];
+    return events[(Math.floor((time-300)/160)+this.seed%5)%events.length];
   }
 
   private makeSite(kind: Facility, x: number, z: number): Site {
@@ -422,7 +434,8 @@ export class Campaign {
   }
 
   marketValue(stack:Stack,site?:Site,at=this.clock) {
-    const rate=1+Math.sin(at/89)*.11+Math.sin(at/281)*.065;
+    const rate=(1+Math.sin(at/89)*.11+Math.sin(at/281)*.065)*
+      (this.eventAt(at)==='Market shortage'&&['timber','boards','dry'].includes(stack.good)?1.18:1);
     const certified=(this.mods.certified||this.mods.buyerCert)&&['boards','dry','finished','treated'].includes(stack.good)
       &&stack.quality>=.90&&stack.moisture<=.18;
     const premium=site?.kind==='specialistBuyer'?1.30:1;
@@ -518,6 +531,7 @@ export class Campaign {
 
   siteIssue(kind: Facility, at: Point) {
     const def = facilities[kind], i = indexAt(at.x, at.z);
+    if(computeSites.includes(kind)&&this.challenge==='noCompute')return 'Compute installations are disabled by this challenge';
     if (i < 0 || (Math.hypot(at.x, at.z) > 29 && !this.districts.has(districtAt(i)))) return 'Purchase this district first';
     if (this.cash < def.price) return 'Insufficient funds';
     if(kind==='ruin')return 'Only abandoned world structures can be reclaimed';
@@ -740,7 +754,8 @@ export class Campaign {
     if(!load)return;
     this.finance(-fee,rail?'Rail freight dispatch':mode==='road'?'Truck freight dispatch':'Drone freight dispatch');
     if(vehicle){vehicle.fuel-=travelFuel;vehicle.wear=Math.min(100,vehicle.wear+length*.013);}
-    site.shipment={mode,target:target.id,load,path:path.map(({x,z})=>({x,z})),duration:Math.max(3,length/(rail?12:mode==='road'?10:22)),elapsed:0};
+    site.shipment={mode,target:target.id,load,path:path.map(({x,z})=>({x,z})),
+      duration:Math.max(3,length/(rail?12:mode==='road'?10:22))*(this.eventAt()==='Busy freight lanes'?1.35:1),elapsed:0};
     site.status='Shipment dispatched';
   }
 
@@ -1020,7 +1035,7 @@ export class Campaign {
       if(facilities[site.kind].effect==='thermal'&&site.fuel>0)site.fuel=Math.max(0,site.fuel-.012);
       const daylight=clamp(Math.sin(.7+this.clock/235)*.52+.56);
       const wind=Math.max(.24,.50+Math.sin(this.clock/45+this.seed%7)*.24+this.rain*.20);
-      const power=(site.scrubbers?.84:1)*(site.kind==='solar'?maximum*daylight*(1-this.rain*.59)
+      const power=(this.challenge==='leanPower'?.67:1)*(site.scrubbers?.84:1)*(site.kind==='solar'?maximum*daylight*(1-this.rain*.59)
         :site.kind==='wind'?maximum*wind:site.fuel>0?maximum:0);
       site.gridCapacity=power;
       return power>0?[{site,free:power}]:[];
@@ -1286,11 +1301,10 @@ export class Campaign {
   }
 
   private simulateLand(dt: number) {
-    const pressure = new Map<number, Pressure>();
-    const add = (i: number, effect: keyof Pressure, n: number) => {
-      let row = pressure.get(i);
-      if (!row) { row = noPressure(); pressure.set(i, row); }
-      row[effect] = (row[effect]??0)+n;
+    const pressures=this.pressures, width=pressureFields.length;
+    pressures.fill(0);
+    const add=(i:number,effect:keyof Pressure,amount:number)=>{
+      pressures[i*width+pressureSlots[effect]]+=amount;
       this.landQueue.add(i);
     };
     for (const site of this.sites) {
@@ -1434,13 +1448,19 @@ export class Campaign {
         if (project.kind === 'thermal') { add(i, 'heat', 2.7); add(i, 'removal', .58); }
       }
     }
+    const localPressure=noPressure();
     for (const i of this.landQueue) {
       const soil = this.getSoil(i), before = desertified(soil);
-      const current=pressure.get(i);
-      if(!current&&before&&soil.fertility<=.24&&soil.substrate>=.85)continue;
-      const p = current ?? noPressure();
+      const cell=i*width;
+      let affected=false;
+      for(let index=0;index<width;index++){
+        const amount=pressures[cell+index];
+        localPressure[pressureFields[index]]=amount;
+        if(amount)affected=true;
+      }
+      if(!affected&&before&&soil.fertility<=.24&&soil.substrate>=.85)continue;
       const hadCanopy=soil.vegetation>.03;
-      if (applyLand(soil, p, dt, this.rain, 1, this.clock)||hadCanopy!==(soil.vegetation>.03)) this.landRevision++;
+      if (applyLand(soil, localPressure, dt, this.rain, 1, this.clock)||hadCanopy!==(soil.vegetation>.03)) this.landRevision++;
       const now = desertified(soil);
       if (before !== now) {
         this.desertCount += now ? 1 : -1;
@@ -1564,7 +1584,10 @@ export class Campaign {
     this.tickTime += dt;
     if (this.tickTime < 1) return;
     this.tickTime -= 1;
-    this.rain = Math.max(0, Math.sin(this.clock / 96 + this.seed % 13) - .58) * 2;
+    const previous=this.eventAt(this.clock-1), current=this.eventAt();
+    if(previous!==current&&current!=='Clear weather')this.notice(current+' · Field bulletin');
+    const weather=Math.max(0,Math.sin(this.clock/96+this.seed%13)-.58)*2;
+    this.rain=current==='Thunderstorm'?Math.max(.55,weather):current==='Dry front'?weather*.2:weather;
     for (const contract of this.contracts) if (!contract.done && this.clock >= contract.deadline) contract.failed = true;
     this.simulateMachinery(1);
     this.simulateHaulers(1,heldId);
@@ -1575,6 +1598,7 @@ export class Campaign {
     for (const [key, checked] of [
       ['First Shave', this.stats.harvest > 0], ['Smoke Signal', this.stats.fire > 0], ['Value Added', this.stats.produced > 0],
       ['Fleet Service', this.rides.length >= 3], ['First Dry Cell', this.desertCount > 0], ['The Last Jungle', this.won],
+      ['No Compute Needed',this.won&&this.challenge==='noCompute'],['Lean Grid Victory',this.won&&this.challenge==='leanPower'],
     ] as const) if (checked && !this.achievements.has(key)) { this.achievements.add(key); this.notice(`Award · ${key}`); }
   }
 
@@ -1606,7 +1630,7 @@ export class Campaign {
 
   snapshot() {
     return {
-      version: VERSION, seed: this.seed, clock: this.clock, cash: this.cash, player: { ...this.player }, savedAt: Date.now(),
+      version: VERSION, seed: this.seed, challenge:this.challenge,clock: this.clock, cash: this.cash, player: { ...this.player }, savedAt: Date.now(),
       treeDamage: [...this.treeDamage], brokenRocks:[...this.brokenRocks],groundStumps:[...this.groundStumps],elevation:[...this.elevation],recycledCells:[...this.recycledCells], removed: [...this.removed], soil: [...this.soil], logs: [...this.logs.values()],
       sites: this.sites, rides: this.rides, stock: this.stock, ownedTools: [...this.ownedTools], ownedUpgrades: [...this.ownedUpgrades],
       tool: this.tool, wear: this.wear, toolWear: this.toolWear, battery: this.battery, districts: [...this.districts], ledger: this.ledger, contracts: this.contracts,
@@ -1615,7 +1639,7 @@ export class Campaign {
   }
 
   static restore(s: Save) {
-    const game = new Campaign(s.seed);
+    const game=new Campaign(s.seed,s.challenge??'standard');
     Object.assign(game, {
       clock: s.clock, cash: s.cash, player: s.player, treeDamage: new Map(s.treeDamage), removed: new Set(s.removed), brokenRocks:new Set(s.brokenRocks??[]),groundStumps:new Set(s.groundStumps??[]),
       elevation:new Map(s.elevation??[]),recycledCells:new Set(s.recycledCells??[]),soil: new Map(s.soil),

@@ -50,10 +50,23 @@ try{
   await click('Settings');
   await select('Graphics quality','low');
   await select('Look mode','drag');
+  await p.locator('.row').filter({hasText:'Forward'}).getByRole('button',{name:'KeyW',exact:true}).click();
+  await press('ArrowUp');
+  await p.getByRole('button',{name:'ArrowUp',exact:true}).waitFor();
   await click('Close panel');
   await click('Play campaign');
   assert.equal((await inspect()).cash,0);
   assert.equal((await inspect()).tool,'knife');
+  await p.keyboard.down('ArrowUp');
+  await wait(()=>window.clearcutReview().player.z< -1.18);
+  await p.keyboard.up('ArrowUp');
+  await press('Space');
+  await wait(()=>window.clearcutReview().observed.airborne>.20);
+  await wait(()=>window.clearcutReview().observed.airborne===0);
+  await press('Escape');
+  await click('Settings');
+  await click('Reset bindings');
+  await click('Close panel');
   await p.mouse.move(480,330);
   await p.mouse.down();
   await wait(()=>window.clearcutReview().clock>.50);
@@ -177,6 +190,29 @@ try{
   await wait(()=>window.clearcutReview().logs.length===0);
   await wait(()=>window.clearcutReview().stats.produced===4);
   await press('KeyF');
+  console.log('Reviewing excavation in the streamed 3D world');
+  await press('Escape');
+  await click('Settings');
+  const excavation=await inspect();
+  excavation.player={x:8,z:14,yaw:0,pitch:-.09};
+  excavation.cash=24600;
+  excavation.ownedUpgrades.push(...Array.from({length:6},(_,i)=>'08-0'+(i+1)));
+  await p.locator('input[type=file]').setInputFiles({name:'excavation-test.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(excavation))});
+  await wait(()=>window.clearcutReview().cash===24600);
+  await click('Close panel');
+  await press('KeyB');
+  await p.locator('.row').filter({hasText:'Heavy Excavator'}).getByRole('button',{name:'$14,200',exact:true}).click();
+  await p.mouse.click(480,330);
+  await wait(()=>window.clearcutReview().rides.some(v=>v.kind==='excavator'));
+  await move('z',10.90);
+  await press('KeyF');
+  await p.mouse.down();
+  await wait(()=>window.clearcutReview().elevation.some(([,depth])=>depth<-.7));
+  await p.mouse.up();
+  const cutTerrain=await inspect();
+  assert.ok(cutTerrain.rides.some(v=>v.kind==='excavator'&&v.freight?.quantity>=2));
+  await screenshot(p,'excavation');
+  await press('KeyF');
   console.log('Reviewing final-cell settlement and archive');
   await press('Escape');
   await click('Settings');
@@ -193,6 +229,10 @@ try{
   await p.getByText('65,536',{exact:true}).waitFor();
   assert.ok((await inspect()).won);
   await screenshot(p,'victory');
+  await p.setViewportSize({width:1920,height:1080});
+  const large=await p.locator('.panel').boundingBox();
+  assert.ok(large&&large.x>=0&&large.y>=0&&large.x+large.width<=1920&&large.y+large.height<=1080);
+  await p.setViewportSize({width:960,height:660});
   await click('New Game+');
   const plus=await inspect();
   assert.equal(plus.won,false);
@@ -236,7 +276,7 @@ try{
     await screenshot(mobile,'touch');
     await mobile.close();
   }
-  console.log(`${engine}: menu, WebGL, walk, swing, fell, haul, burn, upgrade, pause, reload, map, resize, save export/import, sawbench placement, physical feed, market sale, vehicle delivery, victory and New Game+ archives passed.`);
+  console.log(`${engine}: menu, WebGL, walk, swing, fell, haul, burn, upgrade, jump, remapping, pause, reload, map, resize, save export/import, sawbench placement, physical feed, market sale, vehicle delivery, excavation, victory and New Game+ archives passed.`);
 } catch(error) {
   const page=browser?.contexts()[0]?.pages()[0];
   if(page){

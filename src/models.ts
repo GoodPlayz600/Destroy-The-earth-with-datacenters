@@ -627,12 +627,23 @@ export function vehicleModel(type: VehicleType) {
     box(fixed,steel,0,1.23,-1.36,.82,.079,.087);
     const steering=cylinder(fixed,rubber,0,.36,-1.40,.34,.17);
     steering.rotation.z=Math.PI*.5;
+  } else if(type==='wheelbarrow'){
+    box(fixed,paint,0,.67,.17,1.35,.16,1.29);
+    for(const x of [-.55,.55]){
+      box(fixed,steel,x,.91,.22,.083,.43,1.19).rotation.z=-x*.22;
+      box(fixed,timber,x,.57,-.61,.065,.081,1.43);
+    }
+    const hub=new T.Group();
+    hub.position.set(0,.37,.96);
+    cylinder(hub,rubber,0,0,0,.34,.20).rotation.z=Math.PI*.5;
+    cylinder(hub,steel,0,0,0,.145,.24).rotation.z=Math.PI*.5;
+    root.add(hub);wheels.push(hub);
   } else if (type === 'sled') {
     for(const x of [-.55,.55]) box(fixed,paint,x,.22,.25,.15,.17,2.43);
   } else {
     for(const x of [-.50,.50]) box(fixed,timber,x,.54,-1.31,.08,.10,1.4);
   }
-  if (type !== 'sled') for(const x of [-.77,.77]) for(const z of motor ? [-.82,.91] : def.trailer?[.34,.90]:[.43]) {
+  if (type !== 'sled'&&type!=='wheelbarrow') for(const x of [-.77,.77]) for(const z of motor ? [-.82,.91] : def.trailer?[.34,.90]:[.43]) {
     const hub=new T.Group();
     hub.position.set(x,.40,z);
     const tire=cylinder(hub,rubber,0,0,0,.4,.23);

@@ -838,3 +838,49 @@ test('excavation changes the actual elevation used by the game and preserves car
   assert.equal(copy.ground(8,8),g.ground(8,8));
   assert.equal(copy.rides[0].freight?.quantity,2);
 });
+
+test('air drying, crate construction and separated inputs have distinct timings and returns',()=>{
+  const g=new Campaign();
+  g.cash=2400;
+  build(g,'bench',0,5);
+  const rack=build(g,'rack',-9,10), shop=build(g,'workshop',8,13);
+  const original={good:'boards' as const,quantity:4,quality:.82,moisture:.63};
+  put(g.stock,original);
+  assert.ok(g.transfer(rack,'boards',2,false));
+  assert.ok(g.transfer(shop,'boards',2,false));
+  assert.equal(getQuantity(g.stock),0);
+  run(g,15);
+  assert.equal(getQuantity(shop.output,'crates'),1);
+  assert.equal(getQuantity(rack.output),0);
+  run(g,10);
+  assert.equal(getQuantity(rack.output,'dry'),2);
+  assert.ok(rack.output[0].moisture<original.moisture);
+  assert.ok(priceFor(shop.output[0])>priceFor({...original,quantity:2}));
+});
+
+test('the substrate simulation reaches all seven stages through ordinary rules',()=>{
+  const view=defaultSoil(), reached=new Set([view.stage]);
+  view.vegetation=0;
+  const stage=(seconds:number,p:ReturnType<typeof noPressure>)=>{
+    for(let i=0;i<seconds;i++){applyLand(view,p,1,0,0,i);reached.add(view.stage);}
+  };
+  stage(30,noPressure());
+  stage(115,{...noPressure(),drainage:1});
+  stage(350,{...noPressure(),drainage:1,removal:1});
+  assert.deepEqual([...reached].sort(),[0,1,2,3,4,5,6]);
+});
+
+test('challenge variants persist their distinct limits and first bulletin changes prices',()=>{
+  const g=new Campaign(20831,'noCompute');
+  g.cash=8000;
+  build(g,'pump',0,11);
+  assert.match(g.siteIssue('data',{x:10,z:13}),/disabled/);
+  const copy=Campaign.restore(validateSave(JSON.parse(JSON.stringify(g.snapshot()))));
+  assert.equal(copy.challenge,'noCompute');
+  const standard=new Campaign(20831), lean=new Campaign(20831,'leanPower');
+  standard.cash=lean.cash=8000;
+  const a=build(standard,'generator',0,11),b=build(lean,'generator',0,11);
+  run(standard,1);run(lean,1);
+  assert.ok((a.gridCapacity??0)>(b.gridCapacity??0));
+  assert.notEqual(g.eventAt(0),g.eventAt(300));
+});

@@ -56,7 +56,7 @@ const distinct=(values: unknown[])=>new Set(values).size===values.length;
 export function validateSave(data:unknown): Save {
   if(!object(data)||data.version!==VERSION) throw Error('Unsupported save format or version.');
   const s=data;
-  const valid=integer(s.seed,0,2**31-1)&&numeric(s.clock,0)&&integer(s.cash)&&integer(s.savedAt)
+  const valid=(s.challenge===undefined||['standard','noCompute','leanPower'].includes(String(s.challenge)))&&integer(s.seed,0,2**31-1)&&numeric(s.clock,0)&&integer(s.cash)&&integer(s.savedAt)
     &&object(s.player)&&coordinate(s.player)&&numeric(s.player.yaw)&&numeric(s.player.pitch,-1.6,1.6)
     &&key(s.tool,tools)&&numeric(s.wear,0,150)&&numeric(s.battery,0,100)&&flag(s.won)&&numeric(s.completionTime,0)&&integer(s.nextId,3)
     &&(s.toolWear===undefined||(object(s.toolWear)&&Object.entries(s.toolWear).every(([k,v])=>key(k,tools)&&numeric(v,0,150))))

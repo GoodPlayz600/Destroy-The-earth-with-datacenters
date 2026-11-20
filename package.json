@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "node --import tsx --test tests/*.test.ts",
-    "test:browser": "node tests/browser.mjs"
+    "test:browser": "node tests/browser.mjs",
+    "test:performance": "node --import tsx tests/performance.ts"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",

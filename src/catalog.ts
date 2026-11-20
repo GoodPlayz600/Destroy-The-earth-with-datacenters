@@ -270,6 +270,7 @@ export const facilities: Record<Facility, Building> = {
 
 type VehicleDefinition = {name:string;cost:number;speed:number;capacity:number;motor:boolean;color:string;research?:string;trailer?:boolean;forks?:boolean};
 export const vehicles = {
+  wheelbarrow: { name:'Logging Wheelbarrow', cost:105, speed:4.9, capacity:49,motor:false,color:'#899360' },
   sled: { name: 'Skid Sled', cost: 95, speed: 4.4, capacity: 85, motor: false, color: '#86633e' },
   cart: { name: 'Hand Cart', cost: 145, speed: 5.4, capacity: 135, motor: false, color: '#77916c' },
   trike: { name: 'Cargo Tricycle', cost: 180, speed: 6.6, capacity: 120, motor: false, color:'#9a8a64', research:'06-01' },

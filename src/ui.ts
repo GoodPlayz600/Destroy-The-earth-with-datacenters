@@ -1,7 +1,7 @@
 import { DISTRICTS, TOTAL, facilities, goods, recipes, tools, vehicles, vehicleTypes } from './catalog';
 import type { Facility, Good, Recipe, Tool, VehicleType } from './catalog';
 import { biomassSites, buyerSite, cargoMass, computeSites, consumes, fields, fuelGood, getQuantity, projectPrices, storageSite, mills, waterSites, waterPumps, waterCapacity } from './campaign';
-import type { Campaign, Project, Site } from './campaign';
+import type { Campaign, Challenge, Project, Site } from './campaign';
 import { blockers, conversionLabel, desertRules, districtCenter, districtName, soilColors, stages } from './land';
 import type { Blocker, Point } from './land';
 import { bindingOptions, defaults } from './storage';
@@ -42,7 +42,7 @@ type Hud={
   elapsed:number; waypoint?:Point; aimedBuild?:string; buildIssue?:string; saved:string; touch:boolean;
 };
 type Controller={
-  game:()=>Campaign; prefs:Preferences; open:(page:Page)=>void; begin:(kind:'resume'|'new'|'plus')=>void;
+  game:()=>Campaign; prefs:Preferences; open:(page:Page)=>void; begin:(kind:'resume'|'new'|'plus',challenge?:Challenge)=>void;
   resume:()=>void; menu:()=>void; refresh:()=>void; save:()=>void; download:()=>void; restore:(file:File)=>void;
   archives:()=>Archive[]; restoreArchive:(slot:string)=>void; applySettings:()=>void; binding:(key:Binding)=>void; build:(f:Facility)=>void; ride:(v:VehicleType)=>void;
   survey:(p:Point)=>void; waypoint:(p:Point)=>void; site:()=>Site|undefined; touch:(key:string,pressed:boolean)=>void; fullscreen:()=>void;
@@ -118,7 +118,7 @@ export class UI {
     play.setAttribute('aria-label',playLabel);
     play.append(el('span','play-icon','▶'),playLabel,el('span','arrow','›'));
     buttons.append(play);
-    if(hasSave) buttons.append(action('New Game',()=>this.confirmNew(),'button secondary start-new'));
+    buttons.append(action(hasSave?'New Game':'Challenges',()=>this.confirmNew(hasSave),'button secondary start-new'));
     buttons.append(el('div','menu-links',this.nav('','Settings','settings'),this.nav('','How to Play','help'),this.nav('','Credits','credits')));
     const content=el('main','menu-content',
       el('div','hero-kicker',el('span'),'THE LAST JUNGLE'),
@@ -132,9 +132,13 @@ export class UI {
     this.menu.replaceChildren(top,content,footer);
   }
 
-  private confirmNew() {
-    this.panel('New campaign','Your current campaign will be archived in this browser.',el('div','panel-content',
-      btn('Start new campaign',()=>this.c.begin('new')),btn('Go back',()=>this.c.resume())));
+  private confirmNew(hasSave:boolean) {
+    this.panel('New campaign',hasSave?'Your current campaign will be archived in this browser.':'Choose a campaign condition.',el('div','panel-content',
+      section('Campaign rules',
+        row('Standard','All tools, industries and conversion strategies are available.',btn('Start standard',()=>this.c.begin('new'))),
+        row('No compute','Win through other industries. Compute equipment stays unavailable.',btn('Start No Compute',()=>this.c.begin('new','noCompute'))),
+        row('Lean grid','Every source has lower electrical capacity. Plan around a smaller grid.',btn('Start Lean Grid',()=>this.c.begin('new','leanPower')))),
+      btn('Go back',()=>this.c.resume())));
   }
 
   showPlay() {
@@ -445,6 +449,7 @@ export class UI {
       g.mods.opsPolicy?section('Operations policy',row('Dispatch modes',g.policy,...(['manual','revenue','land'] as const).map(mode=>
         btn(mode,()=>{g.policy=mode;this.c.refresh();},g.policy===mode)))):undefined,
       section('Operations',
+        row('Field bulletin',g.eventAt()),
         row('Earnings per field minute',g.clock>2?cash(g.stats.earned/(g.clock/60)):'Begin field work'),
         row('Average swings per harvest',g.stats.harvest?String(Math.round(g.stats.hits/g.stats.harvest)):'No harvest recorded'),
         row('Machine bottlenecks',g.sites.filter(site=>['No grid power','Output full','Awaiting suitable material'].includes(site.status)).map(site=>facilities[site.kind].name+' · '+site.status).join(' / ')||'No blocked production'),
