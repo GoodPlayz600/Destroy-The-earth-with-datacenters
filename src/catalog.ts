@@ -80,7 +80,7 @@ export const recipes = {
   data: { name: 'Process compute contract', output: ['compute', 2], time: 24, power: 12 },
 } as const satisfies Record<string, Recipe>;
 
-export type Facility = keyof typeof recipes | 'fire' | 'market' | 'depot' | 'railDepot' | 'dronePad' | 'generator' | 'substation' | 'pump' | 'pipe' | 'tank' | 'coolTower' | 'grazing' | 'thermal' | 'dryer' | 'forestry' | 'road' | 'belt' | 'rail';
+export type Facility = keyof typeof recipes | 'fire' | 'market' | 'depot' | 'railDepot' | 'dronePad' | 'generator' | 'substation' | 'portable' | 'pole' | 'battery' | 'biopower' | 'solar' | 'wind' | 'transformer' | 'gridPlant' | 'backbone' | 'gridCampus' | 'pump' | 'pipe' | 'tank' | 'coolTower' | 'grazing' | 'thermal' | 'dryer' | 'forestry' | 'road' | 'belt' | 'rail';
 type Building = {
   name: string; price: number; color: string; size: number; requires?: Facility; research?: string;
   effect?: 'fire' | 'pump' | 'grazing' | 'quarry' | 'thermal' | 'dryer' | 'forestry' | 'data';
@@ -120,6 +120,16 @@ export const facilities: Record<Facility, Building> = {
   charcoal: { name: 'Charcoal Retort', price: 425, color: '#736255', size: 3 },
   pellet: { name: 'Pellet Press', price: 630, color: '#8a7860', size: 3, requires: 'chipper' },
   plywood: { name: 'Plywood Press', price: 710, color: '#926950', size: 4, requires: 'mill' },
+  portable: { name: 'Portable Generator', price: 160, color: '#a48a5a', size: 1.8, supply: 12, research: '18-01' },
+  pole: { name: 'Utility Pole', price: 62, color: '#948067', size: 1.2, research: '18-02' },
+  battery: { name: 'Station Battery Bank', price: 450, color: '#818c79', size: 2.6, research: '18-03' },
+  biopower: { name: 'Biomass Generator', price: 1100, color: '#7b8464', size: 4, supply: 41, research: '18-05', effect:'thermal', reach:4 },
+  transformer: { name: 'Transformer Station', price: 1630, color: '#9b906c', size: 3, research: '18-06' },
+  solar: { name: 'Solar Array', price: 3800, color: '#5e7a84', size: 6, supply: 40, research: '18-07' },
+  wind: { name: 'Wind Turbine', price: 6300, color: '#b0ae9a', size: 3.2, supply: 54, research: '18-08' },
+  gridPlant: { name: 'Thermal Powerhouse', price: 18000, color: '#a78562', size: 7, supply: 132, research: '18-09', effect:'thermal', reach:24 },
+  backbone: { name: 'Industrial Grid Backbone', price: 9000, color: '#aea689', size: 5, research: '18-11' },
+  gridCampus: { name: 'Gigawatt Utility Campus', price: 103000, color: '#978c74', size: 12, supply: 488, research: '18-12', effect:'thermal', reach:30 },
   generator: { name: 'Grid Generator', price: 305, color: '#be964b', size: 3, supply: 28 },
   substation: { name: 'Grid Relay', price: 195, color: '#897f64', size: 2 },
   pump: { name: 'Drainage Array', price: 550, color: '#5e8c9e', size: 3, effect: 'pump', reach: 9, power: 5 },
@@ -141,13 +151,21 @@ export const facilities: Record<Facility, Building> = {
   rail: { name: 'Freight Rail', price: 250, color: '#938477', size: 2, requires: 'depot' },
 };
 
+type VehicleDefinition = {name:string;cost:number;speed:number;capacity:number;motor:boolean;color:string;research?:string;trailer?:boolean;forks?:boolean};
 export const vehicles = {
   sled: { name: 'Skid Sled', cost: 95, speed: 4.4, capacity: 85, motor: false, color: '#86633e' },
   cart: { name: 'Hand Cart', cost: 145, speed: 5.4, capacity: 135, motor: false, color: '#77916c' },
+  trike: { name: 'Cargo Tricycle', cost: 180, speed: 6.6, capacity: 120, motor: false, color:'#9a8a64', research:'06-01' },
+  utility: { name: 'Electric Utility Cart', cost: 275, speed: 8.6, capacity: 190, motor: true, color:'#78907b', research:'06-02' },
+  towAtv: { name: 'ATV Tow Rig', cost: 595, speed: 12.8, capacity: 180, motor: true, color:'#c0a14b', research:'06-05' },
+  trailer: { name: 'Timber Trailer', cost: 750, speed: 0, capacity: 600, motor: false, color:'#8f845f', trailer:true, research:'06-06' },
+  towPickup: { name: 'Work Pickup', cost: 1700, speed: 14.5, capacity: 340, motor: true, color:'#879369', research:'06-07' },
+  forklift: { name: 'Log Forklift', cost: 1900, speed: 6.8, capacity: 610, motor: true, color:'#c4a454', forks:true },
   atv: { name: 'Forestry ATV', cost: 370, speed: 11, capacity: 130, motor: true, color: '#c08a39' },
   pickup: { name: 'Field Pickup', cost: 680, speed: 13, capacity: 260, motor: true, color: '#788b63' },
-  skid: { name: 'Skid Steer', cost: 1300, speed: 8, capacity: 450, motor: true, color: '#ca9d44' },
+  skid: { name: 'Skid Steer', cost: 1300, speed: 8, capacity: 450, motor: true, color: '#ca9d44', forks:true },
   truck: { name: 'Logging Truck', cost: 2180, speed: 15, capacity: 850, motor: true, color: '#b98d50' },
   dozer: { name: 'Tracked Bulldozer', cost: 3150, speed: 8, capacity: 490, motor: true, color: '#d5a849' },
 };
 export type VehicleType = keyof typeof vehicles;
+export const vehicleTypes:Record<VehicleType,VehicleDefinition> = vehicles;

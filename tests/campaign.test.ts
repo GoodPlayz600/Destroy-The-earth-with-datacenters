@@ -460,3 +460,48 @@ test('modular furniture requires both material lots and charges labor only after
   assert.equal(getQuantity(factory.output,'modular'),2);
   assert.equal(g.cash,balance-58);
 });
+
+test('trailers require research, attach to a specific local tow vehicle and retain their hitch over reload',()=>{
+  const g=new Campaign();
+  g.cash=50000;
+  const tow=g.acquireRide('pickup',{x:0,z:12})!;
+  assert.ok(tow);
+  assert.equal(g.toggleTrailer(tow),false);
+  assert.equal(g.acquireRide('trailer',{x:0,z:17}),undefined);
+  for(let n=1;n<=6;n++)assert.ok(g.buyUpgrade('06-'+String(n).padStart(2,'0')));
+  const trailer=g.acquireRide('trailer',{x:0,z:17})!;
+  assert.ok(g.toggleTrailer(tow));
+  assert.equal(trailer.hitch,tow.id);
+  const saved=Campaign.restore(validateSave(JSON.parse(JSON.stringify(g.snapshot()))));
+  assert.equal(saved.rides[1].hitch,saved.rides[0].id);
+  assert.ok(g.toggleTrailer(tow));
+  assert.equal(trailer.hitch,undefined);
+});
+
+test('storage bridges a short blackout with conserved grid supply',()=>{
+  const g=new Campaign();
+  g.cash=30000;
+  for(let n=1;n<=5;n++)assert.ok(g.buyUpgrade('18-'+String(n).padStart(2,'0')));
+  const gen=build(g,'portable',-9,12);
+  const reserve=build(g,'battery',4,12);
+  const bio=build(g,'biopower',11,12);
+  const bench=build(g,'bench',0,5);
+  const mill=build(g,'mill',0,16);
+  run(g,21);
+  assert.ok((reserve.reserve??0)>=100);
+  gen.on=false;
+  put(mill.input,{good:'timber',quantity:2,quality:.84,moisture:.55});
+  const before=reserve.reserve!;
+  run(g,10);
+  assert.ok(reserve.reserve!<before);
+  assert.equal(getQuantity(mill.output,'boards'),5);
+  assert.equal(bio.fuel,0);
+  put(g.stock,{good:'chips',quantity:1,quality:.72,moisture:.53});
+  assert.ok(g.transfer(bio,'chips',1,false));
+  put(mill.input,{good:'timber',quantity:2,quality:.84,moisture:.55});
+  run(g,12);
+  assert.ok(bio.fuel>0);
+  assert.equal(getQuantity(mill.output,'boards'),10);
+  assert.equal(getQuantity(bio.input),0);
+  assert.equal(bench.jobs.length,0);
+});

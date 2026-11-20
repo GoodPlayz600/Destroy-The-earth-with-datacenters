@@ -1,6 +1,6 @@
 import * as T from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { facilities, goods, species, tools, vehicles } from './catalog';
+import { facilities, goods, species, tools, vehicleTypes } from './catalog';
 import type { Facility, Good, Tool, VehicleType } from './catalog';
 import { hash } from './land';
 
@@ -247,6 +247,50 @@ export function siteModel(kind: Facility): SiteModel {
     }
     cylinder(fixed,dark,0,8.02,0,3.65,.16);
     for(const x of [-4.1,4.1])box(fixed,glass,x,1.01,.65,.60,1.46,.22);
+  } else if(kind==='solar'){
+    const blue=mat('#425b71',.42,.36);
+    for(const x of [-3.24,0,3.24])for(const z of [-2.1,1.87]){
+      box(fixed,steel,x,.47,z,.13,.92,.17);
+      const panel=new T.Group();
+      panel.position.set(x,1.07,z);
+      panel.rotation.x=-.30;
+      box(panel,steel,0,0,0,2.8,.09,1.79);
+      for(let a=0;a<7;a++)for(let b=0;b<4;b++)box(panel,blue,(a-3)*.38,.056,(b-1.5)*.415,.353,.027,.385);
+      fixed.add(panel);
+    }
+  } else if(kind==='wind'){
+    segment(fixed,steel,new T.Vector3(0,.12,0),new T.Vector3(0,11.4,0),.27);
+    cylinder(fixed,dark,0,.12,0,1.28,.21);
+    box(fixed,paint,0,11.31,0,1.13,.62,1.82);
+    const hub=new T.Group();
+    hub.position.set(0,11.3,.94);
+    for(let n=0;n<3;n++){
+      const blade=new T.Group();
+      blade.rotation.z=n*2*Math.PI/3;
+      box(blade,mat('#d3d4b9'),0,1.65,0,.24,3.1,.092).rotation.z=.083;
+      box(blade,mat('#b77953'),-.12,3.18,0,.21,.47,.086);
+      hub.add(blade);
+    }
+    cylinder(hub,steel,0,0,.1,.28,.29).rotation.x=Math.PI*.50;
+    root.add(hub);
+    moving.push(hub);
+  } else if(kind==='pole'||kind==='backbone'){
+    const height=kind==='pole'?6.3:13.2;
+    const span=kind==='pole'?1.12:2.92;
+    if(kind==='pole')cylinder(fixed,timber,0,height*.5,0,.16,height);
+    else{
+      for(const x of [-.72,.72])segment(fixed,steel,new T.Vector3(x,0,0),new T.Vector3(x*.24,height,0),.12);
+      for(let i=0;i<7;i++)segment(fixed,steel,new T.Vector3(-.60,height*i/7,0),new T.Vector3(.63,height*(i+1)/7,0),.065);
+    }
+    box(fixed,steel,0,height-.42,0,span*2,.12,.16);
+    for(const x of [-span*.77,0,span*.77])cylinder(fixed,amber,x,height-.25,0,.092,.34);
+  } else if(kind==='battery'||kind==='transformer'){
+    box(fixed,steel,0,.15,0,size*1.43,.28,size*1.19);
+    for(const x of [-size*.46,0,size*.46]){
+      box(fixed,paint,x,.81,0,.72,1.29,1.24);
+      box(fixed,glass,x,1.03,.652,.44,.25,.11);
+      if(kind==='transformer')for(let n=0;n<4;n++)cylinder(fixed,steel,x,1.44+n*.13,0,.22,.11);
+    }
   } else if (kind === 'pipe' || kind === 'tank') {
     if (kind==='pipe') {
       for (const x of [-1.4,1.4]) box(fixed,steel,x,.27,0,.26,.54,.54);
@@ -352,9 +396,11 @@ export function productModel(good: Good, quantity: number) {
 }
 
 export function vehicleModel(type: VehicleType) {
-  const def=vehicles[type], root=new T.Group(), fixed=new T.Group(), wheels:T.Object3D[]=[];
-  const scale = type === 'truck' ? 1.6 : type === 'pickup' || type === 'dozer' ? 1.25 : type === 'atv' ? .83 : 1;
+  const def=vehicleTypes[type], root=new T.Group(), fixed=new T.Group(), wheels:T.Object3D[]=[];
+  const scale = type === 'truck'||type==='trailer' ? 1.6 : type === 'pickup'||type==='towPickup'||type==='dozer' ? 1.25 :
+    type === 'atv'||type==='towAtv'||type==='trike' ? .83 : 1;
   const paint = mat(def.color,.32), motor=def.motor;
+  let forks:T.Group|undefined;
   root.add(fixed);
   box(fixed,steel,0,.42,.22,1.34,.19,2.07);
   box(fixed,timber,0,.56,.38,1.45,.13,1.75);
@@ -363,23 +409,46 @@ export function vehicleModel(type: VehicleType) {
     box(fixed,paint,0,.75,-.81,1.42,.56,1.05);
     box(fixed,steel,0,.56,-1.38,1.42,.26,.10);
     for (const x of [-.49,.49]) box(fixed,amber,x,.78,-1.365,.28,.14,.09);
-    if(type!=='atv') {
+    if(type!=='atv'&&type!=='towAtv') {
       box(fixed,paint,0,1.3,-.60,1.30,.69,.66);
       box(fixed,glass,0,1.43,-.96,1.11,.33,.075);
       box(fixed,glass,-.666,1.43,-.61,.075,.33,.44);
       box(fixed,glass,.666,1.43,-.61,.075,.33,.44);
       box(fixed,paint,0,1.70,-.58,1.42,.11,.76);
     }
-    if (type === 'dozer' || type === 'skid') {
+    if (type === 'dozer') {
       box(fixed,amber,0,.46,-1.82,1.93,.53,.19).rotation.x = -.19;
       for (const x of [-.64,.64]) box(fixed,steel,x,.53,-1.6,.16,.16,.64);
     }
+    if(def.forks) {
+      forks=new T.Group();
+      forks.position.set(0,.91,-.61);
+      for(const x of [-.52,.52]) {
+        box(forks,paint,x,-.19,-.73,.19,.17,1.62).rotation.x=.20;
+        box(forks,steel,x,-.37,-1.50,.15,.51,.15);
+        box(forks,dark,x,-.59,-1.78,.16,.11,.71);
+      }
+      box(forks,steel,0,-.44,-1.53,1.21,.21,.16);
+      batch(forks);
+      root.add(forks);
+    }
+  } else if(def.trailer) {
+    for(const x of [-.56,.56]) box(fixed,steel,x,.50,-1.10,.10,.13,1.35).rotation.y=x*.82;
+    box(fixed,steel,0,.48,-1.67,.21,.13,.31);
+    for(const x of [-.68,.68])for(const z of [-.45,.4,1.17])box(fixed,paint,x,.91,z,.13,.88,.11);
+  } else if(type==='trike') {
+    box(fixed,paint,0,.49,-.73,.18,.17,1.24);
+    box(fixed,timber,0,.94,-.83,.40,.13,.45);
+    box(fixed,steel,0,.76,-1.29,.12,.94,.10).rotation.x=-.23;
+    box(fixed,steel,0,1.23,-1.36,.82,.079,.087);
+    const steering=cylinder(fixed,rubber,0,.36,-1.40,.34,.17);
+    steering.rotation.z=Math.PI*.5;
   } else if (type === 'sled') {
     for(const x of [-.55,.55]) box(fixed,paint,x,.22,.25,.15,.17,2.43);
   } else {
     for(const x of [-.50,.50]) box(fixed,timber,x,.54,-1.31,.08,.10,1.4);
   }
-  if (type !== 'sled') for(const x of [-.77,.77]) for(const z of motor ? [-.82,.91] : [.43]) {
+  if (type !== 'sled') for(const x of [-.77,.77]) for(const z of motor ? [-.82,.91] : def.trailer?[.34,.90]:[.43]) {
     const hub=new T.Group();
     hub.position.set(x,.40,z);
     const tire=cylinder(hub,rubber,0,0,0,.4,.23);
@@ -396,7 +465,7 @@ export function vehicleModel(type: VehicleType) {
   }
   batch(fixed);
   root.scale.setScalar(scale);
-  return { root,wheels };
+  return { root,wheels,forks };
 }
 
 export function toolModel(tool: Tool, golden = false) {

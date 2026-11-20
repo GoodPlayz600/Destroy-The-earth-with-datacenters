@@ -1,4 +1,4 @@
-import { CELL, DISTRICTS, TOTAL, facilities, goods, recipes, species, tools, vehicles } from './catalog';
+import { CELL, DISTRICTS, TOTAL, facilities, goods, recipes, species, tools, vehicles, vehicleTypes } from './catalog';
 import type { Facility, Good, Recipe, Stack, Tool, VehicleType } from './catalog';
 import { applyLand, cellPoint, clamp, defaultSoil, desertified, distance, districtAt, hash, height, homeDistrict, indexAt, noPressure, treesIn } from './land';
 import type { Point, Pressure, Soil, Tree } from './land';
@@ -12,15 +12,16 @@ export type Shipment = { mode:'rail'|'air'; load:Stack; target:string; path:Poin
 type Batch = Stack & { remaining: number; payout?: number; offcut?: number };
 export const mills: Facility[] = ['bench','bandsaw','mill','speedMill','millComplex'];
 export const computeSites:Facility[]=['serverRack','serverHall','data','hyperscale'];
+export const utilityNodes:Facility[]=['substation','pole','transformer','backbone'];
 export const waterSites:Facility[]=['pump','tank','coolTower'];
 const kilns: Facility[] = ['smallKiln','kiln'];
 export const consumes = (recipe: Recipe | undefined, good: Good) => recipe?.input?.[0]===good||recipe?.secondary?.[0]===good;
 export const takesLogs=(kind:Facility) => storageSite(kind)||kind==='fire'||kind==='market'||(isRecipe(kind)&&(recipes[kind] as Recipe).input?.[0]==='timber');
 export type Site = Point & {
   id: string; kind: Facility; yaw?:number; input: Stack[]; output: Stack[]; jobs: Batch[];
-  on: boolean; fuel: number; status: string; water?: number; reserve?:number; uptime?:number; service?:number; yieldCarry?:number; layout?: 'quality'|'volume'; sortHigh?:boolean; link?: string; haul?: Haul; shipment?:Shipment; mode?: 'sell' | 'charcoal';
+  on: boolean; fuel: number; status: string; water?: number; reserve?:number; priority?:boolean; gridFlow?:number; gridCapacity?:number; uptime?:number; service?:number; yieldCarry?:number; layout?: 'quality'|'volume'; sortHigh?:boolean; link?: string; haul?: Haul; shipment?:Shipment; mode?: 'sell' | 'charcoal';
 };
-export type Ride = Point & { id: string; kind: VehicleType; yaw: number; fuel: number; wear: number };
+export type Ride = Point & { id: string; kind: VehicleType; yaw: number; fuel: number; wear: number; hitch?:string };
 export type Ledger = { date: number; note: string; amount: number };
 export type Contract = { good: Good; quantity: number; deadline: number; payout: number; done: boolean; failed: boolean; dense?:boolean; grade?:number };
 export type Project = { kind: 'watershed' | 'quarry' | 'thermal'; district: number; phase: number; complete?: boolean };
@@ -111,7 +112,7 @@ export class Campaign {
   }
 
   private makeSite(kind: Facility, x: number, z: number): Site {
-    return { id: 's' + this.nextId++, kind, x, z, input: [], output: [], jobs: [], on: true, fuel: facilities[kind].supply ? 100 : 0, status: 'Idle' };
+    return { id: 's' + this.nextId++, kind, x, z, input: [], output: [], jobs: [], on: true, fuel: facilities[kind].supply && kind!=='biopower' ? 100 : 0, status: 'Idle' };
   }
 
   notice(message: string) { this.notices.push(message); }
@@ -264,7 +265,7 @@ export class Campaign {
     const destination = retrieve ? this.stock : storageSite(site.kind) ? site.output : site.input;
     const capacity = retrieve ? 150 : this.capacity(site);
     const recipe: Recipe | undefined = isRecipe(site.kind) ? recipes[site.kind] : undefined;
-    if (!retrieve && !storageSite(site.kind) && !consumes(recipe,good)) return false;
+    if (!retrieve && !storageSite(site.kind) && !consumes(recipe,good) && !(site.kind==='biopower'&&good==='chips')) return false;
     if (getQuantity(destination) + quantity > capacity) return false;
     const stack = take(source, good, quantity);
     return stack ? put(destination, stack, capacity) : false;
@@ -348,13 +349,24 @@ export class Campaign {
   }
 
   acquireRide(kind: VehicleType, point: Point) {
-    const vehicle = vehicles[kind];
+    const vehicle = vehicleTypes[kind];
+    if(vehicle.research&&!this.ownedUpgrades.has(vehicle.research))return;
     if (this.cash < vehicle.cost || (kind === 'sled' && !this.mods.sled) || (kind === 'cart' && !this.mods.cart)
       || indexAt(point.x, point.z) < 0 || (Math.hypot(point.x, point.z) > 29 && !this.districts.has(districtAt(indexAt(point.x, point.z))))) return;
     const ride: Ride = { ...point, id: 'v' + this.nextId++, kind, yaw: this.player.yaw, fuel: 100, wear: 0 };
     this.rides.push(ride);
     this.finance(-vehicle.cost, vehicle.name);
     return ride;
+  }
+
+  toggleTrailer(tow:Ride) {
+    if(!this.mods.hitch||vehicleTypes[tow.kind].trailer||tow.kind==='sled'||tow.kind==='cart')return false;
+    const attached=this.rides.find(v=>v.hitch===tow.id);
+    if(attached){attached.hitch=undefined;return true;}
+    const trailer=this.rides.find(v=>vehicleTypes[v.kind].trailer&&!v.hitch&&distance(tow,v)<5.9);
+    if(!trailer)return false;
+    trailer.hitch=tow.id;
+    return true;
   }
 
   buyDistrict(district: number) {
@@ -453,7 +465,7 @@ export class Campaign {
     if(!path){site.status=rail?'Freight blocked · broken track':'Freight blocked · out of range';return;}
     const length=path.slice(1).reduce((n,p,index)=>n+distance(p,path[index]),0);
     const recipe: Recipe | undefined = isRecipe(target.kind) ? recipes[target.kind] : undefined;
-    const lot=site.output.find(l=>storageSite(target.kind)||target.kind==='market'&&l.good!=='compute'||consumes(recipe,l.good));
+    const lot=site.output.find(l=>storageSite(target.kind)||target.kind==='market'&&l.good!=='compute'||consumes(recipe,l.good)||target.kind==='biopower'&&l.good==='chips');
     if(!lot){site.status=site.output.length?'Freight blocked · incompatible cargo':'Waiting for freight';return;}
     const available=target.kind==='market'?capacity:this.capacity(target)-getQuantity(storageSite(target.kind)?target.output:target.input);
     const amount=Math.min(lot.quantity,capacity,available);
@@ -547,11 +559,42 @@ export class Campaign {
     return Math.max(0,order.quantity-pledged);
   }
 
+  private gridReach(from:Point,to:Point,span=78) {
+    return this.reachable(from,to,utilityNodes,span)
+      ||this.sites.some(node=>node.on&&node.kind==='transformer'&&distance(from,node)<=75&&this.reachable(node,to,utilityNodes,125))
+      ||this.sites.some(node=>node.on&&node.kind==='backbone'&&distance(from,node)<=80&&this.reachable(node,to,utilityNodes,230));
+  }
+
+  private gridSources(){
+    return this.sites.flatMap(site=>{
+      const maximum=facilities[site.kind].supply??0;
+      if(!site.on){site.gridCapacity=0;return [];}
+      if(site.kind==='battery'){
+        const draw=Math.min(36,site.reserve??0);
+        site.gridCapacity=draw;
+        return draw>0?[{site,free:draw}]:[];
+      }
+      if(!maximum)return [];
+      if(site.kind==='biopower'&&site.fuel<=8){
+        const fuel=take(site.input,'chips',1);
+        if(fuel)site.fuel=Math.min(100,site.fuel+38);
+      }
+      const daylight=clamp(Math.sin(.7+this.clock/235)*.52+.56);
+      const wind=Math.max(.24,.50+Math.sin(this.clock/45+this.seed%7)*.24+this.rain*.20);
+      const power=site.kind==='solar'?maximum*daylight*(1-this.rain*.59)
+        :site.kind==='wind'?maximum*wind:site.fuel>0?maximum:0;
+      site.gridCapacity=power;
+      return power>0?[{site,free:power}]:[];
+    }).sort((a,b)=>Number(a.site.kind==='battery')-Number(b.site.kind==='battery'));
+  }
+
   private simulateMachinery(dt: number) {
-    const supply = this.sites.filter(s => s.on && facilities[s.kind].supply && s.fuel > 0).map(site => ({ site, free: facilities[site.kind].supply! }));
+    const supply=this.gridSources();
     this.roadPower.clear();
     let computeNeeded=this.computeRemaining();
-    for (const site of this.sites) {
+    const plan=this.mods.priority?[...this.sites].sort((a,b)=>Number(Boolean(b.priority))-Number(Boolean(a.priority))):this.sites;
+    for (const site of plan) {
+      site.gridFlow=0;
       if (!site.on) { site.status = 'Paused'; continue; }
       if (site.kind === 'fire') {
         site.status = site.jobs.length ? 'Burning' : 'Ready for physical delivery';
@@ -581,11 +624,11 @@ export class Campaign {
       let watts = Math.max(recipe?.power ?? 0, facilities[site.kind].power ?? 0);
       if(computing&&this.mods.airFans)watts+=2;
       if(kilns.includes(site.kind)&&this.mods.smartKiln)watts=Math.max(1,watts-2);
-      const fan=site.kind==='rack'&&this.mods.dryingFan&&supply.some(source=>source.free>=2&&this.reachable(site,source.site,['substation'],78));
+      const fan=site.kind==='rack'&&this.mods.dryingFan&&supply.some(source=>source.free>=2&&this.gridReach(site,source.site));
       if(fan)watts=2;
       if(site.kind==='kiln'&&this.mods.heatReuse&&this.sites.some(s=>s.kind==='fire'&&s.jobs.length>0&&distance(site,s)<22))watts=Math.max(0,watts-3);
       const within=this.mods.campus&&computing?118:78;
-      const network=watts?supply.filter(source=>source.free>0&&this.reachable(site,source.site,['substation'],within)):[];
+      const network=watts?supply.filter(source=>source.free>0&&this.gridReach(site,source.site,within)):[];
       const powered=network.reduce((sum,source)=>sum+source.free,0)>=watts;
       const backup=computing&&this.mods.backup&&(site.reserve??0)>=watts*dt;
       if(!powered&&!backup){site.status='No grid power';continue;}
@@ -595,7 +638,8 @@ export class Campaign {
         for(const source of network){
           const draw=Math.min(remaining,source.free);
           source.free-=draw;
-          source.site.fuel=Math.max(0,source.site.fuel-draw*dt*.00065);
+          if(source.site.kind==='battery')source.site.reserve=Math.max(0,(source.site.reserve??0)-draw*dt);
+          else if(source.site.kind!=='solar'&&source.site.kind!=='wind')source.site.fuel=Math.max(0,source.site.fuel-draw*dt*.00065);
           if((remaining-=draw)<=0)break;
         }
         if(computing&&this.mods.backup)site.reserve=Math.min(700,(site.reserve??0)+4*dt);
@@ -604,6 +648,7 @@ export class Campaign {
         site.uptime=(site.uptime??0)+dt;
         if(site.uptime>=(this.mods.serverService?280:145)){site.uptime=0;site.service=this.mods.serverService?4:15;}
       }
+      site.gridFlow=watts;
       this.roadPower.set(site.id, true);
       site.status = 'Operational';
       if (site.kind === 'pump') {
@@ -645,6 +690,17 @@ export class Campaign {
         computeNeeded-=running.quantity;
       }
     }
+    for(const station of this.sites){
+      if(!station.on||station.kind!=='battery'||(station.reserve??0)>=680)continue;
+      const source=supply.find(item=>item.site.kind!=='battery'&&item.free>4&&this.gridReach(station,item.site));
+      if(!source)continue;
+      const draw=Math.min(9,source.free,680-(station.reserve??0));
+      source.free-=draw;
+      station.reserve=(station.reserve??0)+draw;
+      station.gridFlow=draw;
+      if(source.site.kind!=='solar'&&source.site.kind!=='wind')source.site.fuel=Math.max(0,source.site.fuel-draw*dt*.00065);
+    }
+    for(const source of supply)source.site.gridFlow=(source.site.gridCapacity??0)-source.free;
     for (const site of this.sites) {
       if (!site.on || !site.link) continue;
       const target = this.sites.find(s => s.id === site.link);
@@ -751,7 +807,7 @@ export class Campaign {
       const def = facilities[site.kind], center = indexAt(site.x, site.z);
       if (!site.on || !def.effect || center < 0 || (def.power && !this.roadPower.get(site.id))) continue;
       if (site.kind === 'fire' && !site.jobs.length) continue;
-      if (site.kind === 'thermal' && site.fuel <= 0) continue;
+      if (def.effect==='thermal' && site.fuel <= 0) continue;
       const cx = center % 256, cz = Math.floor(center / 256), radius = def.reach!;
       for (let z = Math.max(0, cz - radius); z <= Math.min(255, cz + radius); z++) {
         for (let x = Math.max(0, cx - radius); x <= Math.min(255, cx + radius); x++) {

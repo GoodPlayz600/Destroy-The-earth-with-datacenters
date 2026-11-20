@@ -2,4 +2,4 @@
 
 **Needs work**
 
-- Playtest the full drive-and-deliver loop, heavy recovery, physical winches, towing, trailers and independent crane/forklift handling.
+- Playtest the full drive-and-deliver loop, heavy recovery, winch loads, towing behavior and individual crane operations.

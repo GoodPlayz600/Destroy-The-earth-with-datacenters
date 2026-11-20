@@ -1,7 +1,7 @@
 import * as T from 'three';
 import R from '@dimforge/rapier3d-compat';
-import { CELL, SIZE, facilities, species } from './catalog';
-import { computeSites } from './campaign';
+import { CELL, SIZE, facilities, species, vehicleTypes } from './catalog';
+import { computeSites, utilityNodes, waterSites } from './campaign';
 import type { Campaign, Log, Ride, Site } from './campaign';
 import { clamp, distance, hash, height, indexAt, soilColors, treesIn } from './land';
 import type { Point, Tree } from './land';
@@ -34,6 +34,8 @@ export class Scene {
   private crew = new Map<string, ReturnType<typeof vehicleModel>>();
   private freight = new Map<string, ReturnType<typeof freightModel>>();
   private freightClock = 0;
+  private networkView?:T.Group;
+  private networkStamp='';
   private freightTime = new Map<string,number>();
   private particles: Particle[] = [];
   private painter = new T.Object3D();
@@ -41,6 +43,7 @@ export class Scene {
   private sunlight: T.DirectionalLight;
   private sky: T.Mesh<T.SphereGeometry,T.ShaderMaterial>;
   private rope = ropeModel();
+  private hitches=new Map<string,T.Mesh>();
   private rain = new T.InstancedMesh(new T.CylinderGeometry(.016,.012,.51,4),
     new T.MeshBasicMaterial({color:'#9cb6ac',transparent:true,opacity:.28,depthWrite:false}),145);
   private selection = new T.Mesh(new T.RingGeometry(.2,.235,28),new T.MeshBasicMaterial({color:'#f1d599',side:T.DoubleSide, depthWrite:false, transparent:true, opacity:.8}));
@@ -141,6 +144,10 @@ export class Scene {
     this.logViews.clear(); this.siteViews.clear(); this.rideViews.clear();this.crew.clear(); this.freight.clear();this.freightTime.clear();this.chops.clear(); this.routes.clear();
     for (const f of this.fallers.values()) this.world.remove(f.model);
     this.fallers.clear();
+    for(const hitch of this.hitches.values())hitch.removeFromParent();
+    this.hitches.clear();
+    if(this.networkView)this.removeModel(this.networkView);
+    this.networkView=undefined;this.networkStamp='';
     this.streamStamp='';
     this.landRevision=-1;
     this.stream(game.player,true);
@@ -436,23 +443,23 @@ export class Scene {
     body?.applyImpulse({x:-Math.sin(yaw)*force,y:force*.05,z:-Math.cos(yaw)*force},true);
   }
 
-  private drag(log:Log, at:Point, yaw:number, mode:'hand'|'rope'|'lift') {
+  private drag(log:Log, at:Point, yaw:number, mode:'hand'|'rope'|'lift'|'winch') {
     const body=this.logViews.get(log.id)?.body;
     if(!body) return;
-    const rope=mode==='rope';
-    const point=this.logPosition(log,at,rope?this.game.mods.ropeRange+3:5);
+    const winch=mode==='winch',rope=mode==='rope'||winch;
+    const point=this.logPosition(log,at,winch?17:rope?this.game.mods.ropeRange+3:5);
     if(!point) return;
-    const offset=rope ? 3.4 : mode==='lift' ? 1.25 : 1.92;
+    const offset=winch?-3:rope ? 3.4 : mode==='lift' ? 1.25 : 1.92;
     const target = new T.Vector3(at.x-Math.sin(yaw)*offset,height(at.x,at.z)+(mode==='lift'?.89:.42),at.z-Math.cos(yaw)*offset);
     const vel=body.linvel(), correction=target.clone().sub(point).multiplyScalar(rope?4.3:5.65);
     correction.x-=vel.x*.75; correction.z-=vel.z*.75;
     correction.y=(target.y-point.y)*5.5-vel.y*.50;
-    const strength= (rope ? this.game.mods.ropeMass/110 : this.game.mods.grip) * (mode==='lift'?1.6:1);
+    const strength= (winch?2.8:rope ? this.game.mods.ropeMass/110 : this.game.mods.grip) * (mode==='lift'?1.6:1);
     correction.clampLength(0,8.6*strength);
     const multiplier=Math.min(log.kilograms,95)*.17;
     body.applyImpulseAtPoint(correction.multiplyScalar(multiplier),point,true);
     if(rope) {
-      const hand=new T.Vector3(at.x-.26,height(at.x,at.z)+1.13,at.z+.27);
+      const hand=new T.Vector3(at.x+(winch?Math.sin(yaw)*1.1:-.26),height(at.x,at.z)+(winch?.68:1.13),at.z+(winch?Math.cos(yaw)*1.1:.27));
       const center=hand.clone().lerp(point,.5), axis=point.clone().sub(hand);
       this.rope.position.copy(center);
       this.rope.scale.set(.021,axis.length(),.021);
@@ -490,6 +497,8 @@ export class Scene {
         if(Math.random()<(site.jobs.length?.21:.065) && distance(site,at)<24) this.impact(new T.Vector3(site.x+.34*Math.random(),height(site.x,site.z)+.44,site.z),'ember',1);
         if(this.quality!=='low'&&Math.random()<(site.jobs.length?.10:.021)&&distance(site,at)<28)
           this.impact(new T.Vector3(site.x+.2,height(site.x,site.z)+.80,site.z),'smoke',1);
+      } else if(site.kind==='wind'&&site.on){
+        for(const hub of view.moving)hub.rotation.z=time*.52+Math.sin(time*.3)*.18;
       } else if(site.jobs.length || site.status==='Operational') {
         for(const part of view.moving) {
           if(site.kind==='bench'||computeSites.includes(site.kind)) part.rotation.y=time*11;
@@ -520,6 +529,42 @@ export class Scene {
     }
   }
 
+  private syncUtility(at:Point) {
+    const stamp=`${Math.floor(at.x/24)},${Math.floor(at.z/24)}:${this.game.sites.length}`;
+    if(this.networkStamp===stamp)return;
+    this.networkStamp=stamp;
+    if(this.networkView)this.removeModel(this.networkView);
+    const network=new T.Group(), unique=new Set<string>();
+    const inside=this.game.sites.filter(site=>distance(at,site)<140);
+    const types=(site:Site)=>site.kind==='pipe'||waterSites.includes(site.kind)||computeSites.includes(site.kind);
+    for(const node of inside){
+      const electric=utilityNodes.includes(node.kind), pipe=node.kind==='pipe';
+      if(!electric&&!pipe)continue;
+      const maximum=electric?(node.kind==='backbone'?140:78):46;
+      const peers=inside.filter(other=>other!==node&&(electric?utilityNodes.includes(other.kind)||Boolean(facilities[other.kind].supply):types(other))
+        &&distance(node,other)<maximum).sort((a,b)=>distance(node,a)-distance(node,b)).slice(0,2);
+      for(const peer of peers) {
+        const id=[node.id,peer.id].sort().join(':');
+        if(unique.has(id))continue;
+        unique.add(id);
+        const heightOf=(s:Site)=>s.kind==='backbone'?13:s.kind==='pole'?6.1:2.6;
+        for(const offset of electric?[-.31,.31]:[0]){
+          const a=new T.Vector3(node.x+offset,height(node.x,node.z)+(electric?heightOf(node):.48),node.z);
+          const b=new T.Vector3(peer.x+offset,height(peer.x,peer.z)+(electric?heightOf(peer):.48),peer.z);
+          const c=a.clone().lerp(b,.5);
+          c.y+=electric?-Math.min(1.8,a.distanceTo(b)*.055):.02;
+          const curve=new T.QuadraticBezierCurve3(a,c,b);
+          const tube=new T.TubeGeometry(curve,electric?9:4,electric?.031:.145,5,false);
+          tube.userData.ownedMerge=true;
+          const model=new T.Mesh(tube,mat(electric?'#5b5e50':'#64858a',.44));
+          network.add(model);
+        }
+      }
+    }
+    this.networkView=network;
+    this.world.add(network);
+  }
+
   private syncRoute(site:Site,at:Point) {
     const reverse=site.kind==='railDepot'||site.kind==='dronePad'?undefined:this.game.sites.find(s=>s.id===site.link);
     if(!reverse || distance(site,at)>80) {
@@ -545,10 +590,15 @@ export class Scene {
     this.routes.set(site.id,path);
   }
 
-  private syncRides(at:Point,time:number,driving?:Ride) {
+  private syncRides(at:Point,time:number,dt:number,driving?:Ride) {
     for(const ride of this.game.rides) {
       const existing=this.rideViews.get(ride.id);
-      if(distance(ride,at)>124) { if(existing) { this.removeModel(existing.root); this.rideViews.delete(ride.id); } continue; }
+      if(distance(ride,at)>124) {
+        if(existing){this.removeModel(existing.root);this.rideViews.delete(ride.id);}
+        this.hitches.get(ride.id)?.removeFromParent();
+        this.hitches.delete(ride.id);
+        continue;
+      }
       if(!existing) {
         const model=vehicleModel(ride.kind);
         this.rideViews.set(ride.id,model);
@@ -560,12 +610,30 @@ export class Scene {
       visual.root.visible=ride!==driving;
       for(const wheel of visual.wheels) if(ride===driving) wheel.rotation.x=time*4;
       const shipment=[...this.game.logs.values()].filter(l=>l.cargo===ride.id);
+      const def=vehicleTypes[ride.kind];
+      if(visual.forks)visual.forks.rotation.x+=( (shipment.length?-.12:.46)-visual.forks.rotation.x)*Math.min(1,dt*3);
+      const towing=this.game.rides.find(v=>v.id===ride.hitch);
+      let hitch=this.hitches.get(ride.id);
+      if(towing){
+        if(!hitch){hitch=ropeModel();this.world.add(hitch);this.hitches.set(ride.id,hitch);}
+        const a=new T.Vector3(ride.x-Math.sin(ride.yaw)*1.55,height(ride.x,ride.z)+.53,ride.z-Math.cos(ride.yaw)*1.55);
+        const b=new T.Vector3(towing.x+Math.sin(towing.yaw)*1.14,height(towing.x,towing.z)+.58,towing.z+Math.cos(towing.yaw)*1.14);
+        const arm=b.clone().sub(a);
+        hitch.position.copy(a).lerp(b,.5);
+        hitch.scale.set(.052,arm.length(),.052);
+        hitch.quaternion.setFromUnitVectors(treeAxis,arm.normalize());
+        hitch.visible=true;
+      } else if(hitch){hitch.removeFromParent();this.hitches.delete(ride.id);}
       for(let n=0;n<shipment.length;n++) {
         const log=shipment[n],slot=(n%3-1)*.34;
-        log.x=ride.x+Math.cos(ride.yaw)*slot+Math.sin(ride.yaw)*.68;
-        log.z=ride.z-Math.sin(ride.yaw)*slot+Math.cos(ride.yaw)*.68;
-        log.y=height(ride.x,ride.z)+.79+Math.floor(n/3)*.32;
-        log.q=new T.Quaternion().setFromEuler(new T.Euler(Math.PI*.5,ride.yaw,0,'YXZ')).toArray();
+        const reach=def.forks?-2.06:def.trailer?.35:.68;
+        const x=ride.x+Math.cos(ride.yaw)*slot+Math.sin(ride.yaw)*reach;
+        const z=ride.z-Math.sin(ride.yaw)*slot+Math.cos(ride.yaw)*reach;
+        const y=height(ride.x,ride.z)+(def.forks?1.03:.79)+Math.floor(n/3)*.32;
+        const slide=Math.min(1,dt*11.5);
+        log.x+=(x-log.x)*slide;log.z+=(z-log.z)*slide;log.y+=(y-log.y)*slide;
+        const rotation=new T.Quaternion().setFromEuler(new T.Euler(Math.PI*.5,ride.yaw+(def.forks?Math.PI*.5:0),0,'YXZ'));
+        log.q=new T.Quaternion(...log.q).slerp(rotation,slide).toArray();
       }
     }
   }
@@ -634,7 +702,7 @@ export class Scene {
     }
   }
 
-  private updateSimulation(dt:number, at:Point, yaw:number, held?:{log:Log; mode:'hand'|'rope'|'lift'}) {
+  private updateSimulation(dt:number, at:Point, yaw:number, held?:{log:Log; mode:'hand'|'rope'|'lift'|'winch'}) {
     this.physicsTime+=dt;
     this.rope.visible=false;
     while(this.physicsTime>=1/60) {
@@ -681,7 +749,7 @@ export class Scene {
 
   render(args: {
     dt:number; at:Point; y:number; yaw:number; pitch:number; menu:boolean; active:boolean; swing:number; reverse:boolean;
-    reduced:boolean; stride:number; held?:{log:Log;mode:'hand'|'rope'|'lift'}; target?:Point; build?:{point:Point;valid:boolean;size:number}; drive?:Ride;
+    reduced:boolean; stride:number; held?:{log:Log;mode:'hand'|'rope'|'lift'|'winch'}; target?:Point; build?:{point:Point;valid:boolean;size:number}; drive?:Ride;
     flyover?:number; waypoint?:Point;
   }) {
     const {dt,at,y,yaw,pitch,menu,active,swing,reverse,reduced,stride,held,target,build,drive,flyover,waypoint}=args;
@@ -721,9 +789,10 @@ export class Scene {
       this.rain.instanceMatrix.needsUpdate=true;
     }
     this.stream({x:this.camera.position.x,z:this.camera.position.z},false,at);
-    this.syncRides(at,this.frameAge,drive);
+    this.syncRides(at,this.frameAge,active?dt:0,drive);
     this.syncLogs(at);
     this.syncSites(this.frameAge,at);
+    this.syncUtility(at);
     if(active) this.updateSimulation(dt,at,yaw,held);
     this.syncCrew(at,dt,this.frameAge);
     this.syncFreight(at,dt,active);

@@ -150,8 +150,34 @@ try{
   assert.ok(refined.cash>75);
   assert.equal(refined.stock.length,0);
   assert.equal(refined.stats.produced,2);
-  console.log('Reviewing final-cell settlement and archive');
+  console.log('Reviewing vehicle loading, driving, and delivery');
   await click('Close panel');
+  await press('Escape');
+  await click('Settings');
+  const fleetTest=await inspect();
+  fleetTest.player={x:0,z:13,yaw:0,pitch:-.03};
+  fleetTest.cash=1000;
+  fleetTest.logs.push({id:fleetTest.nextId++,x:.2,y:.32,z:9.8,q:[Math.SQRT1_2,0,0,Math.SQRT1_2],
+    kind:0,length:2.6,kilograms:22,units:1,moisture:.65,quality:.76});
+  await p.locator('input[type=file]').setInputFiles({name:'fleet-test.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(fleetTest))});
+  await wait(()=>window.clearcutReview().cash===1000);
+  await click('Close panel');
+  await press('KeyB');
+  await p.locator('.row').filter({hasText:'Field Pickup'}).getByRole('button',{name:'$680',exact:true}).click();
+  await p.mouse.click(480,330);
+  await wait(()=>window.clearcutReview().rides.some(v=>v.kind==='pickup'));
+  await move('z',10.55);
+  await press('KeyL');
+  const loaded=await inspect();
+  assert.equal(loaded.logs[0].cargo,loaded.rides[0].id);
+  await screenshot(p,'pickup-loaded');
+  await press('KeyF');
+  await move('z',4.85);
+  await press('KeyL');
+  await wait(()=>window.clearcutReview().logs.length===0);
+  await wait(()=>window.clearcutReview().stats.produced===4);
+  await press('KeyF');
+  console.log('Reviewing final-cell settlement and archive');
   await press('Escape');
   await click('Settings');
   const census=await inspect();
@@ -188,7 +214,7 @@ try{
     document.querySelector('.notices')?.textContent?.includes('Pointer lock unavailable'),undefined,{timeout:14000});
   console.log('Pointer lock: '+(await p.evaluate(()=>document.pointerLockElement?.id==='world')?'captured':'fallback displayed'));
   assert.deepEqual(errors,[]);
-  console.log(`${engine}: menu, WebGL, walk, swing, fell, haul, burn, upgrade, pause, reload, map, resize, save export/import, sawbench placement, physical feed, market sale, victory and New Game+ archives passed.`);
+  console.log(`${engine}: menu, WebGL, walk, swing, fell, haul, burn, upgrade, pause, reload, map, resize, save export/import, sawbench placement, physical feed, market sale, vehicle delivery, victory and New Game+ archives passed.`);
 } catch(error) {
   const page=browser?.contexts()[0]?.pages()[0];
   if(page){

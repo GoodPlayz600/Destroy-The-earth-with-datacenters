@@ -10,7 +10,7 @@ export const bindingOptions = {
   drop: ['Drop, push or cut log','KeyG'], rope: ['Attach / detach rope','KeyR'], tool: ['Equipment','KeyQ'],
   inventory: ['Inventory','Tab'], build: ['Construction','KeyB'], map: ['Survey map','KeyM'],
   upgrades: ['Upgrades','KeyU'], journal: ['Journal','KeyJ'], ride: ['Drive / leave vehicle','KeyF'],
-  load: ['Load / unload cargo','KeyL'], lift: ['Lift log','KeyC'],
+  load: ['Load / unload cargo','KeyL'], lift: ['Lift log','KeyC'], hitch: ['Couple or detach trailer','KeyH'],
 };
 export type Binding = keyof typeof bindingOptions;
 export type Preferences = {
@@ -69,14 +69,15 @@ export function validateSave(data:unknown): Save {
     &&rows(s.sites,20000,x=>object(x)&&identifier(x.id)&&key(x.kind,facilities)&&coordinate(x)&&(x.yaw===undefined||numeric(x.yaw))&&rows(x.input,260,lot)&&rows(x.output,260,lot)
       &&rows(x.jobs,8,job)&&flag(x.on)&&numeric(x.fuel,0,100)&&text(x.status)&&(x.water===undefined||numeric(x.water,0,4200))&&(x.link===undefined||identifier(x.link))
       &&(x.mode===undefined||x.mode==='sell'||x.mode==='charcoal')
-      &&(x.reserve===undefined||numeric(x.reserve,0,700))&&(x.uptime===undefined||numeric(x.uptime,0,280))&&(x.service===undefined||numeric(x.service,0,15))
+      &&(x.priority===undefined||flag(x.priority))&&(x.gridFlow===undefined||numeric(x.gridFlow,0,488))
+      &&(x.gridCapacity===undefined||numeric(x.gridCapacity,0,488))&&(x.reserve===undefined||numeric(x.reserve,0,700))&&(x.uptime===undefined||numeric(x.uptime,0,280))&&(x.service===undefined||numeric(x.service,0,15))
       &&(x.yieldCarry===undefined||numeric(x.yieldCarry,0,1))&&(x.layout===undefined||x.layout==='quality'||x.layout==='volume')&&(x.sortHigh===undefined||flag(x.sortHigh))
       &&(x.haul===undefined||(object(x.haul)&&coordinate(x.haul)&&identifier(x.haul.target)
         &&(x.haul.log===undefined||integer(x.haul.log,1))&&text(x.haul.status)&&['waiting','pickup','delivery','return'].includes(String(x.haul.phase))))
       &&(x.shipment===undefined||(object(x.shipment)&&['rail','air'].includes(String(x.shipment.mode))&&lot(x.shipment.load)
         &&identifier(x.shipment.target)&&rows(x.shipment.path,2000,p=>object(p)&&coordinate(p))&&x.shipment.path.length>=2
         &&numeric(x.shipment.elapsed,0)&&numeric(x.shipment.duration,1,10000))))
-    &&rows(s.rides,10000,x=>object(x)&&identifier(x.id)&&key(x.kind,vehicles)&&coordinate(x)&&numeric(x.fuel,0,100)&&numeric(x.wear,0,100)&&numeric(x.yaw))
+    &&rows(s.rides,10000,x=>object(x)&&identifier(x.id)&&key(x.kind,vehicles)&&coordinate(x)&&numeric(x.fuel,0,100)&&numeric(x.wear,0,100)&&numeric(x.yaw)&&(x.hitch===undefined||identifier(x.hitch)))
     &&rows(s.stock,150,lot)&&rows(s.ownedTools,Object.keys(tools).length,x=>key(x,tools))&&(s.ownedTools as unknown[]).includes(s.tool)
     &&rows(s.ownedUpgrades,288,x=>typeof x==='string'&&upgradesById.get(x)?.implemented===true)&&distinct(s.ownedUpgrades as unknown[])
     &&rows(s.districts,DISTRICTS**2,x=>integer(x,0,DISTRICTS**2-1))&&distinct(s.districts as unknown[])
@@ -90,6 +91,7 @@ export function validateSave(data:unknown): Save {
   if(rides.size!==checked.rides.length||sites.size!==checked.sites.length
     ||!distinct(checked.logs.map(l=>l.id))||!distinct(checked.soil.map(([i])=>i))||!distinct(checked.projects.map(p=>p.district))
     ||checked.logs.some(log=>log.cargo&&!rides.has(log.cargo)||log.carrier&&!sites.has(log.carrier))
+    ||checked.rides.some(v=>v.hitch&&(v.hitch===v.id||!rides.has(v.hitch)))
     ||checked.sites.some(site=>site.link&&!sites.has(site.link)||site.haul&&!sites.has(site.haul.target)||site.shipment&&!sites.has(site.shipment.target))
     ||[...checked.logs.map(l=>l.id),...Array.from(rides,x=>Number(x.slice(1))),...Array.from(sites,x=>Number(x.slice(1)))].some(i=>i>=checked.nextId)) {
     throw Error('This save contains invalid object references.');

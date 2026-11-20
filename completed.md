@@ -20,18 +20,18 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 
 ## [M3 — Game economy and progression foundation](progress/M3/completed.md)
 
-- All 288 catalog IDs and prerequisite references load. There are 103 purchasable upgrades across nine branches, including tool work, hauling, woodworking, mill production, material finishing and compute.
+- All 288 catalog IDs and prerequisite references load. There are 127 purchasable upgrades across eleven branches, including tool work, hauling, woodworking, mill production, material finishing and compute.
 - Wallet, receipts, journal, timed contracts, IndexedDB autosave and file import/export work. Upgrade and tool wear persistence is tested.
 
 ## [M4 — Vehicles and a real logging operation](progress/M4/completed.md)
 
-- Sled, cart, ATV, pickup, skid steer, truck and bulldozer have meshes, cargo checks and driving models. Motorized vehicles use fuel; work crews reserve and deliver actual logs.
-- A simulation test verified that two workers cannot move the same log and blocked receivers preserve the cargo.
+- Sleds, carts, trikes, trailers, pickups, a forklift, a skid steer, trucks and bulldozers have 3D meshes and cargo checks. Suitable vehicles have hitches and powered winches. Motorized vehicles use fuel; work crews reserve and deliver actual logs.
+- Simulation tests verify that two workers cannot move the same log, blocked receivers preserve cargo and trailer hitches survive a reload.
 
 ## [M5 — Industrial processing and factory network](progress/M5/completed.md)
 
 - Thirty-four recipes cover timber, boards, kiln drying, crates, pallets, cabinetry, modular furniture, engineered beams, pulp/paper, charcoal, pellets, plywood, treated lumber, floor panels, stone, cement and compute.
-- Output limits, input quality and power are simulation-tested. Sawmill research changes yield, chip recovery, output grade and concurrent batches. Freight tests preserve shipments across a reload.
+- Output limits, input quality, stored electricity, biomass fuel and combined generation are simulation-tested. Sawmill research changes yield, chip recovery, output grade and concurrent batches. Freight tests preserve shipments across a reload.
 
 ## [M6 — World conversion and map progress](progress/M6/completed.md)
 
@@ -51,10 +51,11 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 ## [M9 — Actual 100% ending and final polish](progress/M9/completed.md)
 
 - A 65,535-cell test stayed at 99.99% and the last cell triggered exactly one victory. A separate campaign test built the projects for all 64 districts, simulated all 65,536 cells, paid each completion bond once and reloaded a completed save.
-- Firefox passed the final-cell flyover, lifetime statistics, New Game+, archive restore and suppression of a replayed ending.
+- Chromium and Firefox passed the final-cell flyover, lifetime statistics, New Game+, archive restore and suppression of a replayed ending.
 
 ## Browser evidence
 
 - [Chromium and Firefox opening review](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions/runs/44776791913).
 - [Firefox refining, pointer lock and finale review](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions/runs/44779594461/job/136438422591).
+- [Chromium and Firefox reviewing refining and finale](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions/runs/44780546998).
 - [Latest GitHub Actions runs](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions).

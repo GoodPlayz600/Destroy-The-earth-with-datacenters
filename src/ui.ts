@@ -1,4 +1,4 @@
-import { DISTRICTS, TOTAL, facilities, goods, recipes, tools, vehicles } from './catalog';
+import { DISTRICTS, TOTAL, facilities, goods, recipes, tools, vehicles, vehicleTypes } from './catalog';
 import type { Facility, Good, Recipe, Tool, VehicleType } from './catalog';
 import { cargoMass, computeSites, consumes, getQuantity, projectPrices, storageSite, mills, waterSites } from './campaign';
 import type { Campaign, Project, Site } from './campaign';
@@ -327,8 +327,8 @@ export class UI {
         const parts=[recipe?.name,item.supply?`${item.supply} kW grid output`:undefined,(recipe?.power??item.power)?`${recipe?.power??item.power} kW draw`:undefined,missing?`Requires ${facilities[item.requires!].name}`:unresearched?'Requires facility research':undefined].filter(Boolean);
         return row(item.name,parts.join(' · '),btn(cash(item.price),()=>this.c.build(kind),g.cash<item.price||Boolean(locked)));
       })),
-      section('Transport',...Object.entries(vehicles).map(([k,item])=>row(item.name,`${item.capacity} kg payload · ${item.motor?'Motorized':'Manual'}`,
-        btn(cash(item.cost),()=>this.c.ride(k as VehicleType),g.cash<item.cost||(k==='sled'&&!g.mods.sled)||(k==='cart'&&!g.mods.cart)))))));
+      section('Transport',...Object.entries(vehicleTypes).map(([k,item])=>row(item.name,`${item.capacity} kg payload · ${item.motor?'Motorized':'Manual'}`,
+        btn(cash(item.cost),()=>this.c.ride(k as VehicleType),g.cash<item.cost||(k==='sled'&&!g.mods.sled)||(k==='cart'&&!g.mods.cart)||Boolean(item.research&&!g.ownedUpgrades.has(item.research))))))));
   }
 
   private tech() {
@@ -433,13 +433,19 @@ export class UI {
         btn('Premium',()=>{g.acceptCommission(good,true);this.site();},g.contracts.some(c=>!c.done&&!c.failed))))):el('span'));
     } else {
       content.append(section('Operation',row('Run schedule',s.on?'Enabled while in the field':'Stopped',btn(s.on?'Stop':'Start',()=>{s.on=!s.on;this.site();})),
+        g.mods.meter?row('Grid meter',def.supply?`${Math.round(s.gridFlow??0)} / ${Math.round(s.gridCapacity??0)} kW delivered`:
+          `${Math.round(s.gridFlow??0)} kW drawn`):undefined,
+        g.mods.priority?row('Dispatch order',s.priority?'Priority load':'Normal load',btn('Change',()=>{
+          s.priority=!s.priority;this.site();
+        })):undefined,
+        s.kind==='battery'?row('Grid reserve',Math.round(s.reserve??0)+' / 680 charge'):undefined,
         s.kind==='bench'&&g.mods.benchCrank?row('Manual crank','Start a faster hand-sawn batch from the input buffer',
           btn('Crank saw',()=>{if(g.crankBench(s))this.site();},Boolean(s.jobs.length)||getQuantity(s.input,'timber')===0)):undefined,
         g.mods.cutPatterns&&mills.includes(s.kind)?row('Cut pattern',s.layout==='volume'?'Maximize volume':s.layout==='quality'?'Select high-grade cuts':'Standard throughput',
           btn('Cycle',()=>{s.layout=s.layout==='volume'?'quality':s.layout==='quality'?undefined:'volume';this.site();})):undefined,
         g.mods.sortingCamera?row('Sorting gate',s.sortHigh?'Route high-grade batches only':'Route all compatible stock',
           btn('Change',()=>{s.sortHigh=!s.sortHigh;this.site();})):undefined,
-        def.supply?row('Fuel',Math.floor(s.fuel)+'%',btn('Refuel · $25',()=>{if(g.cash>=25){g.finance(-25,'Generator fuel');s.fuel=100;this.site();}},g.cash<25||s.fuel===100)):undefined,
+        def.supply&&!['solar','wind','biopower'].includes(s.kind)?row('Fuel',Math.floor(s.fuel)+'%',btn('Refuel · $25',()=>{if(g.cash>=25){g.finance(-25,'Generator fuel');s.fuel=100;this.site();}},g.cash<25||s.fuel===100)):undefined,
         waterSites.includes(s.kind)?row('Cooling water',Math.floor(s.water??0)+' L stored · feed a nearby compute campus or extend with pipe'):undefined,
         computeSites.includes(s.kind)?row('Compute scheduling',s.kind==='serverRack'?'Requires a live compute contract and electricity.':
           'Requires a live compute contract, electricity and cooling water. Inspect the flow at the pump or reservoir.'):undefined,
@@ -450,13 +456,13 @@ export class UI {
         s.output.length?undefined:sub('No batches ready. Resume play to run production.'),
         ...s.output.map(lot=>row(goods[lot.good][0],`${lot.quantity} units · ${Math.floor(lot.quality*100)}% grade${g.mods.moistureGauge?' · '+Math.round(lot.moisture*100)+'% moisture':''}`,
           btn('Take one',()=>{g.transfer(s,lot.good,1,true);this.site();}),btn('Take batch',()=>{g.transfer(s,lot.good,lot.quantity,true);this.site();})))),
-      section('Feed from your bag',...g.stock.filter(lot=>storageSite(s.kind)||consumes(recipe,lot.good)).map(lot=>row(goods[lot.good][0],`${lot.quantity} units available`,
+      section('Feed from your bag',...g.stock.filter(lot=>storageSite(s.kind)||consumes(recipe,lot.good)||s.kind==='biopower'&&lot.good==='chips').map(lot=>row(goods[lot.good][0],`${lot.quantity} units available`,
         btn('Feed one',()=>{g.transfer(s,lot.good,1,false);this.site();}),btn('Feed batch',()=>{g.transfer(s,lot.good,lot.quantity,false);this.site();})))),
       section('Freight route',
         s.shipment?row('Shipment on the move',`${s.shipment.load.quantity} × ${goods[s.shipment.load.good][0]} · ${Math.max(0,Math.ceil(s.shipment.duration-s.shipment.elapsed))}s`):undefined,
         sub(!s.link&&s.kind==='railDepot'?'Lay connected track between the depot and its destination.':
           !s.link&&s.kind==='dronePad'?'Power the charger, then choose a destination up to 320 m away.':s.link?`Connected to ${facilities[g.sites.find(t=>t.id===s.link)!.kind].name}`:'Choose a compatible facility within 16 m or bridge the gap with freight infrastructure.'),
-        ...g.sites.filter(target=>target!==s && (target.kind==='market'||storageSite(target.kind)||Object.hasOwn(recipes,target.kind)||target.kind==='fire')).map(target=>
+        ...g.sites.filter(target=>target!==s && (target.kind==='market'||storageSite(target.kind)||Object.hasOwn(recipes,target.kind)||target.kind==='biopower'||target.kind==='fire')).map(target=>
           row(facilities[target.kind].name,`${Math.round(Math.hypot(s.x-target.x,s.z-target.z))} m`,btn('Connect',()=>{
             if(!g.connect(s,target))this.notice('Route out of reach, disconnected or already in use');
             this.site();

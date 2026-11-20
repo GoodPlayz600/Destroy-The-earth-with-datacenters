@@ -12,7 +12,7 @@ Continue with the next open requirement in [tasks.md](tasks.md).
 
 **Built, needs browser review**
 
-- Firefox passed construction, hand-delivered timber, board pickup and a market receipt. Recheck that route in the current Chromium build.
+- Firefox passed construction, hand-delivered timber, board pickup and a market receipt. Chromium also passed the physical refining route.
 - Playtest drying, crates, raw sale and each early carrier with separately harvested logs.
 
 ## [M3 — Game economy and progression foundation](progress/M3/continue%20working.md)
@@ -26,7 +26,7 @@ Continue with the next open requirement in [tasks.md](tasks.md).
 
 **Needs work**
 
-- Playtest the full drive-and-deliver loop, heavy recovery, physical winches, towing, trailers and independent crane/forklift handling.
+- Playtest the full drive-and-deliver loop, heavy recovery, winch loads, towing behavior and individual crane operations.
 
 ## [M5 — Industrial processing and factory network](progress/M5/continue%20working.md)
 
@@ -44,7 +44,7 @@ Continue with the next open requirement in [tasks.md](tasks.md).
 
 **Needs work**
 
-- Finish the detailed terrain clearing attachments and vehicle jobs, agricultural chains and advanced mining outputs. Review physically connected utilities and compare real campaign economics for the three strategies.
+- Finish the detailed terrain clearing attachments, agricultural chains and advanced mining outputs. Review physically connected utilities and compare real campaign economics for the three strategies.
 
 ## [M8 — Massive late-game depth](progress/M8/continue%20working.md)
 
@@ -56,4 +56,4 @@ Continue with the next open requirement in [tasks.md](tasks.md).
 
 **Built, needs browser review**
 
-- Complete the expanded Chromium check for the current build. Run ordinary pacing, accessibility and touch playtests from the knife through the final cleanup.
+- Review the full campaign in an ordinary-length playthrough. Run ordinary pacing, accessibility and touch playtests from the knife through the final cleanup.

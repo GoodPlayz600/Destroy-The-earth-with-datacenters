@@ -2,4 +2,4 @@
 
 **Needs work**
 
-- Finish the detailed terrain clearing attachments and vehicle jobs, agricultural chains and advanced mining outputs. Review physically connected utilities and compare real campaign economics for the three strategies.
+- Finish the detailed terrain clearing attachments, agricultural chains and advanced mining outputs. Review physically connected utilities and compare real campaign economics for the three strategies.

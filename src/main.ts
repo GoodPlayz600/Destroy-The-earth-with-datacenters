@@ -7,7 +7,7 @@ import '@fontsource/dm-sans/latin-700.css';
 import '@fontsource/ibm-plex-mono/latin-500.css';
 import './style.css';
 import { Vector3 } from 'three';
-import { SIZE, facilities, recipes, species, tools, vehicles } from './catalog';
+import { SIZE, facilities, recipes, species, tools, vehicles, vehicleTypes } from './catalog';
 import type { Facility, Tool, VehicleType } from './catalog';
 import { Campaign, cargoMass, takesLogs } from './campaign';
 import type { Log, Ride, Save, Site } from './campaign';
@@ -38,7 +38,7 @@ let ride:Ride|undefined;
 let selectedBuild:Facility|undefined;
 let waypoint:Point|undefined;
 let selectedVehicle:VehicleType|undefined;
-let held: {log:Log;mode:'hand'|'rope'|'lift'}|undefined;
+let held: {log:Log;mode:'hand'|'rope'|'lift'|'winch'}|undefined;
 let recording:Binding|undefined;
 let dragging=false;
 let using=false;
@@ -295,24 +295,28 @@ function interact() {
 }
 function attach(mode:'rope'|'lift') {
   if(held){release();return;}
-  if(mode==='rope'&&!game.mods.rope){show('Install Twine Bundle to tether a log');return;}
+  const useWinch=mode==='rope'&&Boolean(ride)&&game.mods.winch;
+  if(mode==='rope'&&!useWinch&&!game.mods.rope){show('Install Twine Bundle to tether a log');return;}
   if(mode==='lift'&&!game.mods.liftLogs){show('Install Lift Technique to lift logs');return;}
-  const log=nearLog(mode==='rope'?game.mods.ropeRange:1.8);
+  const log=nearLog(useWinch?12:mode==='rope'?game.mods.ropeRange:1.8);
   if(!log)return;
   const slots=mode==='lift'?game.mods.carrySlots:1;
-  if(log.kilograms>(mode==='rope'?game.mods.ropeMass:game.mods.liftMass*slots)){show('Load too heavy');return;}
-  held={log,mode};
+  if(log.kilograms>(useWinch?420:mode==='rope'?game.mods.ropeMass:game.mods.liftMass*slots)){show('Load too heavy');return;}
+  held={log,mode:useWinch?'winch':mode};
   sound.select();
 }
+
 function toggleRide() {
   if(ride) {
     game.player.x=clamp(ride.x+Math.cos(ride.yaw)*1.55,-SIZE/2+.6,SIZE/2-.6);
     game.player.z=clamp(ride.z-Math.sin(ride.yaw)*1.55,-SIZE/2+.6,SIZE/2-.6);
+    if(held?.mode==='winch')release();
     ride=undefined;
     return;
   }
   const nearest=nearRide();
   if(!nearest){show('Move closer to a vehicle');return;}
+  if(vehicleTypes[nearest.kind].trailer){show('Couple the trailer from a nearby tow vehicle');return;}
   if(vehicles[nearest.kind].motor && (nearest.fuel<=0||nearest.wear>=100)) {
     if(!game.refuel(nearest)){show('Vehicle needs $18 for service');return;}
   }
@@ -320,25 +324,29 @@ function toggleRide() {
   ride=nearest;game.player.yaw=ride.yaw;
 }
 function moveCargo() {
-  const v=ride??nearRide();
-  if(!v){show('Move closer to a vehicle');return;}
-  const nearby=held?.log??nearLog(4.1);
+  const towing=ride??nearRide();
+  if(!towing){show('Move closer to a vehicle');return;}
+  const trailer=game.rides.find(v=>v.hitch===towing.id);
+  const v=trailer??towing, def=vehicleTypes[v.kind];
+  const nearby=held?.log??nearLog(def.forks?5.8:4.1);
   const load=[...game.logs.values()].filter(l=>l.cargo===v.id);
-  if(nearby&&!nearby.cargo&&!ride) {
-    const max=vehicles[v.kind].capacity*(v.kind==='cart'?game.mods.cartCapacity:1);
+  const canLoad=!ride||def.forks||held?.mode==='winch';
+  if(nearby&&!nearby.cargo&&!nearby.carrier&&canLoad&&!(buttonAlt&&load.length&&game.mods.liftBed)) {
+    const max=def.capacity*(v.kind==='cart'?game.mods.cartCapacity:v.kind==='pickup'||v.kind==='towPickup'?game.mods.stakes:1);
     if(cargoMass(load,v.id)+nearby.kilograms>max){show('Cargo bed is over capacity');return;}
-    if(nearby.length>(v.kind==='truck'?13:v.kind==='pickup'?7:4.1)){show('Log is too long for this bed · section it first');return;}
+    const maxLength=def.trailer||v.kind==='truck'?13:v.kind==='pickup'||v.kind==='towPickup'?7:def.forks?9:4.1;
+    if(nearby.length>maxLength){show('Log is too long for this bed · section it first');return;}
     letGo();nearby.cargo=v.id;
-    show('Trunk secured in cargo bed');
+    show('Trunk secured in '+(def.trailer?'the trailer':def.forks?'the grapple':'the cargo bed'));
   } else if(load.length) {
+    const discharge=buttonAlt&&game.mods.liftBed?load.slice(-1):load;
     let moved=0;
-    for(const [n,log] of load.entries()) {
+    for(const [n,log] of discharge.entries()) {
       log.cargo=undefined;
       log.x=clamp(v.x+Math.cos(v.yaw)*(1.7+n*.26),-SIZE/2+.55,SIZE/2-.55);
       log.z=clamp(v.z-Math.sin(v.yaw)*(1.7+n*.26),-SIZE/2+.55,SIZE/2-.55);
       log.y=height(log.x,log.z)+.52+n*.23;
-      const s=game.sites.find(s=>game.acceptLog(s,log));
-      if(s)moved++;
+      if(game.sites.some(s=>game.acceptLog(s,log)))moved++;
     }
     show(moved?`Cargo unloaded · ${moved} received by stations`:'Cargo unloaded onto the ground');
   } else show('No cargo nearby');
@@ -367,6 +375,12 @@ function onAction(a:string,pressed:boolean) {
     case 'lift':attach('lift');break;
     case 'ride':toggleRide();break;
     case 'load':moveCargo();break;
+    case 'hitch': {
+      const towing=ride??nearRide();
+      if(!towing||!game.toggleTrailer(towing))show('Requires hitch research and an eligible nearby trailer');
+      else show(game.rides.some(v=>v.hitch===towing.id)?'Trailer coupled':'Trailer released');
+      break;
+    }
     case 'inventory': case 'tool':open('inventory');break;
     case 'map': case 'journal': case 'build': case 'upgrades':open(a);break;
     case 'jump':if(airborne===0&&!ride)vY=5.2;break;
@@ -438,10 +452,16 @@ function movement(dt:number) {
   const ahead=Number(inputs.has('forward'))-Number(inputs.has('back'));
   const sideways=Number(inputs.has('right'))-Number(inputs.has('left'));
   if(ride) {
-    const def=vehicles[ride.kind], mass=cargoMass(game.logs.values(),ride.id), terrain=game.soil.get(indexAt(ride.x,ride.z));
+    const def=vehicleTypes[ride.kind], trailer=game.rides.find(v=>v.hitch===ride!.id);
+    const totalMass=cargoMass(game.logs.values(),ride.id)+(trailer?85+cargoMass(game.logs.values(),trailer.id):0);
+    const mass=totalMass, terrain=game.soil.get(indexAt(ride.x,ride.z));
     if(def.motor&&(ride.fuel<=0||ride.wear>=100))return;
     p.yaw-=sideways*dt*(def.motor?1.22:1.88);
-    const speed=def.speed*(1-clamp(mass/def.capacity,0,1)*.47)*(ride.kind==='sled'?game.mods.sledSpeed:1)*(terrain?.moisture&&terrain.moisture>.83?.82:1);
+    const mud=terrain&&terrain.moisture>.79 ? 1-.31*game.mods.traction : 1;
+    const rough=Math.abs(height(ride.x+1.6,ride.z)-height(ride.x,ride.z-1.6));
+    const ground=1-Math.min(.28,rough*.34)*game.mods.suspension;
+    const onRoad=game.sites.some(site=>site.kind==='road'&&distance(site,ride!)<2.8);
+    const speed=def.speed*(1-clamp(mass/def.capacity,0,1)*.47)*(ride.kind==='sled'?game.mods.sledSpeed:1)*mud*ground*(onRoad?1.19:1);
     const movement=dt*speed*ahead*(ahead<0?.48:1);
     const nx=clamp(ride.x-Math.sin(p.yaw)*movement,-SIZE/2+.7,SIZE/2-.7),nz=clamp(ride.z-Math.cos(p.yaw)*movement,-SIZE/2+.7,SIZE/2-.7);
     const obstacle=scene.visibleTrees.find(t=>game.isStanding(t)&&distance(t,{x:nx,z:nz})<species[t.kind].radius*t.scale+.69);
@@ -451,6 +471,14 @@ function movement(dt:number) {
       if(!scene.isFalling(obstacle))scene.startFall(obstacle,p);
     }
     ride.yaw=p.yaw;p.x=ride.x;p.z=ride.z;
+    if(trailer){
+      const ox=Math.sin(p.yaw),oz=Math.cos(p.yaw), behind=ride.kind==='truck'?5:3.85;
+      const tx=clamp(ride.x+ox*behind,-SIZE/2+.7,SIZE/2-.7),tz=clamp(ride.z+oz*behind,-SIZE/2+.7,SIZE/2-.7);
+      const follow=Math.min(1,dt*4);
+      trailer.x+=(tx-trailer.x)*follow;trailer.z+=(tz-trailer.z)*follow;
+      const angle=Math.atan2(ride.x-trailer.x,ride.z-trailer.z)+Math.PI;
+      trailer.yaw+=Math.atan2(Math.sin(angle-trailer.yaw),Math.cos(angle-trailer.yaw))*follow;
+    }
     if(ride.kind==='dozer'&&using&&ahead>=0) {
       bladeCycle+=dt;
       if(bladeCycle>=.24) {
@@ -463,7 +491,7 @@ function movement(dt:number) {
       }
     } else bladeCycle=0;
     if(def.motor&&ahead){
-      ride.fuel=Math.max(0,ride.fuel-dt*(.24+mass/def.capacity*.19));
+      ride.fuel=Math.max(0,ride.fuel-dt*(.24+mass/def.capacity*.19)*game.mods.fleetEfficiency);
       ride.wear=Math.min(100,ride.wear+dt*.10);
     }
     game.stats.miles+=Math.abs(movement)/1609.344;
@@ -497,7 +525,11 @@ function movement(dt:number) {
 }
 function targetHint():{hint?:Hint;point?:Point} {
   const t=treeTarget(),log=nearLog(2.75),site=nearSite(3.6),v=nearRide(),p=game.player;
-  if(ride)return { hint:{key:key('ride'),title:vehicles[ride.kind].name,detail:`${Math.floor(ride.fuel)}% fuel · ${Math.round(cargoMass(game.logs.values(),ride.id))} kg · ${key('load')} unload${ride.kind==='dozer'?' · Swing to strip soil':''}`}};
+  if(ride) {
+    const trailer=game.rides.find(v=>v.hitch===ride!.id), load=cargoMass(game.logs.values(),trailer?.id??ride.id);
+    const extras=ride.kind==='dozer'?' · Swing to strip soil':trailer?' · '+key('hitch')+' detach':game.mods.winch?' · '+key('rope')+' winch':'';
+    return {hint:{key:key('ride'),title:vehicles[ride.kind].name,detail:`${Math.floor(ride.fuel)}% fuel · ${Math.round(load)} kg · ${key('load')} cargo${extras}`}};
+  }
   if(held){
     const destination=game.sites.find(s=>distance(held!.log,s)<facilities[s.kind].size+.80&&takesLogs(s.kind));
     if(destination)return {point:destination,hint:{key:held.mode==='hand'?key('interact'):key('drop'),title:facilities[destination.kind].name,
@@ -525,7 +557,7 @@ function frame(now:number) {
     movement(dt);
     if(using)swingTool();
     game.tick(dt,!inputs.has('sprint')||(!inputs.has('forward')&&!inputs.has('right')&&!inputs.has('left')&&!inputs.has('back')),held?.log.id);
-    if(held&&(!game.logs.has(held.log.id)||distance(held.log,p)>Math.max(8,held.log.length+4)))letGo();
+    if(held&&(!game.logs.has(held.log.id)||distance(held.log,p)>Math.max(held.mode==='winch'?17:8,held.log.length+4)))letGo();
     if(!held&&dropTime===0) {
       for(const l of game.logs.values()) {
         if(l.cargo||l.carrier||distance(l,p)>16)continue;
