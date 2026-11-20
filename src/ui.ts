@@ -325,11 +325,17 @@ export class UI {
       section('Inventory',g.stock.length?undefined:sub('The tool bag has no saleable stock.'),
         ...Object.keys(goods).filter(k=>getQuantity(g.stock,k as Good)>0).map(k=>row(goods[k as Good][0],`${getQuantity(g.stock,k as Good)} units`))),
       section('Fleet',g.rides.length?undefined:sub('No vehicles in service.'),
-        ...g.rides.map(v=>row(vehicles[v.kind].name,`${Math.floor(v.fuel)}% fuel · ${Math.floor(cargoMass(g.logs.values(),v.id))} kg cargo · ${Math.round(v.x)}, ${Math.round(v.z)}`,
-          btn('Mark',()=>this.c.waypoint(v)),btn('Recover · $18',()=>{
-            if(!g.recoverRide(v))this.notice('Vehicle cannot be recovered right now');
-            this.c.refresh();
-          },g.cash<18))))));
+        ...g.rides.map(v=>{
+          const towing=g.rides.find(trailer=>trailer.hitch===v.id);
+          const tow=g.rides.find(vehicle=>vehicle.id===v.hitch);
+          const hitch=towing?` · Towing ${vehicles[towing.kind].name}`:tow?` · Coupled to ${vehicles[tow.kind].name}`:'';
+          const service=vehicles[v.kind].motor?`${Math.floor(v.fuel)}% fuel · `:'';
+          return row(vehicles[v.kind].name,`${service}${Math.floor(cargoMass(g.logs.values(),v.id))} kg cargo · ${Math.round(v.x)}, ${Math.round(v.z)}${hitch}`,
+            btn('Mark',()=>this.c.waypoint(v)),btn(tow||towing?'Recover rig · $18':'Recover · $18',()=>{
+              if(!g.recoverRide(v))this.notice('Recovery needs an available vehicle and a clear yard');
+              this.c.refresh();
+            },g.cash<18));
+        }))));
   }
 
   private build() {
@@ -479,6 +485,8 @@ export class UI {
     if(!s) return this.c.resume();
     const def=facilities[s.kind];
     const recipe:Recipe|undefined=Object.hasOwn(recipes,s.kind)?recipes[s.kind as keyof typeof recipes]:undefined;
+    const primary=g.sites.find(target=>target.id===s.link);
+    const secondary=g.sites.find(target=>target.id===s.secondary&&target!==primary);
     const content=el('div','panel-content',cards(tc(s.status,'Facility status'),tc(String(getQuantity(s.output)),'Output stock'),tc(recipe?.power?recipe.power+' kW':String(getQuantity(s.input)),recipe?.power?'Power demand':'Input stock')));
     if(buyerSite(s.kind)) {
       const activeOrders=g.contracts.filter(deal=>isOpenContract(deal,g.clock));
@@ -568,13 +576,17 @@ export class UI {
         btn('Feed one',()=>{g.transfer(s,lot.good,1,false);this.site();}),btn('Feed batch',()=>{g.transfer(s,lot.good,lot.quantity,false);this.site();})))),
       section('Freight route',
         s.shipment?row(s.shipment.returning?'Returning to the garage':'Shipment on the move',`${s.shipment.returning?0:s.shipment.load.quantity} × ${goods[s.shipment.load.good][0]} · ${Math.max(0,Math.ceil(s.shipment.duration-s.shipment.elapsed))}s`):undefined,
-        sub(!s.link&&s.kind==='railDepot'?'Lay connected track between the depot and its destination.':
-          !s.link&&s.kind==='dronePad'?'Power the charger, then choose a destination up to 320 m away.':s.link?`Connected to ${facilities[g.sites.find(t=>t.id===s.link)!.kind].name}`:'Choose a compatible facility within 16 m or bridge the gap with freight infrastructure.'),
+        primary?row('Primary · '+facilities[primary.kind].name,g.routeStatus.get(s.id+':'+primary.id)??'Waiting for the next field tick',
+          btn('Disconnect primary',()=>{g.disconnectRoute(s);this.site();},Boolean(s.shipment))):
+          sub(s.kind==='railDepot'?'Lay connected track between the depot and its destination.':
+            s.kind==='dronePad'?'Power the charger, then choose a destination up to 320 m away.':'Choose a compatible facility or connect farther receivers with freight infrastructure.'),
+        secondary?row('Alternate · '+facilities[secondary.kind].name,g.routeStatus.get(s.id+':'+secondary.id)??'Waiting for the next field tick',
+          btn('Disconnect alternate',()=>{g.disconnectRoute(s,true);this.site();})):undefined,
         ...g.sites.filter(target=>target!==s && (buyerSite(target.kind)||storageSite(target.kind)||Object.hasOwn(recipes,target.kind)||biomassSites.includes(target.kind)||target.kind==='fire')).map(target=>
           row(facilities[target.kind].name,`${Math.round(Math.hypot(s.x-target.x,s.z-target.z))} m${g.mods.brokerage?' · estimated '+cash(Math.max(2,Math.round(Math.hypot(s.x-target.x,s.z-target.z)*.055)))+' freight per dispatch':''}`,btn('Connect',()=>{
             if(!g.connect(s,target))this.notice('Route out of reach, disconnected or already in use');
             this.site();
-          },s.link===target.id)))));
+          },s.link===target.id||s.secondary===target.id)))));
     }
     if(s.kind==='clearingCrew'){
       const choices=g.scan(this.district,10,'vegetation');
@@ -635,7 +647,10 @@ export class UI {
     }
     if(s.kind==='logisticsHub')content.append(section('Factory throughput',
       ...g.sites.filter(v=>v.link||v.secondary).map(v=>row(facilities[v.kind].name,
-        `${v.shipped??0} units moved · ${getQuantity(v.output)} in buffer · ${v.status}`))));
+        [`${v.shipped??0} units moved · ${getQuantity(v.output)} in buffer`,...([v.link,v.secondary].flatMap(id=>{
+          const target=g.sites.find(site=>site.id===id);
+          return target?[`${facilities[target.kind].name} · ${g.routeStatus.get(v.id+':'+id)??'Waiting for the next field tick'}`]:[];
+        }))].join(' · ')))));
     if(s.kind==='climateTower')content.append(section('Climate history',
       s.climate?.length?undefined:sub('Resume play with grid power to record regional readings.'),
       ...(s.climate??[]).map(sample=>row(duration(sample.time),`${sample.desert} stable cells · ${Math.round(sample.moisture*100)}% soil moisture · ${Math.round(sample.heat*100)}% heat index`))));
