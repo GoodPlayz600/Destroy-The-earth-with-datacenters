@@ -1,11 +1,13 @@
 import { DISTRICT_CELLS, DISTRICTS, TOTAL, facilities, goods, recipes, tools, vehicles, vehicleTypes } from './catalog';
 import type { Facility, Good, Recipe, Tool, VehicleType } from './catalog';
 import { biomassSites, buyerSite, cargoMass, computeSites, consumes, districtProjects, fields, fuelGood, getQuantity, isOpenContract, projectBond, storageSite, mills, waterSites, waterPumps, waterCapacity } from './campaign';
-import type { Campaign, Challenge, Project, Site } from './campaign';
+import type { Campaign, Challenge, Project, Save, Site } from './campaign';
 import { blockers, conversionLabel, coverageLabel, desertRules, desertified, districtAt, districtCenter, districtName, soilColors, stages } from './land';
 import type { Blocker, Point } from './land';
 import { bindingOptions, defaults } from './storage';
 import type { Archive, Binding, Preferences } from './storage';
+import { account as loadAccount, campaignModes, downloadBackup, leaderboard as loadLeaderboard, publish, removeEntry, uploadBackup } from './online';
+import type { Account, CampaignMode } from './online';
 import { quests } from './quests';
 import type { QuestId } from './quests';
 import { branches } from './upgrade-spec';
@@ -24,6 +26,12 @@ const duration=(seconds:number)=>`${Math.floor(seconds/60)}m ${Math.floor(second
 const label=(s:string)=>el('span','label',s);
 const sub=(s:string)=>el('p','sub',s);
 const section=(title:string,...children:Child[])=>el('section','section',el('h3','',title),...children);
+const sponsorSlot=(placement:'menu'|'leaderboard')=>{
+  const slot=el('aside','sponsor-slot sponsor-'+placement,label('ADVERTISEMENT'));
+  slot.dataset.adSlot=placement;
+  slot.setAttribute('aria-label','Advertisement space');
+  return slot;
+};
 const action=(title:string,handler:()=>void,klass='',disabled=false)=>{
   const b=el('button',klass,title);
   b.type='button'; b.disabled=disabled;
@@ -35,7 +43,7 @@ const row=(title:string,details:string,...actions:Child[])=>el('div','row',el('d
 const btn=(title:string,handler:()=>void,disabled=false)=>action(title,handler,'button small',disabled);
 const cards=(...children:Child[])=>el('div','cards',...children);
 const tc=(value:string,title:string)=>el('div','stat-card',label(title),el('strong','',value));
-export type Page='settings'|'help'|'credits'|'inventory'|'build'|'map'|'upgrades'|'journal'|'site'|'pause'|'victory';
+export type Page='settings'|'help'|'credits'|'inventory'|'build'|'map'|'upgrades'|'journal'|'site'|'pause'|'victory'|'account'|'leaderboard';
 export type Hint={ title:string; detail:string; key?:string; bar?:number; };
 type Hud={
   x:number;z:number; stage:number; held?:string; ride?:string; rideDetail?:string; hint?:Hint; running:boolean; direction:string;
@@ -44,6 +52,7 @@ type Hud={
 type Controller={
   game:()=>Campaign; prefs:Preferences; open:(page:Page)=>void; begin:(kind:'resume'|'new'|'plus',challenge?:Challenge)=>void;
   resume:()=>void; menu:()=>void; refresh:()=>void; save:()=>void; download:()=>void; restore:(file:File)=>void;
+  cloudSnapshot:()=>Save|undefined; restoreCloud:(save:Save)=>Promise<void>;
   archives:()=>Archive[]; restoreArchive:(slot:string)=>void; applySettings:()=>void; binding:(key:Binding)=>void; build:(f:Facility)=>void; ride:(v:VehicleType)=>void;
   survey:(p:Point)=>void; waypoint:(p:Point)=>void; site:()=>Site|undefined; touch:(key:string,pressed:boolean)=>void; fullscreen:()=>void;
 };
@@ -75,6 +84,7 @@ export class UI {
   private filter?:Blocker;
   private layer:'stage'|'moisture'|'heat'|'groundwater'|'vegetation'|'fertility'|'erosion'='stage';
   private signature='';
+  private boardMode:CampaignMode='standard';
   private noticeTimers=new Map<HTMLElement,number>();
 
   constructor(public root:HTMLElement,private c:Controller) {
@@ -105,24 +115,25 @@ export class UI {
     return button;
   }
 
-  showMenu(hasSave:boolean, notice?:string) {
+  showMenu(hasSave:boolean, notice?:string, canPlay=true) {
     this.hud.hidden=true;
     this.overlay.hidden=true;
     this.menu.hidden=false;
+    this.menu.inert=false;
     this.root.classList.add('at-menu');
     const logo=el('div','wordmark',el('span','logo-mark'),el('span','','CLEARCUT FIELD OPERATIONS'));
-    const top=el('header','menu-header',logo,el('div','live-tag',el('i'),'CAMPAIGN LIVE'));
-    const headline=el('h1','',el('span','','PROJECT'),el('span','','CLEARCUT'));
+    const top=el('header','menu-header',logo,el('nav','online-links',this.nav('','Leaderboard','leaderboard'),this.nav('','Account','account')));
+    const headline=el('h1','',el('span','','DESTROY THE EARTH'),el('span','','WITH DATACENTERS'));
     const buttons=el('div','menu-actions');
-    const play=action('',()=>this.c.begin('resume'),'button primary hero-button');
+    const play=action('',()=>this.c.begin('resume'),'button primary hero-button',!canPlay);
     const playLabel=hasSave?'Continue campaign':'Play campaign';
     play.setAttribute('aria-label',playLabel);
-    play.append(el('span','play-icon','▶'),playLabel,el('span','arrow','›'));
+    play.append(el('span','play-icon','▶'),playLabel);
     buttons.append(play);
-    buttons.append(action(hasSave?'New Game':'Challenges',()=>this.confirmNew(hasSave),'button secondary start-new'));
-    buttons.append(el('div','menu-links',this.nav('','Settings','settings'),this.nav('','How to Play','help'),this.nav('','Credits','credits')));
+    buttons.append(action(hasSave?'New Game':'Challenges',()=>this.confirmNew(hasSave),'button secondary start-new',!canPlay));
+    buttons.append(el('div','menu-links',canPlay?this.nav('','Settings','settings'):undefined,this.nav('','How to Play','help'),this.nav('','Credits','credits')));
     const content=el('main','menu-content',
-      el('div','hero-kicker',el('span'),'THE LAST JUNGLE'),
+      el('div','hero-kicker',el('span'),'PROJECT CLEARCUT'),
       headline,
       el('p','hero-copy','One plastic knife. A whole jungle. See how far a little industry can go.'),
       buttons,notice ? sub(notice) : undefined,
@@ -130,7 +141,7 @@ export class UI {
     const footer=el('footer','menu-footer',el('div','',label('FIELD SITE'),el('strong','','01  /  ASH EXCHANGE')),
       el('div','',label('CAMPAIGN OBJECTIVE'),el('strong','','65,536 CELLS  /  STABLE DESERT')),
       el('div','',label('MODE'),el('strong','','SINGLE PLAYER')));
-    this.menu.replaceChildren(top,content,footer);
+    this.menu.replaceChildren(top,content,sponsorSlot('menu'),footer);
   }
 
   private confirmNew(hasSave:boolean) {
@@ -146,12 +157,8 @@ export class UI {
     this.root.classList.remove('at-menu');
     this.menu.hidden=true;
     this.hud.hidden=false;
+    this.hud.inert=false;
     this.overlay.hidden=true;
-  }
-
-  fatal(detail:string) {
-    this.menu.hidden=true;
-    this.panel('Graphics unavailable',detail,el('div','panel-content',btn('Reload',()=>location.reload())));
   }
 
   notice(s:string) {
@@ -227,6 +234,8 @@ export class UI {
 
   private panel(title:string,desc:string,body:HTMLElement) {
     this.overlay.hidden=false;
+    this.menu.inert=true;
+    this.hud.inert=true;
     const close=action('×',()=>this.c.resume(),'close');
     close.setAttribute('aria-label','Close panel');
     const shell=el('article','panel',el('div','panel-header',el('div','',label('CLEARCUT FIELD OPERATIONS'),el('h2','',title),sub(desc)),close),body);
@@ -238,7 +247,8 @@ export class UI {
     const pages:Record<Page,()=>void>={
       pause:()=>this.panel('Field paused','Production and field work are paused.',el('div','panel-content stack',
         action('Resume campaign',()=>this.c.resume(),'button primary'),btn('Save campaign',()=>this.c.save()),btn('Settings',()=>this.c.open('settings')),
-        btn('How to Play',()=>this.c.open('help')),btn('Main menu',()=>this.c.menu()))),
+        btn('How to Play',()=>this.c.open('help')),btn('Account & cloud saves',()=>this.c.open('account')),
+        btn('Leaderboard',()=>this.c.open('leaderboard')),btn('Main menu',()=>this.c.menu()))),
       help:()=>this.panel('Field manual','Start at the Ash Exchange. The Timber Exchange across the clearing buys raw and refined inventory.',el('div','panel-content',
         section('Your first shift',
           row('Approach a sapling','Aim the crosshair at the trunk and hold left mouse until it falls.'),
@@ -248,6 +258,8 @@ export class UI {
         section('Controls',...Object.entries(bindingOptions).map(([id,[title]])=>row(title,this.c.prefs.bindings[id as Binding].replace(/Key|Digit/g,''))),row('Swing / look','Left mouse / mouse. In drag look, hold right mouse and move.')))),
       credits:()=>this.panel('Credits','Project Clearcut · The Last Jungle',el('div','panel-content',section('Production',row('Original world models and sound','Procedural 3D geometry and synthesized audio.'),row('Engine','Three.js · Rapier · Vite · TypeScript'),row('Typography','Barlow Condensed, DM Sans and IBM Plex Mono.')))),
       settings:()=>this.settings(),
+      account:()=>this.account(),
+      leaderboard:()=>this.leaderboard(),
       inventory:()=>this.inventory(),
       build:()=>this.build(),
       map:()=>this.map(),
@@ -260,6 +272,146 @@ export class UI {
         el('div','controls-row',btn('Keep exploring',()=>this.c.resume()),btn('Export completed save',()=>this.c.download()),btn('New Game+',()=>this.c.begin('plus'))))),
     };
     pages[page]();
+  }
+
+  private account() {
+    const status=sub('Loading account…');
+    status.setAttribute('role','status');
+    const info=el('div','stack');
+    const body=el('div','panel-content online-panel',status,info);
+    this.panel('Game account','Back up your campaign and manage the progress you share.',body);
+    const visible=()=>body.isConnected&&!this.overlay.hidden;
+    const authLink=(text:string,path:string)=>{
+      const link=el('a','button secondary online-auth',text);
+      link.href=path+'?return_to=%2F';
+      link.target='_top';
+      return link;
+    };
+    const message=(error:unknown)=>error instanceof Error?error.message:'Online services are temporarily unavailable.';
+    const render=(data:Account)=>{
+      if(!visible())return;
+      if(!data.signedIn){
+        info.replaceChildren(section('Sign in',sub('Use your ChatGPT account for cloud backups and leaderboard entries.'),
+          authLink('Sign in with ChatGPT','/signin-with-chatgpt')));
+        return;
+      }
+
+      const backup=data.cloud;
+      const detail=backup?new Date(backup.savedAt).toLocaleString():'No cloud backup yet';
+      const name=el('input','online-input');
+      name.type='text';name.placeholder='Display name';name.maxLength=24;name.value=data.entries[0]?.name??'';
+      name.setAttribute('aria-label','Leaderboard display name');
+      const controls=section('Cloud backup',
+        row('Latest backup',detail),
+        sub('The game autosaves in this browser. Back up here to continue on another device. Restoring archives your current local campaign.'),
+        el('div','controls-row',
+          btn('Back up campaign',()=>void run(async()=>{
+            const save=this.c.cloudSnapshot();
+            if(!save)throw Error('Start a campaign before creating a backup.');
+            if(backup&&!window.confirm('Replace the cloud backup with your current campaign?'))return '';
+            await uploadBackup(save,backup?.revision??'');
+            return 'Cloud backup saved.';
+          }),!this.c.cloudSnapshot()),
+          btn('Restore cloud backup',()=>void run(async()=>{
+            if(!backup||!window.confirm('Restore this cloud backup? Your current campaign will be archived.'))return '';
+            const saved=await downloadBackup(backup.revision);
+            if(!visible())return '';
+            await this.c.restoreCloud(saved);
+            this.notice('Cloud backup restored');
+            return 'Cloud backup restored.';
+          }),!backup)));
+      const entries=section('Leaderboard entries',
+        sub('Publish the progress in your cloud backup under a display name. Posting again replaces your entry for that mode.'),
+        el('div','controls-row',name,btn('Post backup progress',()=>void run(async()=>{
+          if(!backup)throw Error('Back up a campaign before posting your progress.');
+          const result=await publish(name.value.trim(),backup.revision);
+          return 'Progress posted to '+campaignModes[result.mode]+'.';
+        }),!backup)),
+        ...data.entries.map(entry=>row(campaignModes[entry.mode],entry.name,
+          btn('Remove entry',()=>void run(async()=>{
+            if(!window.confirm('Remove your '+campaignModes[entry.mode]+' leaderboard entry?'))return '';
+            await removeEntry(entry.mode);
+            return 'Leaderboard entry removed.';
+          })))),
+        btn('View leaderboard',()=>this.c.open('leaderboard')));
+      info.replaceChildren(controls,entries,authLink('Sign out of this site','/signout-with-chatgpt'));
+    };
+    const refresh=async()=>{
+      status.textContent='Loading account…';
+      try {
+        render(await loadAccount());
+        status.textContent='';
+      } catch(error) {
+        status.textContent=message(error);
+        if(visible())info.replaceChildren(btn('Retry',()=>void refresh()));
+      }
+    };
+    const run=async(operation:()=>Promise<string>)=>{
+      const buttons=Array.from(info.querySelectorAll('button:not(:disabled)'));
+      buttons.forEach(b=>b.setAttribute('disabled',''));
+      status.textContent='Working…';
+      try {
+        const result=await operation();
+        if (!visible())return;
+        if(result)render(await loadAccount());
+        status.textContent=result;
+      } catch(error) {
+        status.textContent=message(error);
+        if(!info.querySelector('.refresh-account')){
+          const refreshButton=btn('Refresh account',()=>void refresh());
+          refreshButton.classList.add('refresh-account');
+          info.append(refreshButton);
+        }
+      } finally {
+        buttons.forEach(b=>b.removeAttribute('disabled'));
+      }
+    };
+    void refresh();
+  }
+
+  private leaderboard() {
+    const picker=el('select','online-input');
+    picker.setAttribute('aria-label','Leaderboard campaign mode');
+    for(const [key,name] of Object.entries(campaignModes)){
+      const option=el('option','',name);option.value=key;picker.append(option);
+    }
+    picker.value=this.boardMode;
+    const status=sub('');
+    status.setAttribute('role','status');
+    const results=el('div','rank-scroll');
+    const body=el('div','panel-content online-panel',
+      el('div','controls-row',picker,btn('Refresh',()=>void refresh()),btn('Account',()=>this.c.open('account'))),
+      status,results,sponsorSlot('leaderboard'));
+    this.panel('Campaign leaderboard','Ranked by stable desert cells, then completion time and lifetime earnings. Entries are based on player-submitted saves.',body);
+    let generation=0;
+    const refresh=async()=>{
+      const ticket=++generation;
+      const mode=picker.value as CampaignMode;
+      this.boardMode=mode;
+      status.textContent='Loading rankings…';
+      results.replaceChildren();
+      try {
+        const {entries,totalCells}=await loadLeaderboard(mode);
+        if(ticket!==generation||!body.isConnected)return;
+        if(!entries.length){status.textContent='No entries yet for '+campaignModes[mode]+'.';return;}
+        const table=el('table','rank-table');
+        table.setAttribute('aria-label',campaignModes[mode]+' campaign rankings');
+        const heading=el('tr','',...['Rank','Player','Desert','Finished in','Earned'].map(title=>{
+          const cell=el('th','',title);cell.scope='col';return cell;
+        }));
+        const rows=entries.map((entry,index)=>el('tr',entry.yours?'rank-self':'',
+          el('td','',String(index+1)),el('th','',entry.name,entry.yours?' (you)':''),
+          el('td','',conversionLabel(entry.cells)+'%',el('small','',value(entry.cells)+' / '+value(totalCells))),
+          el('td','',entry.completion===null?'In progress':duration(entry.completion)),el('td','',cash(entry.earned))));
+        table.append(el('thead','',heading),el('tbody','',...rows));
+        results.replaceChildren(table);
+        status.textContent='';
+      } catch(error) {
+        if(ticket===generation)status.textContent=error instanceof Error?error.message:'Could not load rankings.';
+      }
+    };
+    picker.addEventListener('change',()=>void refresh());
+    void refresh();
   }
 
   private settings() {

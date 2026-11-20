@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "node --import tsx --test tests/*.test.ts",
     "test:browser": "node tests/browser.mjs",
-    "test:performance": "node --import tsx tests/performance.ts"
+    "test:performance": "node --import tsx tests/performance.ts",
+    "build:sites": "npm run build && node scripts/build-sites.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",
@@ -20,6 +21,7 @@
   },
   "devDependencies": {
     "@types/three": "^0.185.0",
+    "esbuild": "^0.28.2",
     "playwright": "^1.56.1",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
