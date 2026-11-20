@@ -16,4 +16,4 @@ Requirements in each milestone are quoted from [README §23](README.md#23-build-
 | [M9 — Actual 100% ending and final polish](progress/M9/tasks.md) | Built, needs browser review |
 
 See [completed.md](completed.md) for verifications and [continue working.md](continue%20working.md) for open work.
-The [full acceptance matrix](README.md#24-acceptance-test-matrix) remains the release checklist.
+See [acceptance review](progress/acceptance.md) for coverage against the original [acceptance matrix](README.md#24-acceptance-test-matrix).

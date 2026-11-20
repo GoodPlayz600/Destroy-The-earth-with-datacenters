@@ -331,3 +331,10 @@ kbd { display: inline-flex; align-items: center; justify-content: center; min-wi
 }
 
 .survey-controls { margin-bottom: .47rem; }
+
+.hud:has(.touch:not([hidden])) .assist { bottom: 15.6rem; }
+@media (pointer: coarse) and (max-height: 530px) {
+  .touch-actions,.touch .dpad { bottom: 4.7rem; }
+  .hud:has(.touch:not([hidden])) .assist { bottom: 12.8rem; }
+  .touch-button { min-height: 2.3rem; }
+}

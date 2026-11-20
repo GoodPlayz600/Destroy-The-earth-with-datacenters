@@ -172,8 +172,8 @@ export class UI {
       this.stateNode.textContent=stages[h.stage];
       this.toolNode.textContent=h.ride??tools[g.tool].name;
       this.saved.textContent=h.saved;
-      const [step,body]=g.stats.harvest===0?['First cut','Approach a sapling. Aim at its trunk and hold Swing.']
-        :g.stats.fire===0?['Make the first sale','Hold Interact beside the trunk. Drag it into the Ash Exchange and release.']
+      const [step,body]=g.stats.harvest===0?['First cut',h.touch?'Walk to the sapling. Swipe to aim at its trunk, then hold Swing.':'Approach a sapling. Aim at its trunk and hold Swing.']
+        :g.stats.fire===0?['Make the first sale',h.touch?'Hold Grab beside the trunk. Drag it into the Ash Exchange and release.':'Hold Interact beside the trunk. Drag it into the Ash Exchange and release.']
         :g.stats.produced===0?['Put your timber to work','Buy an upgrade or build a Field Sawbench for higher-value lumber.']
         :['The last jungle','Connect mills and industry. Convert every cell into stable desert.'];
       this.objective.replaceChildren(label('FIELD OBJECTIVE'),el('strong','',step),sub(body));
@@ -201,15 +201,16 @@ export class UI {
   }
 
   private setupTouch() {
-    const make=(text:string,key:string)=>{
+    const make=(text:string,key:string,label?:string)=>{
       const b=el('button','touch-button',text);
       b.type='button';
+      if(label)b.setAttribute('aria-label',label);
       b.addEventListener('pointerdown',e=>{e.preventDefault();b.setPointerCapture(e.pointerId);this.c.touch(key,true);});
       for(const event of ['pointerup','pointercancel','lostpointercapture']) b.addEventListener(event,()=>this.c.touch(key,false));
       return b;
     };
-    this.touch.append(el('div','dpad',make('↑','forward'),make('←','left'),make('↓','back'),make('→','right')),
-      el('div','touch-actions',make('Swing','swing'),make('Grab','interact'),make('Jump','jump'),make('Drop','drop')));
+    this.touch.append(el('div','dpad',make('↑','forward','Move forward'),make('←','left','Move left'),make('↓','back','Move back'),make('→','right','Move right')),
+      el('div','touch-actions',make('Swing','swing'),make('Grab','interact'),make('Jump','jump'),make('Drop','drop'),make('Drive','ride'),make('Cargo','load')));
   }
 
   recording(key?:Binding) { this.bindingKey=key; this.show('settings'); }

@@ -26,7 +26,7 @@ Continue with the next open requirement in [tasks.md](tasks.md).
 
 **Needs work**
 
-- Playtest the full drive-and-deliver loop, heavy recovery, winch loads, towing behavior and individual crane operations.
+- Playtest heavy recovery, winch loads, towing behavior and individual crane operations.
 
 ## [M5 — Industrial processing and factory network](progress/M5/continue%20working.md)
 

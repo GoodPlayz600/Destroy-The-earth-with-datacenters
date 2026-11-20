@@ -22,7 +22,11 @@ import type { Hint, Page } from './ui';
 
 const canvas=document.querySelector<HTMLCanvasElement>('#world')!;
 const root=document.querySelector<HTMLDivElement>('#ui')!;
+const onTouch='ontouchstart' in window && matchMedia('(pointer: coarse)').matches;
 const prefs=readPreferences();
+if(onTouch){
+  try{if(!localStorage.getItem('clearcut.preferences'))prefs.quality='low';}catch{}
+}
 let game=new Campaign();
 let scene:Scene;
 const sound=new Sound();
@@ -50,10 +54,11 @@ let lastHarvest=0;
 let archives:Archive[]=[];
 let latestSave:Promise<unknown>=Promise.resolve();
 const inputs=new Set<string>();
-const onTouch='ontouchstart' in window && matchMedia('(pointer: coarse)').matches;
 const hasLock=()=>document.pointerLockElement===canvas;
 const active=()=>started&&!atMenu&&!page;
-const key=(binding:Binding)=>prefs.bindings[binding].replace(/^Key|^Digit/g,'');
+const touchLabels:Partial<Record<Binding,string>>={interact:'Grab',drop:'Drop',jump:'Jump',ride:'Drive',load:'Cargo'};
+const key=(binding:Binding)=>onTouch&&touchLabels[binding]?touchLabels[binding]!:
+  prefs.bindings[binding].replace(/^Key|^Digit/g,'');
 const forward=new Vector3();
 const head=new Vector3();
 const show=(message:string)=>ui.notice(message);

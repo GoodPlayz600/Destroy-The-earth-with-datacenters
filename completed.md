@@ -26,7 +26,7 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 ## [M4 — Vehicles and a real logging operation](progress/M4/completed.md)
 
 - Sleds, carts, trikes, trailers, pickups, a forklift, a skid steer, trucks and bulldozers have 3D meshes and cargo checks. Suitable vehicles have hitches and powered winches. Motorized vehicles use fuel; work crews reserve and deliver actual logs.
-- Simulation tests verify that two workers cannot move the same log, blocked receivers preserve cargo and trailer hitches survive a reload.
+- Chromium and Firefox passed physical pickup loading, driving, unloading to the sawbench and producing boards. Simulation tests verify worker reservations, blocked delivery and hitch persistence.
 
 ## [M5 — Industrial processing and factory network](progress/M5/completed.md)
 
@@ -58,4 +58,5 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 - [Chromium and Firefox opening review](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions/runs/44776791913).
 - [Firefox refining, pointer lock and finale review](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions/runs/44779594461/job/136438422591).
 - [Chromium and Firefox reviewing refining and finale](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions/runs/44780546998).
+- [Chromium and Firefox reviewing pickup delivery](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions/runs/44781691730).
 - [Latest GitHub Actions runs](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions).

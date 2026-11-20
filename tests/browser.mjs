@@ -214,6 +214,28 @@ try{
     document.querySelector('.notices')?.textContent?.includes('Pointer lock unavailable'),undefined,{timeout:14000});
   console.log('Pointer lock: '+(await p.evaluate(()=>document.pointerLockElement?.id==='world')?'captured':'fallback displayed'));
   assert.deepEqual(errors,[]);
+  if(engine==='chromium'){
+    console.log('Reviewing touchscreen movement and harvesting');
+    const mobile=await browser.newPage({viewport:{width:430,height:760},deviceScaleFactor:1,hasTouch:true,isMobile:true});
+    await mobile.bringToFront();
+    await mobile.goto(target);
+    await mobile.getByRole('button',{name:'Play campaign',exact:true}).tap();
+    const touch=await mobile.context().newCDPSession(mobile);
+    async function hold(label,until) {
+      const rect=await mobile.getByRole('button',{name:label,exact:true}).boundingBox();
+      assert.ok(rect);
+      await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:rect.x+rect.width/2,y:rect.y+rect.height/2,id:1}]});
+      try{await mobile.waitForFunction(until,undefined,{timeout:45000});}
+      finally{await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});}
+    }
+    await hold('Move forward',()=>window.clearcutReview().player.z<-3.65);
+    await mobile.getByText('Pioneer sapling',{exact:true}).waitFor();
+    await hold('Swing',()=>window.clearcutReview().stats.harvest===1);
+    assert.equal(await mobile.evaluate(()=>window.clearcutReview().logs.length),1);
+    assert.equal(await mobile.evaluate(()=>document.documentElement.scrollWidth),430);
+    await screenshot(mobile,'touch');
+    await mobile.close();
+  }
   console.log(`${engine}: menu, WebGL, walk, swing, fell, haul, burn, upgrade, pause, reload, map, resize, save export/import, sawbench placement, physical feed, market sale, vehicle delivery, victory and New Game+ archives passed.`);
 } catch(error) {
   const page=browser?.contexts()[0]?.pages()[0];
