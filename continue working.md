@@ -2,6 +2,8 @@
 
 The M0–M9 milestone review covers the build, simulation, browser playthroughs and screenshot checks. The follow-ups below record the remaining extended playtests.
 
+**Current step** · [M9 campaign playtesting and final polish](progress/M9/continue%20working.md), following the verified M8 performance work.
+
 ## [M0 — Website boot and 3D walking](progress/M0/continue%20working.md)
 
 **Reviewed**
@@ -46,6 +48,5 @@ The M0–M9 milestone review covers the build, simulation, browser playthroughs 
 
 ## [M9 — Actual 100% ending and final polish](progress/M9/continue%20working.md)
 
-**Reviewed**
-
-- Playtest progression and late-game prices through an ordinary-length campaign. Run ordinary pacing, accessibility and touch playtests from the knife through the final cleanup.
+- The exact 100% ending, flyover, archive, and New Game+ passed in prepared browser saves.
+- Playtest progression, late-game prices, accessibility, and touch controls from the knife through the final cleanup in an ordinary campaign.

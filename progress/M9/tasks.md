@@ -1,6 +1,6 @@
 # M9 — Actual 100% ending and final polish
 
-**Reviewed**
+**Ending verified.** Normal campaign playtesting and final polish are open.
 
 - [x] “Determine campaign eligibility from fixed world cell data.”
 - [x] “Convert, validate and stabilize every cell.”
