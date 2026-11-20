@@ -90,7 +90,7 @@ export function applyLand(s: Soil, p: Pressure, seconds: number, rain: number, s
   s.vegetation = clamp(s.vegetation + seconds * (
     (stressed || irreversible || s.groundwater < .18 ? 0 : s.moisture * s.fertility * .00013)
     - p.clearing * .008 - p.grazing * .007 - p.removal * .008 - p.heat * .004 - p.drainage * .002
-  ), vegetationLimit);
+  ), 0, vegetationLimit);
   if (s.vegetation <= .13) s.clearedFor += seconds;
   if (meetsDesert(s) && (irreversible || stressed || s.groundwater <= .18)) s.stable += seconds;
   else s.stable = 0;

@@ -109,7 +109,7 @@ function applySettings() {
 }
 function resetSession(next:Campaign) {
   game=next;scene.replace(next);held=undefined;ride=undefined;waypoint=undefined;selectedSite=undefined;
-  selectedBuild=undefined;selectedVehicle=undefined;airborne=0;vY=0;swing=0;victoryAge=-1;lastHarvest=game.stats.harvest;
+  selectedBuild=undefined;selectedVehicle=undefined;airborne=0;vY=0;swing=0;victoryAge=game.won?-2:-1;lastHarvest=game.stats.harvest;
   collapseControls();
 }
 function begin(kind:'resume'|'new'|'plus') {
@@ -521,7 +521,7 @@ async function boot() {
   try { saved=await loadCampaign(); }
   catch { saveError='The last local save could not be loaded. You can import a backup from Settings.'; }
   if(saved) {
-    game=Campaign.restore(saved);hasSave=true;startedBefore=true;lastHarvest=game.stats.harvest;
+    game=Campaign.restore(saved);hasSave=true;startedBefore=true;victoryAge=game.won?-2:-1;lastHarvest=game.stats.harvest;
     if(prefs.offline&&!game.won) {
       const seconds=Math.max(0,Math.min(300,Math.floor((Date.now()-saved.savedAt)/1000)));
       const startCash=game.cash,startingDesert=game.desertCount;

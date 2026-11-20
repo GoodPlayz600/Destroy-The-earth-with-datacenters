@@ -478,7 +478,7 @@ export class Campaign {
             case 'thermal': add(i, 'heat', force * 1.6); add(i, 'pollution', force); break;
             case 'dryer': add(i, 'heat', force * 1.55); add(i, 'removal', force * .7); break;
             case 'data': add(i, 'heat', force); add(i, 'drainage', force * 1.28); break;
-            case 'forestry': add(i, 'clearing', force * 1.7); break;
+            case 'forestry': break;
           }
         }
       }
@@ -490,6 +490,7 @@ export class Campaign {
           this.landRevision++;
           const i = indexAt(tree.x, tree.z);
           this.getSoil(i).vegetation = Math.min(this.getSoil(i).vegetation, this.standingFraction(i));
+          this.landQueue.add(i);
           this.stats.harvest++;
           put(site.output, { good: 'timber', quantity: species[tree.kind].yield, quality: .74, moisture: .65 }, this.capacity(site));
         }
