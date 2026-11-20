@@ -47,7 +47,7 @@ const identifier=(x:unknown)=>typeof x==='string'&&/^[sv][1-9]\d*$/.test(x)&&x.l
 const text=(x:unknown)=>typeof x==='string'&&x.length<400;
 const coordinate=(x:Record<string,unknown>)=>numeric(x.x)&&numeric(x.z)&&indexAt(x.x,x.z)>=0;
 const lot=(x:unknown)=>object(x)&&key(x.good,goods)&&integer(x.quantity,1,260)&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1);
-const job=(x:unknown)=>object(x)&&key(x.good,goods)&&integer(x.quantity,0,260)&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1)&&numeric(x.remaining,-100000,3600)&&(x.payout===undefined||integer(x.payout));
+const job=(x:unknown)=>object(x)&&key(x.good,goods)&&integer(x.quantity,0,260)&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1)&&numeric(x.remaining,-100000,3600)&&(x.payout===undefined||integer(x.payout))&&(x.offcut===undefined||integer(x.offcut,0,8));
 const soilFields=['vegetation','moisture','groundwater','fertility','heat','pollution','erosion','substrate'];
 const treeId=(x:unknown)=>integer(x,0,TOTAL*6-1);
 const distinct=(values: unknown[])=>new Set(values).size===values.length;
@@ -69,6 +69,7 @@ export function validateSave(data:unknown): Save {
     &&rows(s.sites,20000,x=>object(x)&&identifier(x.id)&&key(x.kind,facilities)&&coordinate(x)&&(x.yaw===undefined||numeric(x.yaw))&&rows(x.input,260,lot)&&rows(x.output,260,lot)
       &&rows(x.jobs,8,job)&&flag(x.on)&&numeric(x.fuel,0,100)&&text(x.status)&&(x.water===undefined||numeric(x.water,0,1200))&&(x.link===undefined||identifier(x.link))
       &&(x.mode===undefined||x.mode==='sell'||x.mode==='charcoal')
+      &&(x.yieldCarry===undefined||numeric(x.yieldCarry,0,1))&&(x.layout===undefined||x.layout==='quality'||x.layout==='volume')&&(x.sortHigh===undefined||flag(x.sortHigh))
       &&(x.haul===undefined||(object(x.haul)&&coordinate(x.haul)&&identifier(x.haul.target)
         &&(x.haul.log===undefined||integer(x.haul.log,1))&&text(x.haul.status)&&['waiting','pickup','delivery','return'].includes(String(x.haul.phase))))
       &&(x.shipment===undefined||(object(x.shipment)&&['rail','air'].includes(String(x.shipment.mode))&&lot(x.shipment.load)

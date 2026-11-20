@@ -2,5 +2,5 @@
 
 **Needs work**
 
-- All 288 catalog IDs and prerequisite references load. The first five branches expose 55 purchasable upgrades across knife, player handling, primitive logistics, burning and hand-tool forestry.
+- All 288 catalog IDs and prerequisite references load. There are 79 purchasable upgrades across knife work, handling, primitive logistics, burning, forestry, sawmilling and lumber finishing.
 - Wallet, receipts, journal, timed contracts, IndexedDB autosave and file import/export work. Upgrade and tool wear persistence is tested.

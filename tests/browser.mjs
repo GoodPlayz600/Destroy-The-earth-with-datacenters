@@ -30,7 +30,7 @@ try{
   p.setDefaultTimeout(35000);
   const errors=[];
   p.on('pageerror',error=>{errors.push(error.message);console.error('Browser page error:',error.stack);});
-  p.on('console',message=>{if(message.type()==='error'&&!message.text().includes('favicon')) {errors.push(message.text());console.error(message.text());}});
+  p.on('console',message=>{if(message.type()==='error'&&!message.text().includes('favicon')) {const event=message.text()+' @ '+message.location().url;errors.push(event);console.error(event);}});
   const inspect=()=>p.evaluate(()=>window.clearcutReview());
   const wait=(f,arg)=>p.waitForFunction(f,arg,{timeout:42000,polling:45});
   const press=code=>p.keyboard.press(code);
@@ -180,6 +180,13 @@ try{
   assert.ok((await inspect()).won);
   await click('Close panel');
   assert.equal(await p.getByRole('heading',{name:'The last jungle',exact:true}).isVisible(),false);
+  await press('Escape');
+  await click('Settings');
+  await select('Look mode','pointer');
+  await click('Close panel');
+  await p.waitForFunction(()=>document.pointerLockElement?.id==='world'||
+    document.querySelector('.notices')?.textContent?.includes('Pointer lock unavailable'),undefined,{timeout:14000});
+  console.log('Pointer lock: '+(await p.evaluate(()=>document.pointerLockElement?.id==='world')?'captured':'fallback displayed'));
   assert.deepEqual(errors,[]);
   console.log(`${engine}: menu, WebGL, walk, swing, fell, haul, burn, upgrade, pause, reload, map, resize, save export/import, sawbench placement, physical feed, market sale, victory and New Game+ archives passed.`);
 } catch(error) {

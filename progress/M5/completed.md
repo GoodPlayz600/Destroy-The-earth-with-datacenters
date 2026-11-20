@@ -2,5 +2,5 @@
 
 **Needs work**
 
-- Sixteen recipes cover timber, boards, kiln drying, crates, furniture, engineered beams, pulp/paper, charcoal, pellets, plywood, stone, cement and compute.
-- Output limits, input quality, electrical load, shipments and logging jobs have simulation coverage.
+- Twenty-two recipes cover timber, boards, kiln drying, crates, furniture, engineered beams, pulp/paper, charcoal, pellets, plywood, treated lumber, stone, cement and compute.
+- Output limits, input quality and power are simulation-tested. Sawmill research changes yield, chip recovery, output grade and concurrent batches. Freight tests preserve shipments across a reload.

@@ -20,7 +20,7 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 
 ## [M3 — Game economy and progression foundation](progress/M3/completed.md)
 
-- All 288 catalog IDs and prerequisite references load. The first five branches expose 55 purchasable upgrades across knife, player handling, primitive logistics, burning and hand-tool forestry.
+- All 288 catalog IDs and prerequisite references load. There are 79 purchasable upgrades across knife work, handling, primitive logistics, burning, forestry, sawmilling and lumber finishing.
 - Wallet, receipts, journal, timed contracts, IndexedDB autosave and file import/export work. Upgrade and tool wear persistence is tested.
 
 ## [M4 — Vehicles and a real logging operation](progress/M4/completed.md)
@@ -30,8 +30,8 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 
 ## [M5 — Industrial processing and factory network](progress/M5/completed.md)
 
-- Sixteen recipes cover timber, boards, kiln drying, crates, furniture, engineered beams, pulp/paper, charcoal, pellets, plywood, stone, cement and compute.
-- Output limits, input quality, electrical load, shipments and logging jobs have simulation coverage.
+- Twenty-two recipes cover timber, boards, kiln drying, crates, furniture, engineered beams, pulp/paper, charcoal, pellets, plywood, treated lumber, stone, cement and compute.
+- Output limits, input quality and power are simulation-tested. Sawmill research changes yield, chip recovery, output grade and concurrent batches. Freight tests preserve shipments across a reload.
 
 ## [M6 — World conversion and map progress](progress/M6/completed.md)
 
@@ -45,7 +45,7 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 
 ## [M8 — Massive late-game depth](progress/M8/completed.md)
 
-- Survey overlays, remaining-cell markers, district contracts, achievements and capped opt-in offline progress are implemented.
+- Survey overlays, remaining-cell markers, district contracts, achievements and capped opt-in offline progress are implemented. Rail and drone freight reserve stock, charge dispatch fees and persist in-flight cargo.
 - The full catalog is present with unavailable entries clearly marked.
 
 ## [M9 — Actual 100% ending and final polish](progress/M9/completed.md)

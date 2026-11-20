@@ -50,10 +50,10 @@ Continue with the next open requirement in [tasks.md](tasks.md).
 
 **Needs work**
 
-- Implement and review every remaining upgrade, deeper regional freight and drone jobs, specialization, repair and long-contract systems. Profile large bases on target hardware and record frame time and save size.
+- Implement and review every remaining upgrade, additional regional freight and drone tasks, worker specialization, repair and long-contract systems. Profile large bases on target hardware and record frame time and save size.
 
 ## [M9 — Actual 100% ending and final polish](progress/M9/continue%20working.md)
 
 **Built, needs browser review**
 
-- Review the actual flyover, completed-save reload and New Game+ in a browser. Run ordinary pacing, accessibility and touch playtests from the knife through the final cleanup.
+- Complete the browser regression check for the flyover, completed-save reload and New Game+ archive recovery. Run ordinary pacing, accessibility and touch playtests from the knife through the final cleanup.

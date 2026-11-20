@@ -24,7 +24,7 @@ export class Sound {
       source.connect(filter).connect(this.ambience).connect(this.output);
       source.start();
     }
-    void this.context.resume();
+    void this.context.resume().catch(()=>{});
     this.volume(scale);
   }
 

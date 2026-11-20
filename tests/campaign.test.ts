@@ -383,3 +383,27 @@ test('lot-based receipts use the exact moisture and grade displayed in the marke
   assert.deepEqual(g.stock,[a]);
   assert.equal(g.sellInventory('boards',2,selected),false);
 });
+
+test('sawmill research changes measured output and concurrent machine reservations',()=>{
+  const g=new Campaign();
+  g.cash=95000;
+  const bench=build(g,'bench',1,4);
+  for(const node of ['09-01','09-02','09-03','09-04'])assert.ok(g.buyUpgrade(node),node);
+  put(bench.input,{good:'timber',quantity:5,quality:.80,moisture:.55});
+  assert.ok(g.crankBench(bench));
+  assert.ok(bench.jobs[0].remaining<3);
+  assert.equal(g.crankBench(bench),false);
+  run(g,50);
+  assert.equal(getQuantity(bench.output,'boards'),11);
+  const main=build(g,'bandsaw',-8,12);
+  for(const node of ['09-05','09-06','09-07','09-08'])assert.ok(g.buyUpgrade(node),node);
+  build(g,'generator',1,14);
+  put(main.input,{good:'timber',quantity:6,quality:.84,moisture:.5});
+  run(g,2);
+  assert.equal(main.jobs.length,2);
+  assert.equal(getQuantity(main.input),4);
+  run(g,28);
+  assert.ok(getQuantity(main.output,'chips')>=6);
+  assert.ok(main.output.filter(l=>l.good==='boards').every(l=>l.quality>=.94));
+  assert.doesNotThrow(()=>validateSave(JSON.parse(JSON.stringify(g.snapshot()))));
+});

@@ -29,6 +29,7 @@ export const goods = {
   chips: ['Woodchips', 13, '#d9a477'], pulp: ['Pulp', 29, '#c2c5aa'],
   paper: ['Paper rolls', 105, '#e0d7a9'], charcoal: ['Charcoal', 32, '#495150'],
   pellets: ['Fuel pellets', 74, '#ad7a4f'], plywood: ['Plywood', 105, '#ad8471'],
+  finished: ['Planed lumber', 68, '#dab380'], treated: ['Treated outdoor lumber', 122, '#966d51'],
   ore: ['Crushed stone', 32, '#85877d'], cement: ['Cement', 86, '#bdc3bb'],
   compute: ['Compute batches', 345, '#70babc'],
 } as const;
@@ -42,6 +43,12 @@ export const recipes = {
   bench: { name: 'Rip timber', input: ['timber', 1], output: ['boards', 2], time: 4, power: 0 },
   rack: { name: 'Air dry boards', input: ['boards', 2], output: ['dry', 2], time: 21, power: 0, moisture: .18 },
   workshop: { name: 'Assemble crates', input: ['boards', 2], output: ['crates', 1], time: 12, power: 0 },
+  bandsaw: { name: 'Compact bandsaw milling', input: ['timber', 1], output: ['boards', 3], time: 5, power: 4 },
+  speedMill: { name: 'High-speed sawline', input: ['timber', 4], output: ['boards', 11], time: 7, power: 13 },
+  millComplex: { name: 'Twin industrial sawline', input: ['timber', 4], output: ['boards', 12], time: 8, power: 20 },
+  smallKiln: { name: 'Workshop kiln drying', input: ['boards', 2], output: ['dry', 2], time: 10, power: 3, moisture: .10 },
+  planer: { name: 'Plane boards', input: ['dry', 2], output: ['finished', 2], time: 7, power: 4, maxMoisture: .20 },
+  treatment: { name: 'Treat outdoor boards', input: ['finished', 2], output: ['treated', 2], time: 12, power: 7, minQuality: .74, moisture: .09 },
   mill: { name: 'High-speed milling', input: ['timber', 2], output: ['boards', 5], time: 8, power: 6 },
   kiln: { name: 'Kiln drying', input: ['boards', 4], output: ['dry', 4], time: 9, power: 5, moisture: .08 },
   joinery: { name: 'Fine joinery', input: ['dry', 2], output: ['furniture', 1], time: 12, power: 4, minQuality: .73, maxMoisture: .23 },
@@ -59,7 +66,7 @@ export const recipes = {
 
 export type Facility = keyof typeof recipes | 'fire' | 'market' | 'depot' | 'railDepot' | 'dronePad' | 'generator' | 'substation' | 'pump' | 'pipe' | 'tank' | 'grazing' | 'thermal' | 'dryer' | 'forestry' | 'road' | 'belt' | 'rail';
 type Building = {
-  name: string; price: number; color: string; size: number; requires?: Facility;
+  name: string; price: number; color: string; size: number; requires?: Facility; research?: string;
   effect?: 'fire' | 'pump' | 'grazing' | 'quarry' | 'thermal' | 'dryer' | 'forestry' | 'data';
   reach?: number; power?: number; supply?: number;
 };
@@ -72,6 +79,12 @@ export const facilities: Record<Facility, Building> = {
   depot: { name: 'Freight Depot', price: 520, color: '#76807c', size: 4 },
   railDepot: { name: 'Regional Rail Depot', price: 1600, color: '#8a8170', size: 4.5, requires: 'depot' },
   dronePad: { name: 'Cargo Drone Pad', price: 2300, color: '#6e7d68', size: 3.5, requires: 'depot', power: 5 },
+  bandsaw: { name: 'Compact Bandsaw Mill', price: 520, color: '#629082', size: 3.2, requires: 'bench', research: '09-04' },
+  speedMill: { name: 'High-Speed Sawmill', price: 7900, color: '#839984', size: 5, requires: 'bandsaw', research: '09-10' },
+  millComplex: { name: 'Industrial Mill Complex', price: 14600, color: '#66877d', size: 6, requires: 'speedMill', research: '09-12' },
+  smallKiln: { name: 'Small Workshop Kiln', price: 460, color: '#a67857', size: 2.6, requires: 'rack', research: '10-05' },
+  planer: { name: 'Lumber Planer', price: 625, color: '#819474', size: 3, requires: 'rack', research: '10-07' },
+  treatment: { name: 'Treatment Vat', price: 1320, color: '#63846c', size: 4, requires: 'planer', research: '10-09' },
   mill: { name: 'Sawmill', price: 530, color: '#59817c', size: 4, requires: 'bench' },
   kiln: { name: 'Lumber Kiln', price: 490, color: '#b0784f', size: 3.5, requires: 'mill' },
   joinery: { name: 'Fine Joinery', price: 670, color: '#ab8a5e', size: 4, requires: 'kiln' },

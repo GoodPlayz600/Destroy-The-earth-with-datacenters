@@ -8,6 +8,8 @@ const delivered = [
   '03-01','03-02','03-03','03-04','03-05','03-06','03-07','03-08',
   '04-01','04-02','04-03','04-04','04-05','04-06','04-07','04-08','04-09','04-10','04-11',
   '05-01','05-02','05-03','05-04','05-05','05-06','05-07','05-08','05-09','05-10','05-11','05-12',
+  '09-01','09-02','09-03','09-04','09-05','09-06','09-07','09-08','09-09','09-10','09-11','09-12',
+  '10-01','10-02','10-03','10-04','10-05','10-06','10-07','10-08','10-09','10-10','10-11','10-12',
 ];
 const working = new Set(delivered);
 export const upgrades: Upgrade[] = upgradeSpec.map(([id, name, price, description]) => {
@@ -17,7 +19,9 @@ export const upgrades: Upgrade[] = upgradeSpec.map(([id, name, price, descriptio
 });
 export const upgradesById = new Map(upgrades.map(upgrade => [upgrade.id, upgrade]));
 if (upgrades.length !== 288 || upgradesById.size !== upgrades.length) throw Error('Invalid upgrade catalog');
-export const upgradeFacility: Record<string, Facility> = { '04-08': 'depot', '04-09': 'charcoal', '04-10': 'thermal', '04-11': 'kiln' };
+export const upgradeFacility: Record<string, Facility> = { '04-08': 'depot', '04-09': 'charcoal', '04-10': 'thermal', '04-11': 'kiln',
+  '09-01':'bench', '09-05':'bandsaw', '09-11':'speedMill', '10-01':'rack', '10-06':'smallKiln', '10-10':'treatment',
+};
 
 export function modifiers(owns: ReadonlySet<string>) {
   const has = (id: string) => owns.has(id);
@@ -40,6 +44,10 @@ export function modifiers(owns: ReadonlySet<string>) {
     ash: has('04-04'), burnSlots: (has('04-05') ? 2 : 1) + (has('04-10') ? 2 : 0), sortDry: has('04-06'),
     stoker: has('04-08'), carbon: has('04-09'), heatReuse: has('04-11'),
     sharpening: has('05-03') ? .80 : 1, axeForce: has('05-04') ? 1.74 : 1, crosscut: has('05-05'),
+    benchCrank:has('09-01'), logClamp:has('09-02'), bladeGuide:has('09-03'), offcuts:has('09-05'), feeder:has('09-06'),
+    precision:has('09-07'), twinBlade:has('09-08'), debarker:has('09-09'), cutPatterns:has('09-11'),
+    canopy:has('10-01'), moistureGauge:has('10-02'), dryingFan:has('10-03'), sheltered:has('10-04'), airflow:has('10-06'),
+    surfaceSander:has('10-08'), sortingCamera:has('10-10'), smartKiln:has('10-11'), certified:has('10-12'),
     chain: has('05-07') ? .68 : 1, heavyTeeth: has('05-09') ? 1.35 : 1, wedges: has('05-10'), forestryMastery: has('05-12'),
   };
 }

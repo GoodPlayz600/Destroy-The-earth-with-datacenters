@@ -9,7 +9,7 @@ import './style.css';
 import { Vector3 } from 'three';
 import { SIZE, facilities, recipes, species, tools, vehicles } from './catalog';
 import type { Facility, Tool, VehicleType } from './catalog';
-import { Campaign, cargoMass, storageSite } from './campaign';
+import { Campaign, cargoMass, takesLogs } from './campaign';
 import type { Log, Ride, Save, Site } from './campaign';
 import { clamp, distance, height, indexAt } from './land';
 import type { Point, Tree } from './land';
@@ -83,13 +83,21 @@ function open(target:Page) {
   ui.show(target);
   if(target==='settings')void refreshArchives();
 }
+function pointerUnavailable() {
+  if(!active()||prefs.look!=='pointer'||toastDelay>performance.now())return;
+  toastDelay=performance.now()+3500;
+  show('Pointer lock unavailable · hold right mouse to look, or choose drag look in Settings');
+}
 function acquirePointer() {
-  if(prefs.look!=='pointer'||onTouch||hasLock()||!canvas.requestPointerLock) return;
+  if(prefs.look!=='pointer'||onTouch||hasLock()) return;
+  if(!canvas.requestPointerLock){pointerUnavailable();return;}
   try {
     const request=canvas.requestPointerLock() as Promise<void>|undefined;
-    request?.catch(()=>{if(prefs.look==='pointer')show('Click the world to capture the cursor, or choose drag look in Settings');});
-  } catch { show('Pointer lock unavailable. Use right-mouse drag to look around.'); }
+    request?.catch(pointerUnavailable);
+  } catch { pointerUnavailable(); }
 }
+document.addEventListener('pointerlockerror',pointerUnavailable);
+
 function resume() {
   recording=undefined;
   page=undefined;
@@ -264,7 +272,7 @@ function release() {
   const log=held.log;
   letGo();
   for(const s of game.sites) {
-    const sink=s.kind==='fire'||s.kind==='market'||storageSite(s.kind)||['bench','mill','chipper','charcoal'].includes(s.kind);
+    const sink=takesLogs(s.kind);
     if(sink&&game.acceptLog(s,log)) {
       show(s.kind==='fire'?'Log accepted · burn in progress':'Timber delivered to '+facilities[s.kind].name);
       void persist();
@@ -491,7 +499,7 @@ function targetHint():{hint?:Hint;point?:Point} {
   const t=treeTarget(),log=nearLog(2.75),site=nearSite(3.6),v=nearRide(),p=game.player;
   if(ride)return { hint:{key:key('ride'),title:vehicles[ride.kind].name,detail:`${Math.floor(ride.fuel)}% fuel · ${Math.round(cargoMass(game.logs.values(),ride.id))} kg · ${key('load')} unload${ride.kind==='dozer'?' · Swing to strip soil':''}`}};
   if(held){
-    const destination=game.sites.find(s=>distance(held!.log,s)<facilities[s.kind].size+.80&&(storageSite(s.kind)||['fire','market','bench','mill','chipper','charcoal'].includes(s.kind)));
+    const destination=game.sites.find(s=>distance(held!.log,s)<facilities[s.kind].size+.80&&takesLogs(s.kind));
     if(destination)return {point:destination,hint:{key:held.mode==='hand'?key('interact'):key('drop'),title:facilities[destination.kind].name,
       detail:destination.kind==='fire'&&game.mods.scale?`Release to deliver · estimated $${game.fireValue(held.log)}`:'Release the log here to deliver'}};
     return {};

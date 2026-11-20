@@ -1,6 +1,6 @@
 import { DISTRICTS, TOTAL, facilities, goods, recipes, tools, vehicles } from './catalog';
 import type { Facility, Good, Recipe, Tool, VehicleType } from './catalog';
-import { cargoMass, getQuantity, priceFor, projectPrices, storageSite } from './campaign';
+import { cargoMass, getQuantity, projectPrices, storageSite, mills } from './campaign';
 import type { Campaign, Project, Site } from './campaign';
 import { conversionLabel, districtName, soilColors, stages } from './land';
 import type { Point } from './land';
@@ -321,8 +321,10 @@ export class UI {
     this.panel('Construction','Choose a facility, then aim at a clear footprint and swing to place it.',el('div','panel-content',
       section('Facilities',...Object.entries(facilities).map(([k,item])=>{
         const kind=k as Facility,recipe:Recipe|undefined=Object.hasOwn(recipes,kind)?recipes[kind as keyof typeof recipes]:undefined;
-        const locked=item.requires&&!g.sites.some(s=>s.kind===item.requires);
-        const parts=[recipe?.name,item.supply?`${item.supply} kW grid output`:undefined,(recipe?.power??item.power)?`${recipe?.power??item.power} kW draw`:undefined,locked?`Requires ${facilities[item.requires!].name}`:undefined].filter(Boolean);
+        const missing=item.requires&&!g.sites.some(s=>s.kind===item.requires);
+        const unresearched=item.research&&!g.ownedUpgrades.has(item.research);
+        const locked=missing||unresearched;
+        const parts=[recipe?.name,item.supply?`${item.supply} kW grid output`:undefined,(recipe?.power??item.power)?`${recipe?.power??item.power} kW draw`:undefined,missing?`Requires ${facilities[item.requires!].name}`:unresearched?'Requires facility research':undefined].filter(Boolean);
         return row(item.name,parts.join(' · '),btn(cash(item.price),()=>this.c.build(kind),g.cash<item.price||Boolean(locked)));
       })),
       section('Transport',...Object.entries(vehicles).map(([k,item])=>row(item.name,`${item.capacity} kg payload · ${item.motor?'Motorized':'Manual'}`,
@@ -419,13 +421,19 @@ export class UI {
         row('Timber Exchange','One unit of green timber',el('strong','','~$26')),
         row('Field Sawbench','Two green boards, sold at the exchange',el('strong','','~$71'))),
       section('Sell from your bag',...g.stock.map(lot=>row(goods[lot.good][0],`${lot.quantity} units`,btn('Sell one',()=>{g.sellInventory(lot.good,1,lot);this.site();}),
-        btn(`Sell batch · ${cash(priceFor(lot))}`,()=>{g.sellInventory(lot.good,lot.quantity,lot);this.site();})))),
+        btn(`Sell batch · ${cash(g.marketValue(lot))}`,()=>{g.sellInventory(lot.good,lot.quantity,lot);this.site();})))),
       section('Freight contracts',...g.contracts.slice(0,4).map(deal=>row(goods[deal.good][0],
         `${deal.quantity} units · ${deal.done?'Closed':deal.failed?'Expired':duration(deal.deadline-g.clock)+' remaining'}`,
         btn('Fulfill · '+cash(deal.payout),()=>{g.fulfill(deal);this.site();},deal.done||deal.failed||getQuantity(g.stock,deal.good)<deal.quantity))),
-        ...(['boards','dry','crates','paper','compute'] as Good[]).map(kind=>btn('Contract · '+goods[kind][0],()=>{g.acceptContract(kind);this.site();},g.contracts.some(c=>!c.done&&!c.failed)))));
+        ...(['boards','dry','crates','paper','compute',...(g.mods.certified?['finished','treated']:[])] as Good[]).map(kind=>btn('Contract · '+goods[kind][0],()=>{g.acceptContract(kind);this.site();},g.contracts.some(c=>!c.done&&!c.failed)))));
     } else {
       content.append(section('Operation',row('Run schedule',s.on?'Enabled while in the field':'Stopped',btn(s.on?'Stop':'Start',()=>{s.on=!s.on;this.site();})),
+        s.kind==='bench'&&g.mods.benchCrank?row('Manual crank','Start a faster hand-sawn batch from the input buffer',
+          btn('Crank saw',()=>{if(g.crankBench(s))this.site();},Boolean(s.jobs.length)||getQuantity(s.input,'timber')===0)):undefined,
+        g.mods.cutPatterns&&mills.includes(s.kind)?row('Cut pattern',s.layout==='volume'?'Maximize volume':s.layout==='quality'?'Select high-grade cuts':'Standard throughput',
+          btn('Cycle',()=>{s.layout=s.layout==='volume'?'quality':s.layout==='quality'?undefined:'volume';this.site();})):undefined,
+        g.mods.sortingCamera?row('Sorting gate',s.sortHigh?'Route high-grade batches only':'Route all compatible stock',
+          btn('Change',()=>{s.sortHigh=!s.sortHigh;this.site();})):undefined,
         def.supply?row('Fuel',Math.floor(s.fuel)+'%',btn('Refuel · $25',()=>{if(g.cash>=25){g.finance(-25,'Generator fuel');s.fuel=100;this.site();}},g.cash<25||s.fuel===100)):undefined,
         s.kind==='pump'||s.kind==='tank'?row('Cooling water',Math.floor(s.water??0)+' L stored · feed a nearby compute campus or extend with pipe'):undefined,
         s.kind==='data'?row('Cooling draw','Requires 13 L/s. Link to a powered pump or reservoir within 46 m per pipeline segment.'):undefined,
@@ -433,7 +441,7 @@ export class UI {
         ...s.jobs.map(job=>row(goods[job.good][0],`${Math.ceil(Math.max(0,job.remaining))}s remaining`))),
       section('Output',
         s.output.length?undefined:sub('No batches ready. Resume play to run production.'),
-        ...s.output.map(lot=>row(goods[lot.good][0],`${lot.quantity} units · ${Math.floor(lot.quality*100)}% grade`,
+        ...s.output.map(lot=>row(goods[lot.good][0],`${lot.quantity} units · ${Math.floor(lot.quality*100)}% grade${g.mods.moistureGauge?' · '+Math.round(lot.moisture*100)+'% moisture':''}`,
           btn('Take one',()=>{g.transfer(s,lot.good,1,true);this.site();}),btn('Take batch',()=>{g.transfer(s,lot.good,lot.quantity,true);this.site();})))),
       section('Feed from your bag',...g.stock.filter(lot=>storageSite(s.kind)||recipe?.input?.[0]===lot.good).map(lot=>row(goods[lot.good][0],`${lot.quantity} units available`,
         btn('Feed one',()=>{g.transfer(s,lot.good,1,false);this.site();}),btn('Feed batch',()=>{g.transfer(s,lot.good,lot.quantity,false);this.site();})))),

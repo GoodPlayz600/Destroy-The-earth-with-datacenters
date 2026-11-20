@@ -2,4 +2,4 @@
 
 **Built, needs browser review**
 
-- Review the actual flyover, completed-save reload and New Game+ in a browser. Run ordinary pacing, accessibility and touch playtests from the knife through the final cleanup.
+- Complete the browser regression check for the flyover, completed-save reload and New Game+ archive recovery. Run ordinary pacing, accessibility and touch playtests from the knife through the final cleanup.
