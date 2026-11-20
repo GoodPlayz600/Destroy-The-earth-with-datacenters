@@ -29,6 +29,10 @@ export const goods = {
   chips: ['Woodchips', 13, '#d9a477'], pulp: ['Pulp', 29, '#c2c5aa'],
   paper: ['Paper rolls', 105, '#e0d7a9'], charcoal: ['Charcoal', 32, '#495150'],
   pellets: ['Fuel pellets', 74, '#ad7a4f'], plywood: ['Plywood', 105, '#ad8471'],
+  pallet: ['Timber pallets', 146, '#a7794b'], laminate: ['Laminated components', 189, '#be9765'],
+  turned: ['Turned wood parts', 165, '#b78756'], cabinets: ['Cabinetry', 370, '#aa784b'],
+  finishedCabinet: ['Finished cabinetry', 560, '#85634d'], floors: ['Floor panels', 208, '#a98567'],
+  modular: ['Modular furniture', 780, '#ac8674'],
   finished: ['Planed lumber', 68, '#dab380'], treated: ['Treated outdoor lumber', 122, '#966d51'],
   ore: ['Crushed stone', 32, '#85877d'], cement: ['Cement', 86, '#bdc3bb'],
   compute: ['Compute batches', 345, '#70babc'],
@@ -37,12 +41,21 @@ export type Good = keyof typeof goods;
 export type Stack = { good: Good; quantity: number; quality: number; moisture: number };
 export type Recipe = {
   name: string; input?: readonly [Good, number]; output: readonly [Good, number];
-  time: number; power: number; moisture?: number; minQuality?: number; maxMoisture?: number;
+  time: number; power: number; secondary?: readonly [Good, number]; labor?: number; moisture?: number; minQuality?: number; maxMoisture?: number;
 };
 export const recipes = {
   bench: { name: 'Rip timber', input: ['timber', 1], output: ['boards', 2], time: 4, power: 0 },
   rack: { name: 'Air dry boards', input: ['boards', 2], output: ['dry', 2], time: 21, power: 0, moisture: .18 },
   workshop: { name: 'Assemble crates', input: ['boards', 2], output: ['crates', 1], time: 12, power: 0 },
+  carpentry: { name: 'Hand-build crate batches', input: ['boards', 3], output: ['crates', 2], time: 14, power: 0 },
+  pallet: { name: 'Assemble standard pallets', input: ['boards', 3], output: ['pallet', 2], time: 14, power: 2 },
+  laminate: { name: 'Press laminated components', input: ['dry', 3], output: ['laminate', 2], time: 14, power: 5 },
+  lathe: { name: 'Turn wooden parts', input: ['dry', 3], output: ['turned', 3], time: 14, power: 3 },
+  cabinet: { name: 'Join cabinet parts', input: ['finished', 3], output: ['cabinets', 2], time: 17, power: 6, minQuality: .75 },
+  finishBooth: { name: 'Finish cabinet surfaces', input: ['cabinets', 2], output: ['finishedCabinet', 2], time: 14, power: 4, moisture: .11 },
+  veneer: { name: 'Press prepared veneer into plywood', input: ['finished', 4], output: ['plywood', 5], time: 18, power: 8 },
+  floor: { name: 'Mill floor panels', input: ['plywood', 4], output: ['floors', 4], time: 16, power: 10 },
+  modular: { name: 'Assemble modular furniture', input: ['laminate', 3], secondary: ['turned', 2], output: ['modular', 2], time: 20, power: 12, labor: 58, minQuality: .78 },
   bandsaw: { name: 'Compact bandsaw milling', input: ['timber', 1], output: ['boards', 3], time: 5, power: 4 },
   speedMill: { name: 'High-speed sawline', input: ['timber', 4], output: ['boards', 11], time: 7, power: 13 },
   millComplex: { name: 'Twin industrial sawline', input: ['timber', 4], output: ['boards', 12], time: 8, power: 20 },
@@ -61,10 +74,13 @@ export const recipes = {
   plywood: { name: 'Press plywood', input: ['boards', 3], output: ['plywood', 2], time: 12, power: 5 },
   quarry: { name: 'Crush stone', output: ['ore', 4], time: 22, power: 4 },
   cement: { name: 'Bake cement', input: ['ore', 3], output: ['cement', 3], time: 16, power: 7 },
+  serverRack: { name: 'Process local compute', output: ['compute', 1], time: 31, power: 5 },
+  serverHall: { name: 'Process modular server batches', output: ['compute', 4], time: 29, power: 28 },
+  hyperscale: { name: 'Process hyperscale contract', output: ['compute', 10], time: 31, power: 81 },
   data: { name: 'Process compute contract', output: ['compute', 2], time: 24, power: 12 },
 } as const satisfies Record<string, Recipe>;
 
-export type Facility = keyof typeof recipes | 'fire' | 'market' | 'depot' | 'railDepot' | 'dronePad' | 'generator' | 'substation' | 'pump' | 'pipe' | 'tank' | 'grazing' | 'thermal' | 'dryer' | 'forestry' | 'road' | 'belt' | 'rail';
+export type Facility = keyof typeof recipes | 'fire' | 'market' | 'depot' | 'railDepot' | 'dronePad' | 'generator' | 'substation' | 'pump' | 'pipe' | 'tank' | 'coolTower' | 'grazing' | 'thermal' | 'dryer' | 'forestry' | 'road' | 'belt' | 'rail';
 type Building = {
   name: string; price: number; color: string; size: number; requires?: Facility; research?: string;
   effect?: 'fire' | 'pump' | 'grazing' | 'quarry' | 'thermal' | 'dryer' | 'forestry' | 'data';
@@ -79,6 +95,15 @@ export const facilities: Record<Facility, Building> = {
   depot: { name: 'Freight Depot', price: 520, color: '#76807c', size: 4 },
   railDepot: { name: 'Regional Rail Depot', price: 1600, color: '#8a8170', size: 4.5, requires: 'depot' },
   dronePad: { name: 'Cargo Drone Pad', price: 2300, color: '#6e7d68', size: 3.5, requires: 'depot', power: 5 },
+  carpentry: { name: 'Carpenter Workbench', price: 295, color: '#9b784e', size: 2.8, requires: 'workshop', research: '11-01' },
+  pallet: { name: 'Pallet Assembly Jig', price: 530, color: '#9a8660', size: 3.1, requires: 'carpentry', research: '11-03' },
+  laminate: { name: 'Wood Glue Press', price: 690, color: '#99936d', size: 3.2, requires: 'carpentry', research: '11-04' },
+  lathe: { name: 'Craftsman’s Lathe', price: 1200, color: '#a3815c', size: 3.3, requires: 'carpentry', research: '11-06' },
+  cabinet: { name: 'Cabinet Shop', price: 2900, color: '#a47b60', size: 4.5, requires: 'lathe', research: '11-07' },
+  finishBooth: { name: 'Finishing Booth', price: 3100, color: '#a69176', size: 4.5, requires: 'cabinet', research: '11-08' },
+  veneer: { name: 'Industrial Plywood Press', price: 5900, color: '#a4806d', size: 5, requires: 'laminate', research: '11-09' },
+  floor: { name: 'Flooring Line', price: 9100, color: '#9c9c72', size: 6, requires: 'veneer', research: '11-10' },
+  modular: { name: 'Modular Furniture Factory', price: 38000, color: '#928670', size: 7, requires: 'cabinet', research: '11-11' },
   bandsaw: { name: 'Compact Bandsaw Mill', price: 520, color: '#629082', size: 3.2, requires: 'bench', research: '09-04' },
   speedMill: { name: 'High-Speed Sawmill', price: 7900, color: '#839984', size: 5, requires: 'bandsaw', research: '09-10' },
   millComplex: { name: 'Industrial Mill Complex', price: 14600, color: '#66877d', size: 6, requires: 'speedMill', research: '09-12' },
@@ -106,6 +131,10 @@ export const facilities: Record<Facility, Building> = {
   thermal: { name: 'Thermal Plant', price: 1750, color: '#c08250', size: 6, effect: 'thermal', reach: 14, supply: 48 },
   dryer: { name: 'District Desiccator', price: 5100, color: '#c4985d', size: 6, effect: 'dryer', reach: 25, power: 14 },
   forestry: { name: 'Forestry Crew Base', price: 1250, color: '#859065', size: 4, effect: 'forestry', reach: 11 },
+  serverRack: { name: 'Garage Server Rack', price: 280, color: '#58908a', size: 2, research: '22-01' },
+  serverHall: { name: 'Modular Server Hall', price: 8800, color: '#739a9c', size: 8, power: 28, requires: 'data', research: '22-04', effect: 'data', reach: 19 },
+  coolTower: { name: 'Mega-Cooling Tower', price: 45000, color: '#81949b', size: 7, requires: 'tank', research: '22-11' },
+  hyperscale: { name: 'Hyperscale Desert Cloud', price: 360000, color: '#8c9691', size: 13, power: 81, requires: 'coolTower', research: '22-12', effect: 'data', reach: 31 },
   data: { name: 'Compute Campus', price: 3100, color: '#759096', size: 6, effect: 'data', reach: 15, power: 12, requires: 'pump' },
   road: { name: 'Freight Road', price: 22, color: '#6f736a', size: 2 },
   belt: { name: 'Freight Conveyor', price: 120, color: '#7d876b', size: 2, requires: 'depot' },

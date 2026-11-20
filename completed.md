@@ -6,7 +6,7 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 
 - Vite and TypeScript production build passed.
 - Chromium and Firefox ran the live 3D menu, terrain movement, held tool, starting harvest, pause and resized UI. Menu and field screenshots reviewed.
-- Three geometry quality presets, keyboard and touch input, ambient sound, day/night and rain are wired in.
+- Firefox captured genuine pointer lock. Three geometry quality presets, keyboard and touch controls, ambient sound, day/night and rain are implemented.
 
 ## [M1 — Butter knife, chopping, falling, dragging, fire sale](progress/M1/completed.md)
 
@@ -20,7 +20,7 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 
 ## [M3 — Game economy and progression foundation](progress/M3/completed.md)
 
-- All 288 catalog IDs and prerequisite references load. There are 79 purchasable upgrades across knife work, handling, primitive logistics, burning, forestry, sawmilling and lumber finishing.
+- All 288 catalog IDs and prerequisite references load. There are 103 purchasable upgrades across nine branches, including tool work, hauling, woodworking, mill production, material finishing and compute.
 - Wallet, receipts, journal, timed contracts, IndexedDB autosave and file import/export work. Upgrade and tool wear persistence is tested.
 
 ## [M4 — Vehicles and a real logging operation](progress/M4/completed.md)
@@ -30,7 +30,7 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 
 ## [M5 — Industrial processing and factory network](progress/M5/completed.md)
 
-- Twenty-two recipes cover timber, boards, kiln drying, crates, furniture, engineered beams, pulp/paper, charcoal, pellets, plywood, treated lumber, stone, cement and compute.
+- Thirty-four recipes cover timber, boards, kiln drying, crates, pallets, cabinetry, modular furniture, engineered beams, pulp/paper, charcoal, pellets, plywood, treated lumber, floor panels, stone, cement and compute.
 - Output limits, input quality and power are simulation-tested. Sawmill research changes yield, chip recovery, output grade and concurrent batches. Freight tests preserve shipments across a reload.
 
 ## [M6 — World conversion and map progress](progress/M6/completed.md)
@@ -40,7 +40,7 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 
 ## [M7 — Heavy industry and multiple victory strategies](progress/M7/completed.md)
 
-- Tested independent drainage, quarrying and thermal district campaigns. Data campuses use bounded water from powered pumps and reservoirs plus electricity.
+- Tested independent drainage, quarrying and thermal district campaigns. Data centers reserve live compute orders, use bounded cooling, draw power from connected generators, and only pay on contract fulfillment.
 - A dozer can strip soil, and log crews and heavy cutters operate in the field. Cement, quarry, thermal and grazing production affect district cells.
 
 ## [M8 — Massive late-game depth](progress/M8/completed.md)
@@ -51,9 +51,10 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 ## [M9 — Actual 100% ending and final polish](progress/M9/completed.md)
 
 - A 65,535-cell test stayed at 99.99% and the last cell triggered exactly one victory. A separate campaign test built the projects for all 64 districts, simulated all 65,536 cells, paid each completion bond once and reloaded a completed save.
-- Flyover, lifetime statistics, postgame and archived New Game+ slots are wired to authoritative victory.
+- Firefox passed the final-cell flyover, lifetime statistics, New Game+, archive restore and suppression of a replayed ending.
 
 ## Browser evidence
 
 - [Chromium and Firefox opening review](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions/runs/44776791913).
+- [Firefox refining, pointer lock and finale review](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions/runs/44779594461/job/136438422591).
 - [Latest GitHub Actions runs](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions).

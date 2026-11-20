@@ -1,6 +1,7 @@
 import * as T from 'three';
 import R from '@dimforge/rapier3d-compat';
 import { CELL, SIZE, facilities, species } from './catalog';
+import { computeSites } from './campaign';
 import type { Campaign, Log, Ride, Site } from './campaign';
 import { clamp, distance, hash, height, indexAt, soilColors, treesIn } from './land';
 import type { Point, Tree } from './land';
@@ -15,7 +16,7 @@ const buildTint = new T.MeshBasicMaterial({ color:'#ecd49d', wireframe:true, tra
 type Chunk = { x: number; z: number; ground: T.Mesh<T.BufferGeometry>; cover: T.Group; cells: number[]; signature: string; collider?: R.Collider; trunks: R.Collider[]; near: boolean; };
 type Falling = { tree: Tree; model: T.Group; age: number; dir: T.Vector3; };
 type SiteView = ReturnType<typeof siteModel> & { stock?: T.Group; batch?: T.Group; signature?: string };
-type Particle = { mesh: T.Mesh; velocity: T.Vector3; life: number; total: number; cloud?: boolean };
+type Particle = { mesh: T.Mesh; velocity: T.Vector3; life: number; total: number; cloud?: boolean; smoke?:boolean };
 
 export class Scene {
   renderer: T.WebGLRenderer;
@@ -380,13 +381,13 @@ export class Scene {
 
   isFalling(tree: Tree) { return this.fallers.has(tree.id); }
 
-  impact(point:T.Vector3, kind:'wood'|'dust'|'ember', amount=8) {
-    const color=kind==='wood'?'#c39863':kind==='ember'?'#efad56':'#a4a37b';
+  impact(point:T.Vector3, kind:'wood'|'dust'|'ember'|'smoke', amount=8) {
+    const color=kind==='wood'?'#c39863':kind==='ember'?'#efad56':kind==='smoke'?'#abac93':'#a4a37b';
     for(let n=0;n<amount && this.particles.length<160;n++) {
       const obj=new T.Mesh(new T.TetrahedronGeometry(.08+Math.random()*.095),new T.MeshBasicMaterial({color,transparent:true,opacity:1}));
       obj.position.copy(point);
-      const life=kind==='ember' ? 1+Math.random()*.8 : .38+Math.random()*.65;
-      this.particles.push({mesh:obj,velocity:new T.Vector3((Math.random()-.5)*3.5,kind==='ember' ? 1+Math.random() : Math.random()*3,(Math.random()-.5)*3.5),life,total:life,cloud:kind==='ember'});
+      const life=kind==='smoke'?1.9+Math.random()*1.1:kind==='ember'?1+Math.random()*.8:.38+Math.random()*.65;
+      this.particles.push({mesh:obj,velocity:new T.Vector3((Math.random()-.5)*3.5,kind==='ember'||kind==='smoke' ? 1+Math.random() : Math.random()*3,(Math.random()-.5)*3.5),life,total:life,cloud:kind==='ember'||kind==='smoke',smoke:kind==='smoke'});
       this.world.add(obj);
     }
   }
@@ -487,9 +488,11 @@ export class Scene {
         }
         view.glow!.intensity=8*hot+Math.sin(time*11)*2;
         if(Math.random()<(site.jobs.length?.21:.065) && distance(site,at)<24) this.impact(new T.Vector3(site.x+.34*Math.random(),height(site.x,site.z)+.44,site.z),'ember',1);
+        if(this.quality!=='low'&&Math.random()<(site.jobs.length?.10:.021)&&distance(site,at)<28)
+          this.impact(new T.Vector3(site.x+.2,height(site.x,site.z)+.80,site.z),'smoke',1);
       } else if(site.jobs.length || site.status==='Operational') {
         for(const part of view.moving) {
-          if(site.kind==='bench') part.rotation.y=time*11;
+          if(site.kind==='bench'||computeSites.includes(site.kind)) part.rotation.y=time*11;
           else part.rotation.z=time*5;
         }
       }
@@ -742,7 +745,8 @@ export class Scene {
       p.mesh.rotation.x+=dt*2.1;
       p.mesh.rotation.z+=dt*3.2;
       p.velocity.y+=p.cloud ? dt*.21 : -dt*8.5;
-      (p.mesh.material as T.MeshBasicMaterial).opacity=clamp(p.life/p.total);
+      if(p.smoke)p.mesh.scale.setScalar((1.05-p.life/p.total)*3.7+.34);
+      (p.mesh.material as T.MeshBasicMaterial).opacity=clamp(p.life/p.total)*(p.smoke?.20:1);
     }
     const toolName=this.game.tool+String(this.game.mods.prestigeKnife);
     if(toolName!==this.toolKind) {

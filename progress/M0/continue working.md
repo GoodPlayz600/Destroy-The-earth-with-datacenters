@@ -1,5 +1,5 @@
 # M0 — Website boot and 3D walking
 
-**Needs review**
+**Reviewed**
 
-- Verify pointer lock acquisition, jump, key remapping and quality changes on physical desktop hardware.
+- Test jump, remapped controls and quality presets on a broader range of desktop and touch hardware.

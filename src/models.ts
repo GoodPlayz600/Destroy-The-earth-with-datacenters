@@ -209,6 +209,44 @@ export function siteModel(kind: Facility): SiteModel {
     }
     box(fixed,dark,0,.70,-2.0,1.1,.85,.44);
     box(fixed,glass,0,.90,-1.745,.62,.29,.08);
+  } else if(kind==='serverRack'||kind==='serverHall'||kind==='data'||kind==='hyperscale') {
+    const cabinets=kind==='serverRack'?1:kind==='data'?4:kind==='serverHall'?8:16;
+    const deck=kind==='serverRack'?2.5:size*1.57;
+    box(fixed,steel,0,.16,0,deck,.31,kind==='serverRack'?1.6:deck*.86);
+    if(cabinets>1) {
+      for(const x of [-deck*.45,deck*.45])for(const z of [-deck*.37,deck*.37])box(fixed,steel,x,1.44,z,.10,2.70,.11);
+      box(fixed,paint,0,2.80,0,deck,.14,deck*.84);
+      box(fixed,paint,0,1.47,-deck*.42,deck,2.60,.18);
+      box(fixed,paint,-deck*.49,1.47,0,.18,2.60,deck*.78);
+      for(let j=0;j<9;j++)box(fixed,steel,0,2.94,(j-4)*deck*.087,deck,.08,.06);
+    }
+    for(let j=0;j<cabinets;j++) {
+      const columns=cabinets>4?cabinets/2:cabinets;
+      const x=(j%columns-(columns-1)/2)*Math.min(1.52,deck/(columns+.6));
+      const z=cabinets>4?(j<columns?-.66:1.20):0;
+      box(fixed,dark,x,1.43,z,kind==='serverRack'?.83:1.04,2.51,.76);
+      for(let k=0;k<10;k++){
+        box(fixed,steel,x,2.46-k*.192,z+.40,.86,.114,.057);
+        box(fixed,mat(k%4===0?'#d8b677':'#70baa6'),x+.26,2.46-k*.192,z+.442,.065,.033,.030);
+      }
+    }
+    if(cabinets>1)for(const x of [-deck*.34,deck*.34]){
+      cylinder(fixed,steel,x,3.14,-deck*.21,.55,.5);
+      const fan=new T.Group();
+      fan.position.set(x,3.41,-deck*.21);
+      for(let n=0;n<4;n++)box(fan,steel,0,0,0,.98,.057,.149).rotation.y=n*Math.PI/4;
+      root.add(fan);
+      moving.push(fan);
+    }
+  } else if(kind==='coolTower') {
+    cylinder(fixed,steel,0,.19,0,4.9,.34);
+    for(let n=0;n<7;n++){
+      const width=4-(Math.sin(n*Math.PI/6)*1.62);
+      cylinder(fixed,paint,0,1+n*1.08,0,width,1.17);
+      cylinder(fixed,steel,0,1.54+n*1.08,0,width+.11,.15);
+    }
+    cylinder(fixed,dark,0,8.02,0,3.65,.16);
+    for(const x of [-4.1,4.1])box(fixed,glass,x,1.01,.65,.60,1.46,.22);
   } else if (kind === 'pipe' || kind === 'tank') {
     if (kind==='pipe') {
       for (const x of [-1.4,1.4]) box(fixed,steel,x,.27,0,.26,.54,.54);
@@ -231,7 +269,7 @@ export function siteModel(kind: Facility): SiteModel {
       else box(fixed,amber,0,.087,n*.97,.085,.013,.45);
     }
     if (rail || belt) for (const x of [-1.45,1.45]) box(fixed,steel,x,belt?.53:.16,0,.11,.13,5.05);
-  } else if (kind === 'rack' || kind === 'workshop' || kind === 'bench') {
+  } else if (kind === 'rack' || kind === 'workshop' || kind === 'carpentry' || kind === 'bench') {
     for(const x of [-1.1,1.1]) for(const z of [-.6,.6]) box(fixed,steel,x,.48,z,.14,.96,.15);
     box(fixed,timber,0,.99,0,2.8,.19,1.5);
     box(fixed,paint,0,.88,0,2.85,.17,1.55);
@@ -283,8 +321,22 @@ export function productModel(good: Good, quantity: number) {
     if (good === 'crates') {
       box(root,material,(j%2)*.69,.29+Math.floor(j/2)*.55,0,.63,.55,.56);
       for (const x of [-.2,.2]) box(root,timber,(j%2)*.69+x,.29+Math.floor(j/2)*.55,.287,.075,.52,.025);
-    } else if (good === 'furniture') {
+    } else if(good==='pallet') {
+      const h=Math.floor(j/2)*.19,x=(j%2)*1.03;
+      for(const offset of [-.37,-.12,.12,.37])box(root,material,x+offset,.16+h,0,.15,.055,.86);
+      for(const z of [-.30,0,.30])box(root,timber,x,.075+h,z,.84,.105,.092);
+    } else if(good==='turned') {
+      const leg=cylinder(root,material,(j%4-.8)*.24,.23+Math.floor(j/4)*.24,z,.08,.57);
+      leg.rotation.z=Math.PI*.5;
+    } else if(good==='cabinets'||good==='finishedCabinet') {
+      const x=(j%3)*.80;
+      box(root,material,x,.44,0,.73,.87,.48);
+      box(root,mat('#9b7856'),x,.445,.25,.65,.77,.034);
+      box(root,steel,x+.22,.43,.28,.05,.17,.04);
+      if(j>=2)break;
+    } else if (good === 'furniture' || good==='modular') {
       box(root,material,0,.65,0,1.08,.15,.72);
+      if(good==='modular')for(const y of [.25,.44])box(root,material,0,y,0,1.05,.05,.64);
       for (const x of [-.44,.44]) for (const j of [-.27,.27]) box(root,material,x,.31,j,.10,.62,.10);
       break;
     } else if (good === 'paper' || good === 'pulp') {

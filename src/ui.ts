@@ -1,6 +1,6 @@
 import { DISTRICTS, TOTAL, facilities, goods, recipes, tools, vehicles } from './catalog';
 import type { Facility, Good, Recipe, Tool, VehicleType } from './catalog';
-import { cargoMass, getQuantity, projectPrices, storageSite, mills } from './campaign';
+import { cargoMass, computeSites, consumes, getQuantity, projectPrices, storageSite, mills, waterSites } from './campaign';
 import type { Campaign, Project, Site } from './campaign';
 import { conversionLabel, districtName, soilColors, stages } from './land';
 import type { Point } from './land';
@@ -420,12 +420,17 @@ export class UI {
         row('Ash Exchange','One green sapling, paid after burning',el('strong','','~$17')),
         row('Timber Exchange','One unit of green timber',el('strong','','~$26')),
         row('Field Sawbench','Two green boards, sold at the exchange',el('strong','','~$71'))),
-      section('Sell from your bag',...g.stock.map(lot=>row(goods[lot.good][0],`${lot.quantity} units`,btn('Sell one',()=>{g.sellInventory(lot.good,1,lot);this.site();}),
+      section('Sell from your bag',...g.stock.filter(lot=>lot.good!=='compute').map(lot=>row(goods[lot.good][0],`${lot.quantity} units`,btn('Sell one',()=>{g.sellInventory(lot.good,1,lot);this.site();}),
         btn(`Sell batch · ${cash(g.marketValue(lot))}`,()=>{g.sellInventory(lot.good,lot.quantity,lot);this.site();})))),
       section('Freight contracts',...g.contracts.slice(0,4).map(deal=>row(goods[deal.good][0],
-        `${deal.quantity} units · ${deal.done?'Closed':deal.failed?'Expired':duration(deal.deadline-g.clock)+' remaining'}`,
-        btn('Fulfill · '+cash(deal.payout),()=>{g.fulfill(deal);this.site();},deal.done||deal.failed||getQuantity(g.stock,deal.good)<deal.quantity))),
-        ...(['boards','dry','crates','paper','compute',...(g.mods.certified?['finished','treated']:[])] as Good[]).map(kind=>btn('Contract · '+goods[kind][0],()=>{g.acceptContract(kind);this.site();},g.contracts.some(c=>!c.done&&!c.failed)))));
+        `${deal.quantity} units${deal.grade?' · '+Math.round(deal.grade*100)+'% minimum grade':''} · ${deal.done?'Closed':deal.failed?'Expired':duration(deal.deadline-g.clock)+' remaining'}`,
+        btn('Fulfill · '+cash(deal.payout),()=>{g.fulfill(deal);this.site();},deal.done||deal.failed||getQuantity(g.stock.filter(l=>l.quality>=(deal.grade??0)),deal.good)<deal.quantity))),
+        ...(['boards','dry','crates','paper','compute',...(g.mods.certified?['finished','treated']:[])] as Good[]).map(kind=>btn('Contract · '+goods[kind][0],()=>{g.acceptContract(kind);this.site();},g.contracts.some(c=>!c.done&&!c.failed))),
+        g.mods.denseCompute?btn('Contract · High-density compute',()=>{g.acceptContract('compute',true);this.site();},
+          g.contracts.some(c=>!c.done&&!c.failed)):undefined),
+      g.mods.commissions?section('Custom-order studio',...(['finishedCabinet','floors','modular'] as Good[]).map(good=>row(goods[good][0],
+        'Commission graded stock for a specialist customer',btn('Standard',()=>{g.acceptCommission(good);this.site();},g.contracts.some(c=>!c.done&&!c.failed)),
+        btn('Premium',()=>{g.acceptCommission(good,true);this.site();},g.contracts.some(c=>!c.done&&!c.failed))))):el('span'));
     } else {
       content.append(section('Operation',row('Run schedule',s.on?'Enabled while in the field':'Stopped',btn(s.on?'Stop':'Start',()=>{s.on=!s.on;this.site();})),
         s.kind==='bench'&&g.mods.benchCrank?row('Manual crank','Start a faster hand-sawn batch from the input buffer',
@@ -435,15 +440,17 @@ export class UI {
         g.mods.sortingCamera?row('Sorting gate',s.sortHigh?'Route high-grade batches only':'Route all compatible stock',
           btn('Change',()=>{s.sortHigh=!s.sortHigh;this.site();})):undefined,
         def.supply?row('Fuel',Math.floor(s.fuel)+'%',btn('Refuel · $25',()=>{if(g.cash>=25){g.finance(-25,'Generator fuel');s.fuel=100;this.site();}},g.cash<25||s.fuel===100)):undefined,
-        s.kind==='pump'||s.kind==='tank'?row('Cooling water',Math.floor(s.water??0)+' L stored · feed a nearby compute campus or extend with pipe'):undefined,
-        s.kind==='data'?row('Cooling draw','Requires 13 L/s. Link to a powered pump or reservoir within 46 m per pipeline segment.'):undefined,
+        waterSites.includes(s.kind)?row('Cooling water',Math.floor(s.water??0)+' L stored · feed a nearby compute campus or extend with pipe'):undefined,
+        computeSites.includes(s.kind)?row('Compute scheduling',s.kind==='serverRack'?'Requires a live compute contract and electricity.':
+          'Requires a live compute contract, electricity and cooling water. Inspect the flow at the pump or reservoir.'):undefined,
+        computeSites.includes(s.kind)&&g.mods.backup?row('Battery reserve',Math.floor(s.reserve??0)+' / 700 charge'):undefined,
         s.kind==='fire'&&g.mods.carbon?row('Fire mode',s.mode==='charcoal'?'Charcoal collection':'Cash sale',btn('Switch',()=>{s.mode=s.mode==='charcoal'?'sell':'charcoal';this.site();})):undefined,
         ...s.jobs.map(job=>row(goods[job.good][0],`${Math.ceil(Math.max(0,job.remaining))}s remaining`))),
       section('Output',
         s.output.length?undefined:sub('No batches ready. Resume play to run production.'),
         ...s.output.map(lot=>row(goods[lot.good][0],`${lot.quantity} units · ${Math.floor(lot.quality*100)}% grade${g.mods.moistureGauge?' · '+Math.round(lot.moisture*100)+'% moisture':''}`,
           btn('Take one',()=>{g.transfer(s,lot.good,1,true);this.site();}),btn('Take batch',()=>{g.transfer(s,lot.good,lot.quantity,true);this.site();})))),
-      section('Feed from your bag',...g.stock.filter(lot=>storageSite(s.kind)||recipe?.input?.[0]===lot.good).map(lot=>row(goods[lot.good][0],`${lot.quantity} units available`,
+      section('Feed from your bag',...g.stock.filter(lot=>storageSite(s.kind)||consumes(recipe,lot.good)).map(lot=>row(goods[lot.good][0],`${lot.quantity} units available`,
         btn('Feed one',()=>{g.transfer(s,lot.good,1,false);this.site();}),btn('Feed batch',()=>{g.transfer(s,lot.good,lot.quantity,false);this.site();})))),
       section('Freight route',
         s.shipment?row('Shipment on the move',`${s.shipment.load.quantity} × ${goods[s.shipment.load.good][0]} · ${Math.max(0,Math.ceil(s.shipment.duration-s.shipment.elapsed))}s`):undefined,

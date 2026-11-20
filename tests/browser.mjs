@@ -132,7 +132,7 @@ try{
   await p.keyboard.down('KeyE');
   await p.locator('.hold-context').waitFor();
   await move('z',5.45);
-  await wait(()=>window.clearcutReview().logs.some(l=>Math.abs(l.z-3.75)<1.3));
+  await p.getByText('Release the log here to deliver',{exact:true}).waitFor({timeout:42000});
   await p.keyboard.up('KeyE');
   await wait(()=>window.clearcutReview().sites.some(s=>s.kind==='bench'&&s.output.some(l=>l.good==='boards'&&l.quantity===2)));
   await press('KeyE');
@@ -193,7 +193,10 @@ try{
   const page=browser?.contexts()[0]?.pages()[0];
   if(page){
     await page.screenshot({path:`${result}/${engine}-failure.png`,timeout:3000}).catch(()=>{});
-    console.error(await page.evaluate(()=>({text:document.body.innerText.slice(0,2300),save:window.clearcutReview?.()})).catch(()=>null));
+    console.dir(await page.evaluate(()=>{
+      const save=window.clearcutReview?.();
+      return {text:document.body.innerText.slice(0,2300),save:save?{...save,soil:save.soil.slice(0,8)}:undefined};
+    }).catch(()=>null),{depth:4,maxArrayLength:20});
   }
   throw error;
 } finally {

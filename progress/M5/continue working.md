@@ -2,4 +2,4 @@
 
 **Needs work**
 
-- Validate the visible factory route through inputs, buyers and warehouse storage in a browser. Complete the planned sorting rules, physical transfers and 100-upgrade milestone.
+- Validate the visible factory route through inputs, buyers and warehouse storage in a browser. Review the planned sorting rules and physical transfers. The catalog now exposes more than 100 functional upgrades.

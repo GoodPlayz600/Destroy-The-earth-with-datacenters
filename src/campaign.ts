@@ -11,15 +11,18 @@ export const storageSite = (kind:Facility) => kind==='depot'||kind==='railDepot'
 export type Shipment = { mode:'rail'|'air'; load:Stack; target:string; path:Point[]; duration:number; elapsed:number; };
 type Batch = Stack & { remaining: number; payout?: number; offcut?: number };
 export const mills: Facility[] = ['bench','bandsaw','mill','speedMill','millComplex'];
+export const computeSites:Facility[]=['serverRack','serverHall','data','hyperscale'];
+export const waterSites:Facility[]=['pump','tank','coolTower'];
 const kilns: Facility[] = ['smallKiln','kiln'];
+export const consumes = (recipe: Recipe | undefined, good: Good) => recipe?.input?.[0]===good||recipe?.secondary?.[0]===good;
 export const takesLogs=(kind:Facility) => storageSite(kind)||kind==='fire'||kind==='market'||(isRecipe(kind)&&(recipes[kind] as Recipe).input?.[0]==='timber');
 export type Site = Point & {
   id: string; kind: Facility; yaw?:number; input: Stack[]; output: Stack[]; jobs: Batch[];
-  on: boolean; fuel: number; status: string; water?: number; yieldCarry?:number; layout?: 'quality'|'volume'; sortHigh?:boolean; link?: string; haul?: Haul; shipment?:Shipment; mode?: 'sell' | 'charcoal';
+  on: boolean; fuel: number; status: string; water?: number; reserve?:number; uptime?:number; service?:number; yieldCarry?:number; layout?: 'quality'|'volume'; sortHigh?:boolean; link?: string; haul?: Haul; shipment?:Shipment; mode?: 'sell' | 'charcoal';
 };
 export type Ride = Point & { id: string; kind: VehicleType; yaw: number; fuel: number; wear: number };
 export type Ledger = { date: number; note: string; amount: number };
-export type Contract = { good: Good; quantity: number; deadline: number; payout: number; done: boolean; failed: boolean };
+export type Contract = { good: Good; quantity: number; deadline: number; payout: number; done: boolean; failed: boolean; dense?:boolean; grade?:number };
 export type Project = { kind: 'watershed' | 'quarry' | 'thermal'; district: number; phase: number; complete?: boolean };
 type RecordRow = { hits: number; harvest: number; fire: number; sold: number; produced: number; earned: number; spent: number; miles: number };
 export type Save = ReturnType<Campaign['snapshot']>;
@@ -253,7 +256,7 @@ export class Campaign {
   }
 
   capacity(site: Site) {
-    return storageSite(site.kind) ? 260 : site.kind === 'fire' ? 32 : site.kind === 'bench' || site.kind === 'rack' ? 20 : 42;
+    return storageSite(site.kind) ? 260 : computeSites.includes(site.kind)&&this.mods.rackManagement?76 : site.kind === 'fire' ? 32 : site.kind === 'bench' || site.kind === 'rack' ? 20 : 42;
   }
 
   transfer(site: Site, good: Good, quantity: number, retrieve: boolean) {
@@ -261,7 +264,7 @@ export class Campaign {
     const destination = retrieve ? this.stock : storageSite(site.kind) ? site.output : site.input;
     const capacity = retrieve ? 150 : this.capacity(site);
     const recipe: Recipe | undefined = isRecipe(site.kind) ? recipes[site.kind] : undefined;
-    if (!retrieve && !storageSite(site.kind) && recipe?.input?.[0] !== good) return false;
+    if (!retrieve && !storageSite(site.kind) && !consumes(recipe,good)) return false;
     if (getQuantity(destination) + quantity > capacity) return false;
     const stack = take(source, good, quantity);
     return stack ? put(destination, stack, capacity) : false;
@@ -280,6 +283,7 @@ export class Campaign {
   }
 
   sellInventory(good: Good, quantity: number, lot?:Stack) {
+    if(good==='compute')return false;
     if(lot) {
       const index=this.stock.indexOf(lot);
       if(index<0||lot.good!==good||!Number.isInteger(quantity)||quantity<=0||quantity>lot.quantity) return false;
@@ -295,16 +299,26 @@ export class Campaign {
     return true;
   }
 
-  acceptContract(good: Good) {
+  acceptContract(good: Good, dense=false) {
+    if(dense&&(good!=='compute'||!this.mods.denseCompute))return false;
     if (this.contracts.some(c => !c.done && !c.failed)) return false;
-    const quantity = good === 'compute' ? 12 : ['finished','treated'].includes(good)?16:8;
-    this.contracts.unshift({ good, quantity, deadline: this.clock + 360, payout: Math.round(goods[good][1] * quantity * 1.5), done: false, failed: false });
+    const quantity = good === 'compute' ? (dense?54:this.mods.uplink?22:12) : ['finished','treated'].includes(good)?16:8;
+    this.contracts.unshift({ good, quantity, deadline: this.clock + (dense?1200:good==='compute'?480:360), payout: Math.round(goods[good][1] * quantity * (dense?2.5:1.5)), done: false, failed: false, dense });
     this.contracts.length = Math.min(this.contracts.length, 25);
     return true;
   }
 
+  acceptCommission(good:Good,premium=false) {
+    if(!this.mods.commissions||!['finishedCabinet','floors','modular'].includes(good)||this.contracts.some(c=>!c.done&&!c.failed)) return false;
+    const quantity=premium?25:12;
+    this.contracts.unshift({good,quantity,deadline:this.clock+(premium?990:570),payout:Math.round(goods[good][1]*quantity*(premium?2.15:1.65)),
+      done:false,failed:false,grade:premium?.92:.81});
+    this.contracts.length=Math.min(this.contracts.length,25);
+    return true;
+  }
+
   fulfill(contract: Contract) {
-    if (contract.done || contract.failed || contract.deadline <= this.clock || !take(this.stock, contract.good, contract.quantity)) return false;
+    if (contract.done || contract.failed || contract.deadline <= this.clock || !take(this.stock,contract.good,contract.quantity,contract.grade)) return false;
     contract.done = true;
     this.finance(contract.payout, `Contract fulfilled · ${goods[contract.good][0]}`);
     this.notice(`Contract complete · +$${contract.payout}`);
@@ -439,7 +453,7 @@ export class Campaign {
     if(!path){site.status=rail?'Freight blocked · broken track':'Freight blocked · out of range';return;}
     const length=path.slice(1).reduce((n,p,index)=>n+distance(p,path[index]),0);
     const recipe: Recipe | undefined = isRecipe(target.kind) ? recipes[target.kind] : undefined;
-    const lot=site.output.find(l=>storageSite(target.kind)||target.kind==='market'||recipe?.input?.[0]===l.good);
+    const lot=site.output.find(l=>storageSite(target.kind)||target.kind==='market'&&l.good!=='compute'||consumes(recipe,l.good));
     if(!lot){site.status=site.output.length?'Freight blocked · incompatible cargo':'Waiting for freight';return;}
     const available=target.kind==='market'?capacity:this.capacity(target)-getQuantity(storageSite(target.kind)?target.output:target.input);
     const amount=Math.min(lot.quantity,capacity,available);
@@ -454,9 +468,10 @@ export class Campaign {
   }
 
   private supplyCooling(site:Site,dt:number) {
-    const requested=13*dt;
-    const stores=this.sites.filter(source=>source.on&&(source.kind==='pump'||source.kind==='tank')
-      &&this.reachable(site,source,['pipe'],46));
+    const base={data:13,serverHall:25,hyperscale:98}[site.kind as 'data'|'serverHall'|'hyperscale']??0;
+    if(!base)return true;
+    const requested=base*dt*(this.mods.airFans?.91:1)*(this.mods.liquidLoop?1.36:1);
+    const stores=this.sites.filter(source=>source.on&&waterSites.includes(source.kind)&&this.reachable(site,source,['pipe'],this.mods.campus?65:46));
     if(stores.reduce((total,source)=>total+(source.water??0),0)<requested) return false;
     let remaining=requested;
     for(const source of stores) {
@@ -476,10 +491,19 @@ export class Campaign {
     const offcut=mill&&site.kind!=='bench'&&this.mods.offcuts?1:0;
     const queued=site.jobs.reduce((sum,job)=>sum+job.quantity+(job.offcut??0),0);
     if(getQuantity(site.output)+queued+quantity+offcut>this.capacity(site)) {site.status='Output full';return false;}
-    const input=recipe.input?take(site.input,...recipe.input,recipe.minQuality,recipe.maxMoisture):undefined;
-    if(recipe.input&&!input){site.status='Awaiting suitable material';return false;}
+    const first=recipe.input,second=recipe.secondary;
+    const firstCount=first?Math.max(1,first[1]-(this.mods.templates&&['joinery','cabinet','modular'].includes(site.kind)?1:0)):0;
+    const available=(good:Good)=>getQuantity(site.input.filter(lot=>lot.quality>=(recipe.minQuality??0)&&lot.moisture<=(recipe.maxMoisture??1)),good);
+    if(first&&available(first[0])<firstCount||second&&available(second[0])<second[1]){
+      site.status='Awaiting suitable material';
+      return false;
+    }
+    if(recipe.labor&&this.cash<recipe.labor){site.status='Labor budget too low';return false;}
+    if(recipe.labor)this.finance(-recipe.labor,'Furniture assembly payroll');
+    const input=first?take(site.input,first[0],firstCount,recipe.minQuality,recipe.maxMoisture):undefined;
+    const parts=second?take(site.input,second[0],second[1],recipe.minQuality,recipe.maxMoisture):undefined;
     if(carry)site.yieldCarry=clamp(carry-Math.floor(carry+1e-8));
-    let quality=(input?.quality??.91)+(site.kind==='bench'?.02:.08);
+    let quality=(parts&&input?(parts.quality+input.quality)/2:input?.quality??.91)+(site.kind==='bench'?.02:.08);
     let remaining=recipe.time, moisture=recipe.moisture??input?.moisture??.16;
     if(mill){
       if(this.mods.logClamp){remaining*=.82;quality+=.018;}
@@ -497,7 +521,14 @@ export class Campaign {
       if(this.mods.airflow)quality+=.11;
       if(this.mods.smartKiln){remaining*=.72;moisture*=.85;}
     }
+    if(this.mods.nailer&&['workshop','carpentry','pallet'].includes(site.kind))remaining*=.63;
+    if(site.kind==='finishBooth')quality+=.17;
     if(site.kind==='joinery'&&this.mods.surfaceSander)quality+=.19;
+    if(computeSites.includes(site.kind)) {
+      if(this.mods.rackManagement)remaining*=.87;
+      if(this.mods.airFans)remaining*=.78;
+      if(this.mods.liquidLoop&&site.kind!=='serverRack')remaining*=.62;
+    }
     site.jobs.push({good,quantity,quality:clamp(quality),moisture,remaining,offcut});
     site.status=recipe.name;
     return true;
@@ -507,9 +538,19 @@ export class Campaign {
     return site.kind==='bench'&&site.on&&this.mods.benchCrank&&site.jobs.length===0&&this.makeBatch(site,recipes.bench,false,true);
   }
 
+  private computeRemaining() {
+    const order=this.contracts.find(c=>c.good==='compute'&&!c.done&&!c.failed);
+    if(!order)return 0;
+    const pledged=getQuantity(this.stock,'compute')+this.sites.reduce((n,site)=>n+getQuantity(site.output,'compute')
+      +site.jobs.reduce((total,job)=>total+(job.good==='compute'?job.quantity:0),0)
+      +(site.shipment?.load.good==='compute'?site.shipment.load.quantity:0),0);
+    return Math.max(0,order.quantity-pledged);
+  }
+
   private simulateMachinery(dt: number) {
     const supply = this.sites.filter(s => s.on && facilities[s.kind].supply && s.fuel > 0).map(site => ({ site, free: facilities[site.kind].supply! }));
     this.roadPower.clear();
+    let computeNeeded=this.computeRemaining();
     for (const site of this.sites) {
       if (!site.on) { site.status = 'Paused'; continue; }
       if (site.kind === 'fire') {
@@ -532,20 +573,36 @@ export class Campaign {
         continue;
       }
       const recipe: Recipe | undefined = isRecipe(site.kind) ? recipes[site.kind] : undefined;
+      const computing=computeSites.includes(site.kind);
+      if(computing){
+        if((site.service??0)>0){site.service=Math.max(0,site.service!-dt);site.status='Server maintenance';continue;}
+        if(!computeNeeded&&!site.jobs.length){site.status='Waiting for a compute contract';continue;}
+      }
       let watts = Math.max(recipe?.power ?? 0, facilities[site.kind].power ?? 0);
+      if(computing&&this.mods.airFans)watts+=2;
       if(kilns.includes(site.kind)&&this.mods.smartKiln)watts=Math.max(1,watts-2);
       const fan=site.kind==='rack'&&this.mods.dryingFan&&supply.some(source=>source.free>=2&&this.reachable(site,source.site,['substation'],78));
       if(fan)watts=2;
-      if (site.kind === 'kiln' && this.mods.heatReuse && this.sites.some(s => s.kind === 'fire' && s.jobs.length > 0 && distance(site, s) < 22)) watts = Math.max(0, watts - 3);
-      const generator = !watts ? undefined : supply.find(source => source.free >= watts && this.reachable(site, source.site, ['substation'], 78));
-      if (watts && !generator) { site.status = 'No grid power'; continue; }
-      if (site.kind === 'data' && !this.supplyCooling(site,dt)) {
-        site.status = 'Cooling supply required';
-        continue;
-      }
-      if (generator) {
-        generator.free -= watts;
-        generator.site.fuel = Math.max(0, generator.site.fuel - watts * dt * .00065);
+      if(site.kind==='kiln'&&this.mods.heatReuse&&this.sites.some(s=>s.kind==='fire'&&s.jobs.length>0&&distance(site,s)<22))watts=Math.max(0,watts-3);
+      const within=this.mods.campus&&computing?118:78;
+      const network=watts?supply.filter(source=>source.free>0&&this.reachable(site,source.site,['substation'],within)):[];
+      const powered=network.reduce((sum,source)=>sum+source.free,0)>=watts;
+      const backup=computing&&this.mods.backup&&(site.reserve??0)>=watts*dt;
+      if(!powered&&!backup){site.status='No grid power';continue;}
+      if(computing&&!this.supplyCooling(site,dt)){site.status='Cooling supply required';continue;}
+      if(powered&&watts){
+        let remaining=watts;
+        for(const source of network){
+          const draw=Math.min(remaining,source.free);
+          source.free-=draw;
+          source.site.fuel=Math.max(0,source.site.fuel-draw*dt*.00065);
+          if((remaining-=draw)<=0)break;
+        }
+        if(computing&&this.mods.backup)site.reserve=Math.min(700,(site.reserve??0)+4*dt);
+      } else if(backup) site.reserve=Math.max(0,(site.reserve??0)-watts*dt);
+      if(computing){
+        site.uptime=(site.uptime??0)+dt;
+        if(site.uptime>=(this.mods.serverService?280:145)){site.uptime=0;site.service=this.mods.serverService?4:15;}
       }
       this.roadPower.set(site.id, true);
       site.status = 'Operational';
@@ -554,10 +611,12 @@ export class Campaign {
         site.water=Math.min(160,(site.water??0)+dt*36*aquifer);
         site.status=site.water>1?'Extracting cooling water':'Aquifer exhausted';
       }
-      if (site.kind === 'tank') {
+      if (site.kind === 'tank'||site.kind==='coolTower') {
+        const maximum=site.kind==='coolTower'?4200:1200;
+        const flow=site.kind==='coolTower'?140:24;
         for(const source of this.sites) {
           if(source.kind!=='pump'||!source.on||!this.reachable(site,source,['pipe'],46)) continue;
-          const transfer=Math.min(source.water??0,24*dt,1200-(site.water??0));
+          const transfer=Math.min(source.water??0,flow*dt,maximum-(site.water??0));
           if(transfer<=0)continue;
           source.water=(source.water??0)-transfer;
           site.water=(site.water??0)+transfer;
@@ -580,7 +639,11 @@ export class Campaign {
         site.jobs.splice(site.jobs.indexOf(work),1);
       }
       const concurrent=site.kind==='millComplex'?3:mills.includes(site.kind)&&site.kind!=='bench'&&this.mods.twinBlade?2:1;
-      if(site.jobs.length<concurrent)this.makeBatch(site,recipe,Boolean(fan));
+      if(site.jobs.length<concurrent&&(!computing||computeNeeded>0)&&this.makeBatch(site,recipe,Boolean(fan))&&computing) {
+        const running=site.jobs.at(-1)!;
+        running.quantity=Math.min(running.quantity,computeNeeded);
+        computeNeeded-=running.quantity;
+      }
     }
     for (const site of this.sites) {
       if (!site.on || !site.link) continue;
@@ -592,7 +655,7 @@ export class Campaign {
       if (target.kind === 'fire' && this.mods.stoker) continue;
       const recipe: Recipe | undefined = isRecipe(target.kind) ? recipes[target.kind] : undefined;
       const lot = site.output.find(s => (!site.sortHigh||!this.mods.sortingCamera||s.quality>=.84)
-        &&(storageSite(target.kind) || target.kind === 'market' || recipe?.input?.[0] === s.good));
+        &&(storageSite(target.kind) || target.kind === 'market' && s.good!=='compute' || consumes(recipe,s.good)));
       if (!lot) { site.status = 'Route blocked · incompatible cargo'; continue; }
       if (target.kind === 'market') {
         const shipped = take(site.output, lot.good, Math.min(4, lot.quantity));

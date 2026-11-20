@@ -4,7 +4,7 @@ Requirements in each milestone are quoted from [README §23](README.md#23-build-
 
 | Milestone | Status |
 | --- | --- |
-| [M0 — Website boot and 3D walking](progress/M0/tasks.md) | Needs review |
+| [M0 — Website boot and 3D walking](progress/M0/tasks.md) | Reviewed |
 | [M1 — Butter knife, chopping, falling, dragging, fire sale](progress/M1/tasks.md) | Reviewed |
 | [M2 — First profitable refining branch](progress/M2/tasks.md) | Built, needs browser review |
 | [M3 — Game economy and progression foundation](progress/M3/tasks.md) | Needs work |

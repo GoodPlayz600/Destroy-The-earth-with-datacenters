@@ -1,6 +1,6 @@
 # M0 — Website boot and 3D walking
 
-**Needs review**
+**Reviewed**
 
 - [x] “Vite/TypeScript app boots with an actual 3D `<canvas>` and FPS pointer lock.”
 - [x] “Player moves on 3D heightmapped/procedural jungle terrain with collisions.”

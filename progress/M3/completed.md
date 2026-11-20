@@ -2,5 +2,5 @@
 
 **Needs work**
 
-- All 288 catalog IDs and prerequisite references load. There are 79 purchasable upgrades across knife work, handling, primitive logistics, burning, forestry, sawmilling and lumber finishing.
+- All 288 catalog IDs and prerequisite references load. There are 103 purchasable upgrades across nine branches, including tool work, hauling, woodworking, mill production, material finishing and compute.
 - Wallet, receipts, journal, timed contracts, IndexedDB autosave and file import/export work. Upgrade and tool wear persistence is tested.

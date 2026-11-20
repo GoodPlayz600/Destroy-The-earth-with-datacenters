@@ -4,15 +4,15 @@ Continue with the next open requirement in [tasks.md](tasks.md).
 
 ## [M0 — Website boot and 3D walking](progress/M0/continue%20working.md)
 
-**Needs review**
+**Reviewed**
 
-- Verify pointer lock acquisition, jump, key remapping and quality changes on physical desktop hardware.
+- Test jump, remapped controls and quality presets on a broader range of desktop and touch hardware.
 
 ## [M2 — First profitable refining branch](progress/M2/continue%20working.md)
 
 **Built, needs browser review**
 
-- Complete the expanded browser check for construction, hand-delivered timber, board pickup and a market receipt.
+- Firefox passed construction, hand-delivered timber, board pickup and a market receipt. Recheck that route in the current Chromium build.
 - Playtest drying, crates, raw sale and each early carrier with separately harvested logs.
 
 ## [M3 — Game economy and progression foundation](progress/M3/continue%20working.md)
@@ -32,7 +32,7 @@ Continue with the next open requirement in [tasks.md](tasks.md).
 
 **Needs work**
 
-- Validate the visible factory route through inputs, buyers and warehouse storage in a browser. Complete the planned sorting rules, physical transfers and 100-upgrade milestone.
+- Validate the visible factory route through inputs, buyers and warehouse storage in a browser. Review the planned sorting rules and physical transfers. The catalog now exposes more than 100 functional upgrades.
 
 ## [M6 — World conversion and map progress](progress/M6/continue%20working.md)
 
@@ -56,4 +56,4 @@ Continue with the next open requirement in [tasks.md](tasks.md).
 
 **Built, needs browser review**
 
-- Complete the browser regression check for the flyover, completed-save reload and New Game+ archive recovery. Run ordinary pacing, accessibility and touch playtests from the knife through the final cleanup.
+- Complete the expanded Chromium check for the current build. Run ordinary pacing, accessibility and touch playtests from the knife through the final cleanup.

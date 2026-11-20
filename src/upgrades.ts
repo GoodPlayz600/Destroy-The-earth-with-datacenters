@@ -10,6 +10,8 @@ const delivered = [
   '05-01','05-02','05-03','05-04','05-05','05-06','05-07','05-08','05-09','05-10','05-11','05-12',
   '09-01','09-02','09-03','09-04','09-05','09-06','09-07','09-08','09-09','09-10','09-11','09-12',
   '10-01','10-02','10-03','10-04','10-05','10-06','10-07','10-08','10-09','10-10','10-11','10-12',
+  '11-01','11-02','11-03','11-04','11-05','11-06','11-07','11-08','11-09','11-10','11-11','11-12',
+  '22-01','22-02','22-03','22-04','22-05','22-06','22-07','22-08','22-09','22-10','22-11','22-12',
 ];
 const working = new Set(delivered);
 export const upgrades: Upgrade[] = upgradeSpec.map(([id, name, price, description]) => {
@@ -21,6 +23,8 @@ export const upgradesById = new Map(upgrades.map(upgrade => [upgrade.id, upgrade
 if (upgrades.length !== 288 || upgradesById.size !== upgrades.length) throw Error('Invalid upgrade catalog');
 export const upgradeFacility: Record<string, Facility> = { '04-08': 'depot', '04-09': 'charcoal', '04-10': 'thermal', '04-11': 'kiln',
   '09-01':'bench', '09-05':'bandsaw', '09-11':'speedMill', '10-01':'rack', '10-06':'smallKiln', '10-10':'treatment',
+  '11-01':'workshop','11-05':'carpentry','11-12':'modular',
+  '22-03':'serverRack','22-05':'serverHall','22-07':'generator','22-09':'data','22-12':'coolTower',
 };
 
 export function modifiers(owns: ReadonlySet<string>) {
@@ -48,6 +52,9 @@ export function modifiers(owns: ReadonlySet<string>) {
     precision:has('09-07'), twinBlade:has('09-08'), debarker:has('09-09'), cutPatterns:has('09-11'),
     canopy:has('10-01'), moistureGauge:has('10-02'), dryingFan:has('10-03'), sheltered:has('10-04'), airflow:has('10-06'),
     surfaceSander:has('10-08'), sortingCamera:has('10-10'), smartKiln:has('10-11'), certified:has('10-12'),
+    nailer:has('11-02'), templates:has('11-05'), commissions:has('11-12'),
+    uplink:has('22-02'), rackManagement:has('22-03'), airFans:has('22-05'), liquidLoop:has('22-06'), backup:has('22-07'),
+    serverService:has('22-08'), campus:has('22-09'), denseCompute:has('22-10'),
     chain: has('05-07') ? .68 : 1, heavyTeeth: has('05-09') ? 1.35 : 1, wedges: has('05-10'), forestryMastery: has('05-12'),
   };
 }

@@ -295,6 +295,7 @@ test('compute processing requires electricity and physically connected cooling s
   const g=new Campaign();
   g.cash=10000;
   const gen=build(g,'generator',-6,12), pump=build(g,'pump',0,13), data=build(g,'data',11,13);
+  assert.ok(g.acceptContract('compute'));
   gen.on=false;
   run(g,8);
   assert.match(data.status,/No grid power/);
@@ -406,4 +407,56 @@ test('sawmill research changes measured output and concurrent machine reservatio
   assert.ok(getQuantity(main.output,'chips')>=6);
   assert.ok(main.output.filter(l=>l.good==='boards').every(l=>l.quality>=.94));
   assert.doesNotThrow(()=>validateSave(JSON.parse(JSON.stringify(g.snapshot()))));
+});
+
+test('server output is capped by a live contract and cash is issued only on fulfillment',()=>{
+  const g=new Campaign();
+  g.cash=28000;
+  const gen=build(g,'generator',-8,11);
+  assert.ok(g.buyUpgrade('22-01'));
+  const rack=build(g,'serverRack',0,9);
+  run(g,44);
+  assert.equal(getQuantity(rack.output,'compute'),0);
+  assert.match(rack.status,/Waiting for a compute contract/);
+  assert.ok(g.acceptContract('compute'));
+  const order=g.contracts[0], balance=g.cash;
+  run(g,433);
+  assert.equal(getQuantity(rack.output,'compute'),order.quantity);
+  assert.equal(g.cash,balance);
+  assert.ok(gen.fuel<100);
+  assert.ok(g.transfer(rack,'compute',order.quantity,true));
+  assert.equal(g.sellInventory('compute',order.quantity),false);
+  assert.ok(g.fulfill(order));
+  assert.equal(g.cash,balance+order.payout);
+  assert.equal(getQuantity(g.stock,'compute'),0);
+});
+
+test('modular furniture requires both material lots and charges labor only after reservation',()=>{
+  const g=new Campaign();
+  g.cash=2500000;
+  build(g,'bench',0,4);
+  build(g,'workshop',-5,11);
+  assert.ok(g.buyUpgrade('11-01'));
+  build(g,'carpentry',0,11);
+  for(let i=2;i<=11;i++) assert.ok(g.buyUpgrade('11-'+String(i).padStart(2,'0')));
+  build(g,'lathe',9,7);
+  build(g,'cabinet',14,-3);
+  build(g,'generator',11,17);
+  for(const tree of treesIn(g.seed,indexAt(0,20))) {
+    if(Math.hypot(tree.x,tree.z-20)<7)g.fell(tree,baseLog(g,tree.x,tree.z));
+  }
+  const factory=build(g,'modular',0,20);
+  const quality=.92;
+  put(factory.input,{good:'laminate',quantity:2,quality,moisture:.11});
+  const balance=g.cash;
+  run(g,5);
+  assert.equal(g.cash,balance);
+  assert.equal(getQuantity(factory.input,'laminate'),2);
+  put(factory.input,{good:'turned',quantity:2,quality,moisture:.11});
+  run(g,1);
+  assert.equal(g.cash,balance-58);
+  assert.equal(getQuantity(factory.input),0);
+  run(g,25);
+  assert.equal(getQuantity(factory.output,'modular'),2);
+  assert.equal(g.cash,balance-58);
 });
