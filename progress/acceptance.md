@@ -5,6 +5,8 @@ Reviewed items have functional browser or simulation evidence. Partial items hav
 
 The [automated review](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions) and [milestone results](../completed.md) record the test scope.
 
+The [main-branch review at `f36e789`](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions/runs/44820753423) passed 53 simulation tests and both browser suites. Late-game browser checks use prepared saves. Ordinary campaign pacing and sustained performance on player hardware are open.
+
 ## 24.1 First-play and physical chores
 
 - [x] **1 · Reviewed.** “Starting money is exactly zero and starting usable tool is the plastic butter knife.”
