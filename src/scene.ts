@@ -735,11 +735,19 @@ export class Scene {
       fall.model.rotateY(fall.tree.rotation);
       if(progress<1) continue;
       const tree=fall.tree, spec=species[tree.kind], length=spec.height*tree.scale*.72;
-      const x=tree.x+fall.dir.x*length*.52,z=tree.z+fall.dir.z*length*.52;
+      const x=clamp(tree.x+fall.dir.x*length*.52,-SIZE/2+.4,SIZE/2-.4);
+      const z=clamp(tree.z+fall.dir.z*length*.52,-SIZE/2+.4,SIZE/2-.4);
       const y=height(x,z)+spec.radius*tree.scale+.42;
       const q=new T.Quaternion().setFromAxisAngle(axis,Math.PI*.5).toArray();
       const idLog=this.game.nextId++;
       this.game.fell(tree,{id:idLog,x,y,z,q,kind:tree.kind,length,kilograms:spec.mass*tree.scale,units:spec.yield,moisture:.68,quality:tree.kind===0?.73:.87});
+      if(tree.kind>0){
+        const tx=x+fall.dir.z*1.2,tz=z-fall.dir.x*1.2;
+        if(indexAt(tx,tz)>=0) {
+          const id=this.game.nextId++;
+          this.game.logs.set(id,{id,x:tx,z:tz,y:y+.27,q,kind:0,length:1.25+tree.scale*.45,kilograms:7+tree.scale*3,units:1,moisture:.53,quality:.63,part:'branch'});
+        }
+      }
       this.world.remove(fall.model);
       this.fallers.delete(id);
       this.impact(new T.Vector3(x,y,z),'dust',15);

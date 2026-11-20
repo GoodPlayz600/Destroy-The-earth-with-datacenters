@@ -405,7 +405,7 @@ export function productModel(good: Good, quantity: number) {
   const root = new T.Group(), material = mat(goods[good][2]);
   for (let j = 0; j < Math.min(8, quantity); j++) {
     const y = .08 + Math.floor(j / 2) * .145, z = (j%2-.5)*.30;
-    if (good === 'crates') {
+    if (good === 'crates'||good==='cartons'||good==='packed') {
       box(root,material,(j%2)*.69,.29+Math.floor(j/2)*.55,0,.63,.55,.56);
       for (const x of [-.2,.2]) box(root,timber,(j%2)*.69+x,.29+Math.floor(j/2)*.55,.287,.075,.52,.025);
     } else if(good==='pallet') {
@@ -429,10 +429,10 @@ export function productModel(good: Good, quantity: number) {
     } else if(good==='hay'||good==='harvest'||good==='grazingYield'){
       const bale=cylinder(root,material,(j%4-1.5)*.32,.21+Math.floor(j/4)*.3,0,.17,.32);
       bale.rotation.z=Math.PI*.5;
-    } else if (good === 'paper' || good === 'pulp') {
+    } else if (good === 'paper' || good === 'pulp'||good==='premiumPaper') {
       const bale = cylinder(root,material,z,.23+j*.10,0,.19,.54);
       bale.rotation.z = Math.PI*.5;
-    } else if (['chips','ore','charcoal','pellets','cement'].includes(good)) {
+    } else if (['chips','driedChips','briquettes','ash','ashAggregate','ore','charcoal','pellets','cement'].includes(good)) {
       stone(root,material,(j%4-.7)*.23,.17+Math.floor(j/4)*.15,z,.18,.18,.17);
     } else {
       box(root,material,0,y,z,good === 'beams' ? 1.85 : 1.18,good === 'plywood'?.06:.11,.29);

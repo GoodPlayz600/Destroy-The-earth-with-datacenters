@@ -7,18 +7,22 @@ import type { QuestId } from './quests';
 import { forestryUnlocks, modifiers, upgradeFacility, upgradesById } from './upgrades';
 
 export const VERSION = 1;
-export type Log = Point & { id: number; y: number; q: [number, number, number, number]; kind: number; length: number; kilograms: number; units: number; moisture: number; quality: number; cargo?: string; carrier?: string };
+export type Log = Point & { id: number; y: number; q: [number, number, number, number]; kind: number; length: number; kilograms: number; units: number; moisture: number; quality: number; cargo?: string; carrier?: string; part?:'branch' };
 export type Haul = Point & { target: string; log?: number; phase: 'waiting'|'pickup'|'delivery'|'return'; status: string; };
-export const storageSite = (kind:Facility) => kind==='depot'||kind==='railDepot'||kind==='dronePad';
+export const storageSite = (kind:Facility) => kind==='depot'||kind==='railDepot'||kind==='dronePad'||kind==='fuelSilo';
 export type Shipment = { mode:'rail'|'air'; load:Stack; target:string; path:Point[]; duration:number; elapsed:number; };
-type Batch = Stack & { remaining: number; payout?: number; offcut?: number };
+type Batch = Stack & { remaining: number; payout?: number; offcut?: number; residue?:Good };
 export const mills: Facility[] = ['bench','bandsaw','mill','speedMill','millComplex'];
+export const biomassSites:Facility[]=['biopower','cogeneration','wastePower'];
+export const fuelGood=(good:Good)=>['chips','driedChips','briquettes','pellets','charcoal','wastePaper'].includes(good);
+const paperLines:Facility[]=['paper','reelPress','rollFinish','exportPaper','corrugator'];
+const pulpLines:Facility[]=['screenedPulper','bulkPulp'];
 export const computeSites:Facility[]=['serverRack','serverHall','data','hyperscale'];
 export const utilityNodes:Facility[]=['substation','pole','transformer','backbone'];
 export const waterSites:Facility[]=['pump','tank','coolTower'];
 const kilns: Facility[] = ['smallKiln','kiln'];
 export const consumes = (recipe: Recipe | undefined, good: Good) => recipe?.input?.[0]===good||recipe?.secondary?.[0]===good;
-export const takesLogs=(kind:Facility) => storageSite(kind)||kind==='fire'||kind==='market'||(isRecipe(kind)&&(recipes[kind] as Recipe).input?.[0]==='timber');
+export const takesLogs=(kind:Facility) => storageSite(kind)||kind==='fire'||kind==='market'||(isRecipe(kind)&&(recipes[kind] as Recipe).input?.[0]&&['timber','branches'].includes((recipes[kind] as Recipe).input![0]));
 export type Site = Point & {
   id: string; kind: Facility; yaw?:number; input: Stack[]; output: Stack[]; jobs: Batch[];
   on: boolean; fuel: number; status: string; planted?:number; fertilizer?:boolean; intensive?:boolean; water?: number; reserve?:number; priority?:boolean; gridFlow?:number; gridCapacity?:number; uptime?:number; service?:number; yieldCarry?:number; layout?: 'quality'|'volume'; sortHigh?:boolean; link?: string; haul?: Haul; shipment?:Shipment; mode?: 'sell' | 'charcoal';
@@ -116,7 +120,7 @@ export class Campaign {
   }
 
   private makeSite(kind: Facility, x: number, z: number): Site {
-    return { id: 's' + this.nextId++, kind, x, z, input: [], output: [], jobs: [], on: true, fuel: facilities[kind].supply && kind!=='biopower' ? 100 : 0, status: 'Idle' };
+    return { id: 's' + this.nextId++, kind, x, z, input: [], output: [], jobs: [], on: true, fuel: facilities[kind].supply && !biomassSites.includes(kind) ? 100 : 0, status: 'Idle' };
   }
 
   notice(message: string) { this.notices.push(message); }
@@ -225,6 +229,7 @@ export class Campaign {
     const log = this.logs.get(id);
     if (!log || log.cargo || log.carrier || log.units < 2 || this.tool === 'knife') return false;
     const units = Math.max(1,Math.min(log.units-1,Math.round(log.units * slice))), ratio = units / log.units;
+    if(indexAt(next.x,next.z)<0)return false;
     const second = { ...log, id: this.nextId++, ...next, y: height(next.x, next.z) + .52, units, length: log.length * ratio, kilograms: log.kilograms * ratio };
     this.logs.set(second.id, second);
     log.units -= units;
@@ -243,7 +248,7 @@ export class Campaign {
     return trees.filter(t => !this.removed.has(t.id)).length / Math.max(1, trees.length);
   }
 
-  logStack(log: Log): Stack { return { good: 'timber', quantity: log.units, quality: log.quality, moisture: log.moisture }; }
+  logStack(log: Log): Stack { return { good: log.part==='branch'?'branches':'timber', quantity: log.units, quality: log.quality, moisture: log.moisture }; }
   fireValue(log: Log) {
     return Math.round((log.units * 13 + log.kilograms * .2) * (this.mods.sortDry && log.moisture < .45 ? 1.22 : 1));
   }
@@ -254,7 +259,7 @@ export class Campaign {
       if (log.kilograms > this.mods.burnMass || site.jobs.length >= this.mods.burnSlots) return false;
       const toCharcoal = this.mods.carbon && site.mode === 'charcoal';
       site.jobs.push({
-        good: 'charcoal', quantity: toCharcoal ? log.units : this.mods.ash ? 1 : 0, moisture: .05, quality: .82,
+        good: toCharcoal?'charcoal':'ash', quantity: toCharcoal ? log.units : this.mods.ash ? 1 : 0, moisture: .05, quality: .82,
         remaining: (1.6 + log.kilograms * .044) / this.mods.burnSpeed,
         payout: toCharcoal ? 0 : this.fireValue(log),
       });
@@ -262,7 +267,8 @@ export class Campaign {
       this.sellStack(this.logStack(log));
     } else {
       const recipe: Recipe | undefined = isRecipe(site.kind) ? recipes[site.kind] : undefined;
-      if (!storageSite(site.kind) && recipe?.input?.[0] !== 'timber') return false;
+      if (!storageSite(site.kind) && !consumes(recipe,this.logStack(log).good)) return false;
+      if(site.kind==='fuelSilo')return false;
       if (!put(storageSite(site.kind) ? site.output : site.input, this.logStack(log), this.capacity(site))) return false;
     }
     this.logs.delete(log.id);
@@ -278,7 +284,8 @@ export class Campaign {
     const destination = retrieve ? this.stock : storageSite(site.kind) ? site.output : site.input;
     const capacity = retrieve ? 150 : this.capacity(site);
     const recipe: Recipe | undefined = isRecipe(site.kind) ? recipes[site.kind] : undefined;
-    if (!retrieve && !storageSite(site.kind) && !consumes(recipe,good) && !(site.kind==='biopower'&&good==='chips')) return false;
+    if(!retrieve&&site.kind==='fuelSilo'&&!fuelGood(good))return false;
+    if (!retrieve && !storageSite(site.kind) && !consumes(recipe,good) && !(biomassSites.includes(site.kind)&&fuelGood(good))) return false;
     if (getQuantity(destination) + quantity > capacity) return false;
     const stack = take(source, good, quantity);
     return stack ? put(destination, stack, capacity) : false;
@@ -316,8 +323,9 @@ export class Campaign {
   acceptContract(good: Good, dense=false) {
     if(dense&&(good!=='compute'||!this.mods.denseCompute))return false;
     if (this.contracts.some(c => !c.done && !c.failed)) return false;
-    const quantity = good === 'compute' ? (dense?54:this.mods.uplink?22:12) : ['finished','treated'].includes(good)?16:8;
-    this.contracts.unshift({ good, quantity, deadline: this.clock + (dense?1200:good==='compute'?480:360), payout: Math.round(goods[good][1] * quantity * (dense?2.5:1.5)), done: false, failed: false, dense });
+    if(good==='packed'&&!this.mods.exportOrders||['briquettes','pellets'].includes(good)&&!this.mods.bioOrders)return false;
+    const quantity = good === 'compute' ? (dense?54:this.mods.uplink?22:12) : good==='packed'?48:['briquettes','pellets'].includes(good)?24:['finished','treated'].includes(good)?16:8;
+    this.contracts.unshift({ good, quantity, deadline: this.clock + (dense||good==='packed'?1200:good==='compute'?480:360), payout: Math.round(goods[good][1] * quantity * (dense?2.5:1.5)), done: false, failed: false, dense });
     this.contracts.length = Math.min(this.contracts.length, 25);
     return true;
   }
@@ -479,7 +487,7 @@ export class Campaign {
     if(!path){site.status=rail?'Freight blocked · broken track':'Freight blocked · out of range';return;}
     const length=path.slice(1).reduce((n,p,index)=>n+distance(p,path[index]),0);
     const recipe: Recipe | undefined = isRecipe(target.kind) ? recipes[target.kind] : undefined;
-    const lot=site.output.find(l=>storageSite(target.kind)||target.kind==='market'&&l.good!=='compute'||consumes(recipe,l.good)||target.kind==='biopower'&&l.good==='chips');
+    const lot=site.output.find(l=>storageSite(target.kind)&&(target.kind!=='fuelSilo'||fuelGood(l.good))||target.kind==='market'&&l.good!=='compute'||consumes(recipe,l.good)||biomassSites.includes(target.kind)&&fuelGood(l.good));
     if(!lot){site.status=site.output.length?'Freight blocked · incompatible cargo':'Waiting for freight';return;}
     const available=target.kind==='market'?capacity:this.capacity(target)-getQuantity(storageSite(target.kind)?target.output:target.input);
     const amount=Math.min(lot.quantity,capacity,available);
@@ -555,7 +563,10 @@ export class Campaign {
     const carry=mill&&this.mods.bladeGuide?(site.yieldCarry??0)+baseQuantity*.10:0;
     quantity+=Math.floor(carry+1e-8);
     if(mill&&this.mods.cutPatterns&&site.layout==='volume')quantity+=1;
-    const offcut=mill&&site.kind!=='bench'&&this.mods.offcuts?1:0;
+    const residue=mill&&site.kind!=='bench'&&this.mods.offcuts?'chips':this.mods.recovery&&paperLines.includes(site.kind)?'wastePaper':
+      this.mods.barkSorter&&site.kind==='charcoalDrum'?'chips':site.kind==='charcoal'||site.kind==='charcoalDrum'?'ash':undefined;
+    const offcut=residue?1:0;
+    if(pulpLines.includes(site.kind)&&this.mods.chipScreen)quantity++;
     const queued=site.jobs.reduce((sum,job)=>sum+job.quantity+(job.offcut??0),0);
     if(getQuantity(site.output)+queued+quantity+offcut>this.capacity(site)) {site.status='Output full';return false;}
     const first=recipe.input,second=recipe.secondary;
@@ -565,6 +576,7 @@ export class Campaign {
       site.status='Awaiting suitable material';
       return false;
     }
+    if(pulpLines.includes(site.kind)&&!this.takeWater(site,site.kind==='bulkPulp'?48:16,51)){site.status='Pulp needs supplied water';return false;}
     if(recipe.labor&&this.cash<recipe.labor){site.status='Labor budget too low';return false;}
     if(recipe.labor)this.finance(-recipe.labor,'Furniture assembly payroll');
     const input=first?take(site.input,first[0],firstCount,recipe.minQuality,recipe.maxMoisture):undefined;
@@ -588,6 +600,7 @@ export class Campaign {
       if(this.mods.airflow)quality+=.11;
       if(this.mods.smartKiln){remaining*=.72;moisture*=.85;}
     }
+    if(paperLines.includes(site.kind)&&this.mods.paperDryer){remaining*=.72;quality+=.13;moisture=Math.min(moisture,.17);}
     if(this.mods.nailer&&['workshop','carpentry','pallet'].includes(site.kind))remaining*=.63;
     if(site.kind==='finishBooth')quality+=.17;
     if(site.kind==='joinery'&&this.mods.surfaceSander)quality+=.19;
@@ -606,7 +619,7 @@ export class Campaign {
       if(site.fertilizer){soil.pollution=clamp(soil.pollution+.12);soil.fertility=clamp(soil.fertility-.024);site.fertilizer=false;}
       this.landQueue.add(i);
     }
-    site.jobs.push({good,quantity,quality:clamp(quality),moisture,remaining,offcut});
+    site.jobs.push({good,quantity,quality:clamp(quality),moisture,remaining,offcut,residue});
     site.status=recipe.name;
     return true;
   }
@@ -640,9 +653,13 @@ export class Campaign {
         return draw>0?[{site,free:draw}]:[];
       }
       if(!maximum)return [];
-      if(site.kind==='biopower'&&site.fuel<=8){
-        const fuel=take(site.input,'chips',1);
-        if(fuel)site.fuel=Math.min(100,site.fuel+38);
+      if(biomassSites.includes(site.kind)&&site.fuel<=8){
+        const fuel=site.input.find(l=>fuelGood(l.good));
+        if(fuel){
+          const energy=({chips:30,driedChips:42,briquettes:76,pellets:65,charcoal:63,wastePaper:21} as Partial<Record<Good,number>>)[fuel.good]??0;
+          take(site.input,fuel.good,1);
+          site.fuel=Math.min(100,site.fuel+energy*(.78+(1-fuel.moisture)*.22));
+        }
       }
       const daylight=clamp(Math.sin(.7+this.clock/235)*.52+.56);
       const wind=Math.max(.24,.50+Math.sin(this.clock/45+this.seed%7)*.24+this.rain*.20);
@@ -667,7 +684,7 @@ export class Campaign {
           const depot = this.sites.find(s => s.kind === 'depot' && s.link === site.id);
           if (depot && getQuantity(site.output) < this.capacity(site)) {
             const raw = take(depot.output, 'timber', 1);
-            if (raw) site.jobs.push({ good: 'charcoal', quantity: this.mods.ash ? 1 : 0, quality: .8, moisture: .05, remaining: 2 / this.mods.burnSpeed, payout: 17 });
+            if (raw) site.jobs.push({ good: 'ash', quantity: this.mods.ash ? 1 : 0, quality: .8, moisture: .05, remaining: 2 / this.mods.burnSpeed, payout: 17 });
           }
         }
         for (const job of site.jobs) job.remaining -= dt;
@@ -704,7 +721,7 @@ export class Campaign {
           const draw=Math.min(remaining,source.free);
           source.free-=draw;
           if(source.site.kind==='battery')source.site.reserve=Math.max(0,(source.site.reserve??0)-draw*dt);
-          else if(source.site.kind!=='solar'&&source.site.kind!=='wind')source.site.fuel=Math.max(0,source.site.fuel-draw*dt*.00065);
+          else if(source.site.kind!=='solar'&&source.site.kind!=='wind')source.site.fuel=Math.max(0,source.site.fuel-draw*dt*.00065*(biomassSites.includes(source.site.kind)?this.mods.biomassEfficiency:1));
           if((remaining-=draw)<=0)break;
         }
         if(computing&&this.mods.backup)site.reserve=Math.min(700,(site.reserve??0)+4*dt);
@@ -744,7 +761,7 @@ export class Campaign {
         site.status=recipe.name;
         if(work.remaining>0)continue;
         if(!put(site.output,work,this.capacity(site))){site.status='Output full';continue;}
-        if(work.offcut)put(site.output,{good:'chips',quantity:work.offcut,quality:.68,moisture:work.moisture},this.capacity(site));
+        if(work.offcut)put(site.output,{good:work.residue??'chips',quantity:work.offcut,quality:.68,moisture:work.moisture},this.capacity(site));
         this.stats.produced+=work.quantity;
         site.jobs.splice(site.jobs.indexOf(work),1);
       }
@@ -763,7 +780,7 @@ export class Campaign {
       source.free-=draw;
       station.reserve=(station.reserve??0)+draw;
       station.gridFlow=draw;
-      if(source.site.kind!=='solar'&&source.site.kind!=='wind')source.site.fuel=Math.max(0,source.site.fuel-draw*dt*.00065);
+      if(source.site.kind!=='solar'&&source.site.kind!=='wind')source.site.fuel=Math.max(0,source.site.fuel-draw*dt*.00065*(biomassSites.includes(source.site.kind)?this.mods.biomassEfficiency:1));
     }
     for(const source of supply)source.site.gridFlow=(source.site.gridCapacity??0)-source.free;
     for (const site of this.sites) {
@@ -776,14 +793,14 @@ export class Campaign {
       if (target.kind === 'fire' && this.mods.stoker) continue;
       const recipe: Recipe | undefined = isRecipe(target.kind) ? recipes[target.kind] : undefined;
       const lot = site.output.find(s => (!site.sortHigh||!this.mods.sortingCamera||s.quality>=.84)
-        &&(storageSite(target.kind) || target.kind === 'market' && s.good!=='compute' || consumes(recipe,s.good)));
+        &&(storageSite(target.kind) && (target.kind!=='fuelSilo'||fuelGood(s.good)) || target.kind === 'market' && s.good!=='compute' || consumes(recipe,s.good)));
       if (!lot) { site.status = 'Route blocked · incompatible cargo'; continue; }
       if (target.kind === 'market') {
         const shipped = take(site.output, lot.good, Math.min(4, lot.quantity));
         if (shipped) this.sellStack(shipped);
       } else {
         const buffer = storageSite(target.kind) ? target.output : target.input;
-        const n = Math.min(4, lot.quantity, this.capacity(target) - getQuantity(buffer));
+        const n = Math.min(site.kind==='fuelSilo'?12:4, lot.quantity, this.capacity(target) - getQuantity(buffer));
         if (n <= 0) { site.status = 'Route blocked · receiver full'; continue; }
         const shipped = take(site.output, lot.good, n);
         if (shipped) put(buffer, shipped);

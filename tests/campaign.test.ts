@@ -548,3 +548,28 @@ test('field objectives use recorded play and pay their reward just once across r
   assert.equal(loaded.claimQuest('firstSale'),false);
   assert.equal(loaded.cash,before+25);
 });
+
+test('branch chipping and fire byproducts preserve physically delivered inventory',()=>{
+  const g=new Campaign();
+  g.cash=20000;
+  build(g,'bench',0,5);
+  build(g,'chipper',1,12);
+  assert.ok(g.buyUpgrade('12-01'));
+  const chip=build(g,'branchChipper',9,12);
+  build(g,'generator',-10,10);
+  const branch={...baseLog(g,chip.x,chip.z),part:'branch' as const,kilograms:10,length:1.3};
+  const trunk=baseLog(g,chip.x,chip.z);
+  g.logs.set(branch.id,branch);g.logs.set(trunk.id,trunk);
+  assert.equal(g.acceptLog(chip,trunk),false);
+  assert.ok(g.acceptLog(chip,branch));
+  assert.equal(g.acceptLog(chip,branch),false);
+  run(g,12);
+  assert.equal(getQuantity(chip.output,'chips'),2);
+  const fire=g.sites[0];
+  for(let n=1;n<=4;n++)assert.ok(g.buyUpgrade('04-'+String(n).padStart(2,'0')));
+  trunk.x=fire.x;trunk.z=fire.z;
+  assert.ok(g.acceptLog(fire,trunk));
+  run(g,9);
+  assert.equal(getQuantity(fire.output,'ash'),1);
+  assert.equal(getQuantity(fire.output,'charcoal'),0);
+});

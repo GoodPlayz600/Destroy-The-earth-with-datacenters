@@ -48,7 +48,7 @@ const identifier=(x:unknown)=>typeof x==='string'&&/^[sv][1-9]\d*$/.test(x)&&x.l
 const text=(x:unknown)=>typeof x==='string'&&x.length<400;
 const coordinate=(x:Record<string,unknown>)=>numeric(x.x)&&numeric(x.z)&&indexAt(x.x,x.z)>=0;
 const lot=(x:unknown)=>object(x)&&key(x.good,goods)&&integer(x.quantity,1,260)&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1);
-const job=(x:unknown)=>object(x)&&key(x.good,goods)&&integer(x.quantity,0,260)&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1)&&numeric(x.remaining,-100000,3600)&&(x.payout===undefined||integer(x.payout))&&(x.offcut===undefined||integer(x.offcut,0,8));
+const job=(x:unknown)=>object(x)&&key(x.good,goods)&&integer(x.quantity,0,260)&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1)&&numeric(x.remaining,-100000,3600)&&(x.payout===undefined||integer(x.payout))&&(x.offcut===undefined||integer(x.offcut,0,8))&&(x.residue===undefined||key(x.residue,goods));
 const soilFields=['vegetation','moisture','groundwater','fertility','heat','pollution','erosion','substrate'];
 const treeId=(x:unknown)=>integer(x,0,TOTAL*6-1);
 const distinct=(values: unknown[])=>new Set(values).size===values.length;
@@ -66,7 +66,7 @@ export function validateSave(data:unknown): Save {
       &&soilFields.every(field=>numeric(x[1][field],0,1))&&integer(x[1].stage,0,6)&&numeric(x[1].stable,0)&&numeric(x[1].lastTick,0)&&numeric(x[1].clearedFor,0))
     &&rows(s.logs,30000,x=>object(x)&&integer(x.id,1)&&coordinate(x)&&numeric(x.y,-40,80)&&rows(x.q,4,y=>numeric(y,-1.001,1.001))&&x.q.length===4
       &&Math.abs(Math.hypot(...x.q as number[])-1)<.01&&integer(x.kind,0,species.length-1)&&numeric(x.length,.05,40)&&numeric(x.kilograms,.1,1000)
-      &&integer(x.units,1,20)&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1)&&(x.cargo===undefined||identifier(x.cargo))&&(x.carrier===undefined||identifier(x.carrier)))
+      &&integer(x.units,1,20)&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1)&&(x.cargo===undefined||identifier(x.cargo))&&(x.carrier===undefined||identifier(x.carrier))&&(x.part===undefined||x.part==='branch'))
     &&rows(s.sites,20000,x=>object(x)&&identifier(x.id)&&key(x.kind,facilities)&&coordinate(x)&&(x.yaw===undefined||numeric(x.yaw))&&rows(x.input,260,lot)&&rows(x.output,260,lot)
       &&rows(x.jobs,8,job)&&flag(x.on)&&numeric(x.fuel,0,100)&&text(x.status)&&(x.water===undefined||numeric(x.water,0,4200))&&(x.link===undefined||identifier(x.link))
       &&(x.mode===undefined||x.mode==='sell'||x.mode==='charcoal')

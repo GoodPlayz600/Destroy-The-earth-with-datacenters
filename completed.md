@@ -20,7 +20,7 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 
 ## [M3 — Game economy and progression foundation](progress/M3/completed.md)
 
-- All 288 catalog IDs and prerequisite references load. There are 139 purchasable upgrades across twelve branches, including tool work, hauling, woodworking, mill production, material finishing and compute.
+- All 288 catalog IDs and prerequisite references load. There are 163 purchasable upgrades across fourteen branches, including tool work, hauling, woodworking, mill production, material finishing and compute.
 - Wallet, receipts, thirteen state-driven journal objectives, timed contracts, IndexedDB autosave and file import/export work. Upgrade and tool wear persistence is tested.
 
 ## [M4 — Vehicles and a real logging operation](progress/M4/completed.md)
@@ -30,8 +30,8 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 
 ## [M5 — Industrial processing and factory network](progress/M5/completed.md)
 
-- Thirty-nine recipes cover timber, boards, kiln drying, crates, pallets, cabinetry, modular furniture, engineered beams, pulp/paper, charcoal, pellets, plywood, treated lumber, floor panels, pasture and crops, stone, cement and compute.
-- Output limits, input quality, stored electricity, biomass fuel and combined generation are simulation-tested. Sawmill research changes yield, chip recovery, output grade and concurrent batches. Freight tests preserve shipments across a reload.
+- Fifty-four recipes cover timber, boards, kiln drying, crates, pallets, cabinetry, modular furniture, engineered beams, pulp/paper, charcoal, pellets, plywood, treated lumber, floor panels, pasture and crops, stone, cement, compute, export packaging, chip drying and fuel processing.
+- Output limits, input quality, stored electricity, biomass fuel and combined generation are simulation-tested. Sawmill research changes yield, chip recovery, output grade and concurrent batches. The paper chain consumes water and supports offcut recovery. Biomass generators consume real stored fuel and route ash to a second product chain. Freight tests preserve shipments across a reload.
 
 ## [M6 — World conversion and map progress](progress/M6/completed.md)
 
