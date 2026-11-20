@@ -14,10 +14,11 @@ export const species = [
 
 export const tools = {
   knife: { name: 'Plastic Butter Knife', power: 1, interval: .32, range: 3.25, wear: 1, cost: 0 },
-  saw: { name: 'Pocket Saw', power: 4, interval: .29, range: 3.4, wear: 1.4, cost: 65 },
-  axe: { name: 'Felling Axe', power: 10, interval: .52, range: 3.8, wear: 1.7, cost: 260 },
-  chainsaw: { name: 'Gas Chainsaw', power: 23, interval: .24, range: 4.3, wear: 2.1, cost: 960 },
-  harvester: { name: 'Mobile Harvester', power: 85, interval: .55, range: 8, wear: 1, cost: 3900 },
+  saw: { name: 'Pocket Saw', power: 4, interval: .29, range: 3.4, wear: 1.4, cost: 75 },
+  axe: { name: 'Steel Hatchet', power: 10, interval: .52, range: 3.8, wear: 1.7, cost: 158 },
+  electric: { name: 'Electric Chainsaw', power: 18, interval: .25, range: 4.05, wear: 1.5, cost: 3000 },
+  chainsaw: { name: 'Gas Chainsaw', power: 23, interval: .24, range: 4.3, wear: 2.1, cost: 13875 },
+  harvester: { name: 'Mobile Harvester', power: 85, interval: .55, range: 8, wear: 1, cost: 131250 },
 };
 export type Tool = keyof typeof tools;
 

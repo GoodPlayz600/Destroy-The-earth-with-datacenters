@@ -7,7 +7,7 @@ import type { Point } from './land';
 import { bindingOptions, defaults } from './storage';
 import type { Binding, Preferences } from './storage';
 import { branches } from './upgrade-spec';
-import { upgrades } from './upgrades';
+import { forestryUnlocks, upgrades } from './upgrades';
 
 type Child=HTMLElement|string|undefined;
 const el=<K extends keyof HTMLElementTagNameMap>(tag:K,klass='',...children:Child[])=>{
@@ -110,7 +110,9 @@ export class UI {
     const headline=el('h1','',el('span','','PROJECT'),el('span','','CLEARCUT'));
     const buttons=el('div','menu-actions');
     const play=action('',()=>this.c.begin('resume'),'button primary hero-button');
-    play.append(el('span','play-icon','▶'),hasSave?'Continue campaign':'Play campaign',el('span','arrow','↗'));
+    const playLabel=hasSave?'Continue campaign':'Play campaign';
+    play.setAttribute('aria-label',playLabel);
+    play.append(el('span','play-icon','▶'),playLabel,el('span','arrow','›'));
     buttons.append(play);
     if(hasSave) buttons.append(action('New Game',()=>this.confirmNew(),'button secondary start-new'));
     buttons.append(el('div','menu-links',this.nav('','Settings','settings'),this.nav('','How to Play','help'),this.nav('','Credits','credits')));
@@ -176,7 +178,7 @@ export class UI {
         : h.held?el('div','hold-context',label('HAULING'),el('strong','',h.held),sub('Release inside the station intake'))
         : '');
     }
-    this.statusLine.textContent=h.ride??`Integrity ${Math.round(g.wear)}  ·  Stamina ${Math.floor(g.stamina)}`;
+    this.statusLine.textContent=h.ride??`Integrity ${Math.round(g.wear)}  ·  ${['electric','chainsaw','harvester'].includes(g.tool)?'Power '+Math.floor(g.battery)+'%':'Stamina '+Math.floor(g.stamina)}`;
     this.meter.style.setProperty('--amount',String(g.stamina/g.mods.stamina*100)+'%');
     this.touch.hidden=!h.touch;
     const hintStamp=JSON.stringify(h.hint);
@@ -297,9 +299,11 @@ export class UI {
     this.panel('Equipment','Tools, personal stock, and the current fleet.',el('div','panel-content',
       section('Hand tools',...Object.entries(tools).map(([k,item])=>{
         const id=k as Tool,owned=g.ownedTools.has(id);
-        return row(item.name,`Cut power ${item.power} · Range ${item.range} m`,btn(g.tool===id?'Equipped':owned?'Equip':cash(item.cost),()=>{
+        const node=id==='knife'?undefined:upgrades.find(upgrade=>upgrade.id===forestryUnlocks[id]);
+        const locked=Boolean(node?.previous&&!g.ownedUpgrades.has(node.previous));
+        return row(item.name,`Cut power ${item.power} · Range ${item.range} m`,btn(g.tool===id?'Equipped':owned?'Equip':locked?'Requires research':cash(item.cost),()=>{
           if(g.acquireTool(id))this.c.refresh();
-        },g.tool===id||(!owned&&g.cash<item.cost)));
+        },g.tool===id||(!owned&&(locked||g.cash<item.cost))));
       }),btn('Service equipped tool',()=>{if(g.retool())this.c.refresh();})),
       section('Inventory',g.stock.length?undefined:sub('The tool bag has no saleable stock.'),
         ...Object.keys(goods).filter(k=>getQuantity(g.stock,k as Good)>0).map(k=>row(goods[k as Good][0],`${getQuantity(g.stock,k as Good)} units`))),
@@ -416,6 +420,15 @@ export class UI {
             if(!g.connect(s,target))this.notice('Route outside reach · add freight infrastructure');
             this.site();
           },s.link===target.id)))));
+    }
+    if(s.kind==='forestry') {
+      const options=g.sites.filter(target=>target.kind==='market'||target.kind==='depot'||(Object.hasOwn(recipes,target.kind)&&(recipes[target.kind as keyof typeof recipes] as Recipe).input?.[0]==='timber'));
+      content.append(section('Log hauler',sub(s.haul?.status??'Hire a worker to collect physical fallen logs within 85 m.'),
+        ...options.filter(target=>target!==s&&Math.hypot(s.x-target.x,s.z-target.z)<=110).map(target=>
+          row(facilities[target.kind].name,'Timber receiving station',btn(s.haul?'Assign':'Hire · $340',()=>{
+            if(!g.assignHauler(s,target))this.notice('The worker is assigned to a load or funds are insufficient.');
+            this.site();
+          },s.haul?.target===target.id||(!s.haul&&g.cash<340))))));
     }
     this.panel(def.name,'Station · '+s.id.toUpperCase(),content);
   }

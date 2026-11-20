@@ -245,3 +245,48 @@ test('content has a real recipe and facility for every production branch',()=>{
   }
   assert.ok(species.length>=3);
 });
+
+test('haulers reserve each physical log once and deliver after travel',()=>{
+  const g=new Campaign();
+  g.cash=6500;
+  const first=build(g,'forestry',-10,12), second=build(g,'forestry',10,12);
+  const receiver=build(g,'bench',2,6);
+  assert.ok(g.assignHauler(first,receiver));
+  assert.ok(g.assignHauler(second,receiver));
+  const log=baseLog(g,-6,8);
+  g.logs.set(log.id,log);
+  g.tick(1,true,log.id);
+  assert.equal(first.haul?.log,undefined);
+  run(g,5);
+  assert.equal(first.haul?.log,log.id);
+  assert.equal(second.haul?.log,undefined);
+  assert.equal(log.carrier,first.id);
+  assert.ok(g.logs.has(log.id));
+  receiver.on=false;
+  run(g,20);
+  assert.ok(g.logs.has(log.id));
+  assert.match(first.haul!.status,/blocked/);
+  assert.doesNotThrow(()=>validateSave(JSON.parse(JSON.stringify(g.snapshot()))));
+  receiver.on=true;
+  run(g,12);
+  assert.equal(g.logs.has(log.id),false);
+  assert.equal(getQuantity(receiver.output,'boards'),2);
+});
+
+test('tool wear survives switching and forestry unlocks go through the upgrade chain',()=>{
+  const g=new Campaign();
+  g.cash=10000;
+  assert.equal(g.acquireTool('axe'),false);
+  assert.equal(g.acquireTool('saw'),true);
+  const before=g.wear;
+  g.hit(starter(g));
+  assert.ok(g.wear<before);
+  const used=g.wear;
+  assert.equal(g.acquireTool('knife'),true);
+  assert.equal(g.acquireTool('saw'),true);
+  assert.equal(g.wear,used);
+  assert.ok(g.buyUpgrade('05-02'));
+  const restored=Campaign.restore(validateSave(JSON.parse(JSON.stringify(g.snapshot()))));
+  assert.ok(restored.ownedTools.has('axe'));
+  assert.equal(restored.wear,used);
+});

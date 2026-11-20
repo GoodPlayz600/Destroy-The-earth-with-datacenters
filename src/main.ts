@@ -198,7 +198,7 @@ window.addEventListener('resize',()=>scene?.resize());
 function nearLog(range=3) {
   let closest:Log|undefined,best=range;
   for(const log of game.logs.values()) {
-    if(log.cargo)continue;
+    if(log.cargo||log.carrier)continue;
     const p=scene.logPosition(log,game.player,range);
     if(!p)continue;
     const d=distance(game.player,p);
@@ -223,7 +223,7 @@ function treeTarget(reach=tools[game.tool].range) {
   let chosen:Tree|undefined, closest=reach;
   for(const tree of scene.visibleTrees) {
     if(!game.isStanding(tree)||scene.isFalling(tree))continue;
-    const s=species[tree.kind], r=s.radius*tree.scale+.095;
+    const s=species[tree.kind], r=s.radius*tree.scale+(game.mods.forestryMastery?.19:.095);
     if(distance(p,tree)>reach+.9)continue;
     const along=((tree.x-p.x)*forward.x+(tree.z-p.z)*forward.z)/(forward.x**2+forward.z**2);
     if(along<.22||along>closest)continue;
@@ -318,7 +318,7 @@ function pushOrCut() {
   if(!log)return;
   const p=game.player;
   if(buttonAlt&&game.tool!=='knife'&&log.units>=2) {
-    if(game.cutLog(log.id,{x:log.x+Math.cos(p.yaw)*1.3,z:log.z-Math.sin(p.yaw)*1.3}))show('Trunk cut into two usable sections');
+    if(game.cutLog(log.id,{x:log.x+Math.cos(p.yaw)*1.3,z:log.z-Math.sin(p.yaw)*1.3},game.mods.crosscut?(p.pitch<-.32?.33:.67):.5))show('Trunk cut into two usable sections');
   } else scene.shove(log,p.yaw);
 }
 function onAction(a:string,pressed:boolean) {
@@ -393,11 +393,11 @@ function swingTool() {
   const target=treeTarget();
   if(!target){sound.swing(game.tool==='knife',false);return;}
   const result=game.hit(target,reverse);
-  if(!result.damage)return;
+  if(!result.damage){if(game.battery<5&&game.tool!=='knife'&&game.tool!=='axe'&&game.tool!=='saw'&&toastDelay<performance.now()){toastDelay=performance.now()+3000;show('Tool power depleted · service equipment from the tool bag');}return;}
   sound.swing(game.tool==='knife',true);
   scene.scuff(target,result.ratio,game.player);
   scene.impact(new Vector3(target.x,height(target.x,target.z)+1.33,target.z),'wood',game.tool==='knife'?6:13);
-  if(result.felled)scene.startFall(target,game.player);
+  if(result.felled)scene.startFall(target,game.player,game.mods.wedges&&buttonAlt?(reverse?.58:-.58):0);
 }
 function movement(dt:number) {
   const p=game.player;
@@ -479,11 +479,11 @@ function frame(now:number) {
     dropTime=Math.max(0,dropTime-dt);
     movement(dt);
     if(using)swingTool();
-    game.tick(dt,!inputs.has('sprint')||(!inputs.has('forward')&&!inputs.has('right')&&!inputs.has('left')&&!inputs.has('back')));
+    game.tick(dt,!inputs.has('sprint')||(!inputs.has('forward')&&!inputs.has('right')&&!inputs.has('left')&&!inputs.has('back')),held?.log.id);
     if(held&&(!game.logs.has(held.log.id)||distance(held.log,p)>Math.max(8,held.log.length+4)))letGo();
     if(!held&&dropTime===0) {
       for(const l of game.logs.values()) {
-        if(l.cargo||distance(l,p)>16)continue;
+        if(l.cargo||l.carrier||distance(l,p)>16)continue;
         if(game.sites.some(s=>s.kind==='fire'&&distance(l,s)<1.15&&game.acceptLog(s,l))) { void persist();break; }
       }
     }

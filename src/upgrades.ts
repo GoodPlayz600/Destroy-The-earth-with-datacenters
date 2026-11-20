@@ -7,6 +7,7 @@ const delivered = [
   '02-01','02-02','02-03','02-04','02-05','02-06','02-07','02-08','02-09','02-10','02-11','02-12',
   '03-01','03-02','03-03','03-04','03-05','03-06','03-07','03-08',
   '04-01','04-02','04-03','04-04','04-05','04-06','04-07','04-08','04-09','04-10','04-11',
+  '05-01','05-02','05-03','05-04','05-05','05-06','05-07','05-08','05-09','05-10','05-11','05-12',
 ];
 const working = new Set(delivered);
 export const upgrades: Upgrade[] = upgradeSpec.map(([id, name, price, description]) => {
@@ -38,5 +39,11 @@ export function modifiers(owns: ReadonlySet<string>) {
     burnSpeed: (has('04-02') ? 1.25 : 1) * (has('04-07') ? 1.35 : 1), scale: has('04-03'),
     ash: has('04-04'), burnSlots: (has('04-05') ? 2 : 1) + (has('04-10') ? 2 : 0), sortDry: has('04-06'),
     stoker: has('04-08'), carbon: has('04-09'), heatReuse: has('04-11'),
+    sharpening: has('05-03') ? .80 : 1, axeForce: has('05-04') ? 1.74 : 1, crosscut: has('05-05'),
+    chain: has('05-07') ? .68 : 1, heavyTeeth: has('05-09') ? 1.35 : 1, wedges: has('05-10'), forestryMastery: has('05-12'),
   };
 }
+
+export const forestryUnlocks = {
+  saw: '05-01', axe: '05-02', electric: '05-06', chainsaw: '05-08', harvester: '05-11',
+} as const;

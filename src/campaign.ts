@@ -2,14 +2,15 @@ import { CELL, DISTRICTS, TOTAL, facilities, goods, recipes, species, tools, veh
 import type { Facility, Good, Recipe, Stack, Tool, VehicleType } from './catalog';
 import { applyLand, cellPoint, clamp, defaultSoil, desertified, distance, districtAt, hash, height, homeDistrict, indexAt, noPressure, treesIn } from './land';
 import type { Point, Pressure, Soil, Tree } from './land';
-import { modifiers, upgradeFacility, upgradesById } from './upgrades';
+import { forestryUnlocks, modifiers, upgradeFacility, upgradesById } from './upgrades';
 
 export const VERSION = 1;
-export type Log = Point & { id: number; y: number; q: [number, number, number, number]; kind: number; length: number; kilograms: number; units: number; moisture: number; quality: number; cargo?: string };
+export type Log = Point & { id: number; y: number; q: [number, number, number, number]; kind: number; length: number; kilograms: number; units: number; moisture: number; quality: number; cargo?: string; carrier?: string };
+export type Haul = Point & { target: string; log?: number; phase: 'waiting'|'pickup'|'delivery'|'return'; status: string; };
 type Batch = Stack & { remaining: number; payout?: number };
 export type Site = Point & {
   id: string; kind: Facility; input: Stack[]; output: Stack[]; jobs: Batch[];
-  on: boolean; fuel: number; status: string; link?: string; source?: string; mode?: 'sell' | 'charcoal';
+  on: boolean; fuel: number; status: string; link?: string; haul?: Haul; mode?: 'sell' | 'charcoal';
 };
 export type Ride = Point & { id: string; kind: VehicleType; yaw: number; fuel: number; wear: number };
 export type Ledger = { date: number; note: string; amount: number };
@@ -74,6 +75,7 @@ export class Campaign {
   mods = modifiers(this.ownedUpgrades);
   tool: Tool = 'knife';
   wear = 100;
+  toolWear: Partial<Record<Tool,number>> = {};
   stamina = 100;
   battery = 100;
   player = { x: 0, z: -.7, yaw: 0, pitch: -.03 };
@@ -121,25 +123,26 @@ export class Campaign {
     const previousDurability = this.mods.knifeDurability;
     this.mods = modifiers(this.ownedUpgrades);
     this.wear += this.mods.knifeDurability - previousDurability;
+    for (const [tool, node] of Object.entries(forestryUnlocks)) if (node===id) this.ownedTools.add(tool as Tool);
     this.finance(-item.price, item.name);
     this.notice(item.name + ' installed');
     return true;
   }
 
   acquireTool(tool: Tool) {
-    if (this.ownedTools.has(tool)) { this.equip(tool); return true; }
-    const toolData = tools[tool];
-    if (this.cash < toolData.cost) return false;
-    this.finance(-toolData.cost, toolData.name);
-    this.ownedTools.add(tool);
+    if (!this.ownedTools.has(tool)) {
+      const node = tool === 'knife' ? undefined : forestryUnlocks[tool];
+      if (!node || !this.buyUpgrade(node)) return false;
+    }
     this.equip(tool);
     return true;
   }
 
   equip(tool: Tool) {
     if (!this.ownedTools.has(tool) || this.tool === tool) return;
+    this.toolWear[this.tool] = this.wear;
     this.tool = tool;
-    this.wear = tool === 'knife' ? this.mods.knifeDurability : 100;
+    this.wear = this.toolWear[tool] ?? (tool === 'knife' ? this.mods.knifeDurability : 100);
   }
 
   get swingTime() { return tools[this.tool].interval * (this.tool === 'knife' ? this.mods.knifeInterval : 1); }
@@ -147,7 +150,11 @@ export class Campaign {
   hit(tree: Tree, alternating = false) {
     if (!this.isStanding(tree)) return { damage: 0, felled: false, ratio: 0 };
     const type = species[tree.kind], isKnife = this.tool === 'knife', config = tools[this.tool];
-    const effort = (isKnife ? 4 * this.mods.knifeStamina : 5) * this.mods.handStamina;
+    const powered = this.tool === 'electric' || this.tool === 'chainsaw' || this.tool === 'harvester';
+    const energy = powered ? (this.tool === 'harvester' ? 4.6 : this.tool === 'chainsaw' ? 2.75 : 2.1) * this.mods.chain : 0;
+    if (this.battery < energy) return { damage: 0, felled: false, ratio: 0 };
+    this.battery -= energy;
+    const effort = (isKnife ? 4 * this.mods.knifeStamina : powered ? 2.5 : 5) * this.mods.handStamina;
     if (this.stamina < effort) return { damage: 0, felled: false, ratio: 0 };
     this.stamina -= effort;
     this.stats.hits++;
@@ -161,7 +168,10 @@ export class Campaign {
       if (this.mods.notch) damage *= 1.15;
       if (this.mods.prestigeKnife) damage *= 2;
     }
-    if (!(isKnife && this.mods.shatterproof && tree.kind >= 2)) this.wear = Math.max(0, this.wear - config.wear);
+    if (this.tool === 'axe' && tree.kind >= 1) damage *= this.mods.axeForce;
+    if (powered && tree.kind >= 2) damage *= this.mods.heavyTeeth;
+    const service = powered ? this.mods.chain : isKnife ? 1 : this.mods.sharpening;
+    if (!(isKnife && this.mods.shatterproof && tree.kind >= 2)) this.wear = Math.max(0, this.wear - config.wear * service);
     const total = type.health * tree.scale;
     const progress = (this.treeDamage.get(tree.id) ?? 0) + damage;
     this.treeDamage.set(tree.id, progress);
@@ -188,10 +198,10 @@ export class Campaign {
     return true;
   }
 
-  cutLog(id: number, next: Point) {
+  cutLog(id: number, next: Point, slice = .5) {
     const log = this.logs.get(id);
-    if (!log || log.cargo || log.units < 2 || this.tool === 'knife') return false;
-    const units = Math.floor(log.units / 2), ratio = units / log.units;
+    if (!log || log.cargo || log.carrier || log.units < 2 || this.tool === 'knife') return false;
+    const units = Math.max(1,Math.min(log.units-1,Math.round(log.units * slice))), ratio = units / log.units;
     const second = { ...log, id: this.nextId++, ...next, y: height(next.x, next.z) + .52, units, length: log.length * ratio, kilograms: log.kilograms * ratio };
     this.logs.set(second.id, second);
     log.units -= units;
@@ -216,7 +226,7 @@ export class Campaign {
   }
 
   acceptLog(site: Site, log: Log) {
-    if (!site.on || log.cargo || !this.logs.has(log.id) || distance(site, log) > facilities[site.kind].size + .8) return false;
+    if (!site.on || log.cargo || log.carrier || !this.logs.has(log.id) || distance(site, log) > facilities[site.kind].size + .8) return false;
     if (site.kind === 'fire') {
       if (log.kilograms > this.mods.burnMass || site.jobs.length >= this.mods.burnSlots) return false;
       const toCharcoal = this.mods.carbon && site.mode === 'charcoal';
@@ -449,6 +459,75 @@ export class Campaign {
     }
   }
 
+  assignHauler(base:Site,target:Site) {
+    const supported=target.kind==='market'||target.kind==='depot'||(isRecipe(target.kind)&&(recipes[target.kind] as Recipe).input?.[0]==='timber');
+    if(base.kind!=='forestry'||!supported||distance(base,target)>110||base.haul?.log) return false;
+    if(!base.haul) {
+      if(this.cash<340) return false;
+      this.finance(-340,'Hire local log hauler');
+    }
+    base.haul={x:base.x,z:base.z,target:target.id,phase:'waiting',status:'Awaiting a fallen log'};
+    return true;
+  }
+
+  private simulateHaulers(dt:number,heldId?:number) {
+    const reservations=new Set(this.sites.flatMap(site=>site.haul?.log===undefined?[]:[site.haul.log]));
+    for(const base of this.sites) {
+      const truck=base.haul;
+      if(!truck||!base.on) continue;
+      const target=this.sites.find(site=>site.id===truck.target);
+      if(!target) continue;
+      const log=truck.log===undefined?undefined:this.logs.get(truck.log);
+      if(truck.phase==='waiting') {
+        const available=Array.from(this.logs.values()).filter(wood=>wood.id!==heldId&&!wood.cargo&&!wood.carrier
+          &&!reservations.has(wood.id)&&wood.kilograms<=600&&distance(wood,base)<85)
+          .sort((a,b)=>distance(a,base)-distance(b,base))[0];
+        if(!available) continue;
+        truck.log=available.id;
+        reservations.add(available.id);
+        truck.phase='pickup';
+        truck.status='Travelling to fallen timber';
+        continue;
+      }
+      if(!log&&truck.phase!=='return') {
+        truck.log=undefined;truck.phase='return';truck.status='Returning to yard';
+      }
+      if(truck.phase==='pickup'&&(log?.id===heldId||log?.cargo||log?.carrier)) {
+        truck.log=undefined;truck.phase='return';truck.status='Log reassigned · returning to yard';
+        continue;
+      }
+      const next=truck.phase==='pickup'&&log?log:truck.phase==='delivery'?target:base;
+      const travel=distance(truck,next),step=Math.min(travel,dt*(truck.phase==='delivery'?3.4:5.5));
+      if(travel>.2) {
+        truck.x+=(next.x-truck.x)*step/travel;
+        truck.z+=(next.z-truck.z)*step/travel;
+      }
+      if(truck.phase==='delivery'&&log) {
+        log.x=truck.x;log.z=truck.z;log.y=height(truck.x,truck.z)+.83;
+        log.q=[Math.SQRT1_2,0,0,Math.SQRT1_2];
+      }
+      if(travel>.92) continue;
+      if(truck.phase==='pickup'&&log) {
+        log.carrier=base.id;
+        truck.phase='delivery';
+        truck.status='Hauling to '+facilities[target.kind].name;
+      } else if(truck.phase==='delivery'&&log) {
+        log.carrier=undefined;
+        if(!this.acceptLog(target,log)) {
+          log.carrier=base.id;
+          truck.status='Delivery blocked · receiver closed or full';
+          continue;
+        }
+        truck.log=undefined;
+        truck.phase='return';
+        truck.status='Returning to yard';
+      } else if(truck.phase==='return') {
+        truck.phase='waiting';
+        truck.status='Awaiting a fallen log';
+      }
+    }
+  }
+
   private simulateLand(dt: number) {
     const pressure = new Map<number, Pressure>();
     const add = (i: number, effect: keyof Pressure, n: number) => {
@@ -537,7 +616,7 @@ export class Campaign {
     return;
   }
 
-  tick(dt: number, rest = true) {
+  tick(dt: number, rest = true, heldId?:number) {
     this.clock += dt;
     if (rest) this.stamina = Math.min(this.mods.stamina, this.stamina + dt * 16 * this.mods.recover * this.mods.athlete);
     this.tickTime += dt;
@@ -546,6 +625,7 @@ export class Campaign {
     this.rain = Math.max(0, Math.sin(this.clock / 96 + this.seed % 13) - .58) * 2;
     for (const contract of this.contracts) if (!contract.done && this.clock >= contract.deadline) contract.failed = true;
     this.simulateMachinery(1);
+    this.simulateHaulers(1,heldId);
     this.simulateLand(1);
     for (const [key, checked] of [
       ['First Shave', this.stats.harvest > 0], ['Smoke Signal', this.stats.fire > 0], ['Value Added', this.stats.produced > 0],
@@ -568,7 +648,7 @@ export class Campaign {
       version: VERSION, seed: this.seed, clock: this.clock, cash: this.cash, player: { ...this.player }, savedAt: Date.now(),
       treeDamage: [...this.treeDamage], removed: [...this.removed], soil: [...this.soil], logs: [...this.logs.values()],
       sites: this.sites, rides: this.rides, stock: this.stock, ownedTools: [...this.ownedTools], ownedUpgrades: [...this.ownedUpgrades],
-      tool: this.tool, wear: this.wear, battery: this.battery, districts: [...this.districts], ledger: this.ledger, contracts: this.contracts,
+      tool: this.tool, wear: this.wear, toolWear: this.toolWear, battery: this.battery, districts: [...this.districts], ledger: this.ledger, contracts: this.contracts,
       stats: this.stats, won: this.won, completionTime: this.completionTime, nextId: this.nextId, projects: this.projects, achievements: [...this.achievements],
     };
   }
@@ -578,7 +658,7 @@ export class Campaign {
     Object.assign(game, {
       clock: s.clock, cash: s.cash, player: s.player, treeDamage: new Map(s.treeDamage), removed: new Set(s.removed), soil: new Map(s.soil),
       sites: s.sites, rides: s.rides, stock: s.stock, ownedTools: new Set(s.ownedTools), ownedUpgrades: new Set(s.ownedUpgrades),
-      tool: s.tool, wear: s.wear, battery: s.battery, districts: new Set(s.districts), ledger: s.ledger, contracts: s.contracts,
+      tool: s.tool, wear: s.wear, toolWear: s.toolWear ?? {}, battery: s.battery, districts: new Set(s.districts), ledger: s.ledger, contracts: s.contracts,
       stats: s.stats, completionTime: s.completionTime, nextId: s.nextId, projects: s.projects,
       logs: new Map(s.logs.map(l => [l.id, l])), achievements: new Set(s.achievements),
     });

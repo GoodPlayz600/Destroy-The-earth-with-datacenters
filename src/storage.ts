@@ -58,16 +58,19 @@ export function validateSave(data:unknown): Save {
   const valid=integer(s.seed,0,2**31-1)&&numeric(s.clock,0)&&integer(s.cash)&&integer(s.savedAt)
     &&object(s.player)&&coordinate(s.player)&&numeric(s.player.yaw)&&numeric(s.player.pitch,-1.6,1.6)
     &&key(s.tool,tools)&&numeric(s.wear,0,150)&&numeric(s.battery,0,100)&&flag(s.won)&&numeric(s.completionTime,0)&&integer(s.nextId,3)
+    &&(s.toolWear===undefined||(object(s.toolWear)&&Object.entries(s.toolWear).every(([k,v])=>key(k,tools)&&numeric(v,0,150))))
     &&rows(s.treeDamage,TOTAL*6,x=>Array.isArray(x)&&x.length===2&&treeId(x[0])&&numeric(x[1],0,500))
     &&rows(s.removed,TOTAL*6,treeId)&&distinct(s.removed as unknown[])
     &&rows(s.soil,TOTAL,x=>Array.isArray(x)&&x.length===2&&integer(x[0],0,TOTAL-1)&&object(x[1])
       &&soilFields.every(field=>numeric(x[1][field],0,1))&&integer(x[1].stage,0,6)&&numeric(x[1].stable,0)&&numeric(x[1].lastTick,0)&&numeric(x[1].clearedFor,0))
     &&rows(s.logs,30000,x=>object(x)&&integer(x.id,1)&&coordinate(x)&&numeric(x.y,-40,80)&&rows(x.q,4,y=>numeric(y,-1.001,1.001))&&x.q.length===4
       &&Math.abs(Math.hypot(...x.q as number[])-1)<.01&&integer(x.kind,0,species.length-1)&&numeric(x.length,.05,40)&&numeric(x.kilograms,.1,1000)
-      &&integer(x.units,1,20)&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1)&&(x.cargo===undefined||identifier(x.cargo)))
+      &&integer(x.units,1,20)&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1)&&(x.cargo===undefined||identifier(x.cargo))&&(x.carrier===undefined||identifier(x.carrier)))
     &&rows(s.sites,20000,x=>object(x)&&identifier(x.id)&&key(x.kind,facilities)&&coordinate(x)&&rows(x.input,260,lot)&&rows(x.output,260,lot)
       &&rows(x.jobs,8,job)&&flag(x.on)&&numeric(x.fuel,0,100)&&text(x.status)&&(x.link===undefined||identifier(x.link))
-      &&(x.mode===undefined||x.mode==='sell'||x.mode==='charcoal'))
+      &&(x.mode===undefined||x.mode==='sell'||x.mode==='charcoal')
+      &&(x.haul===undefined||(object(x.haul)&&coordinate(x.haul)&&identifier(x.haul.target)
+        &&(x.haul.log===undefined||integer(x.haul.log,1))&&text(x.haul.status)&&['waiting','pickup','delivery','return'].includes(String(x.haul.phase)))))
     &&rows(s.rides,10000,x=>object(x)&&identifier(x.id)&&key(x.kind,vehicles)&&coordinate(x)&&numeric(x.fuel,0,100)&&numeric(x.wear,0,100)&&numeric(x.yaw))
     &&rows(s.stock,150,lot)&&rows(s.ownedTools,Object.keys(tools).length,x=>key(x,tools))&&(s.ownedTools as unknown[]).includes(s.tool)
     &&rows(s.ownedUpgrades,288,x=>typeof x==='string'&&upgradesById.get(x)?.implemented===true)&&distinct(s.ownedUpgrades as unknown[])
@@ -81,7 +84,8 @@ export function validateSave(data:unknown): Save {
   const rides=new Set(checked.rides.map(x=>x.id)), sites=new Set(checked.sites.map(x=>x.id));
   if(rides.size!==checked.rides.length||sites.size!==checked.sites.length
     ||!distinct(checked.logs.map(l=>l.id))||!distinct(checked.soil.map(([i])=>i))||!distinct(checked.projects.map(p=>p.district))
-    ||checked.logs.some(log=>log.cargo&&!rides.has(log.cargo))||checked.sites.some(site=>site.link&&!sites.has(site.link))
+    ||checked.logs.some(log=>log.cargo&&!rides.has(log.cargo)||log.carrier&&!sites.has(log.carrier))
+    ||checked.sites.some(site=>site.link&&!sites.has(site.link)||site.haul&&!sites.has(site.haul.target))
     ||[...checked.logs.map(l=>l.id),...Array.from(rides,x=>Number(x.slice(1))),...Array.from(sites,x=>Number(x.slice(1)))].some(i=>i>=checked.nextId)) {
     throw Error('This save contains invalid object references.');
   }

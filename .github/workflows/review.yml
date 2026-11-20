@@ -12,6 +12,11 @@ jobs:
   review:
     runs-on: ubuntu-latest
     timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox]
+    name: Review on ${{ matrix.browser }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,12 +26,14 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
-      - run: npx playwright install --with-deps chromium firefox
-      - run: npm run test:browser
-      - run: BROWSER=firefox npm run test:browser
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      - if: matrix.browser == 'chromium'
+        run: npm run test:browser
+      - if: matrix.browser == 'firefox'
+        run: xvfb-run --auto-servernum env LIBGL_ALWAYS_SOFTWARE=1 HEADED=1 BROWSER=firefox npm run test:browser
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Browser review
+          name: Review-${{ matrix.browser }}
           path: test-results/
           if-no-files-found: ignore

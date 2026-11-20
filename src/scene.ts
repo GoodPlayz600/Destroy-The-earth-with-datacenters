@@ -31,6 +31,7 @@ export class Scene {
   private chops = new Map<number,T.Group>();
   private routes = new Map<string,T.Group>();
   private workProjects = new Map<number,T.Group>();
+  private crew = new Map<string, ReturnType<typeof vehicleModel>>();
   private particles: Particle[] = [];
   private painter = new T.Object3D();
   private ambient: T.HemisphereLight;
@@ -127,9 +128,9 @@ export class Scene {
     this.game=game;
     for (const [key,chunk] of this.chunks) this.dropChunk(key,chunk);
     for (const {model,body} of this.logViews.values()) { this.world.remove(model); if (body) this.physics.removeRigidBody(body); }
-    for (const collection of [this.siteViews,this.rideViews]) for (const {root} of collection.values()) this.world.remove(root);
+    for (const collection of [this.siteViews,this.rideViews,this.crew]) for (const {root} of collection.values()) this.world.remove(root);
     for (const obj of [...this.chops.values(), ...this.routes.values(), ...this.workProjects.values()]) this.world.remove(obj);
-    this.logViews.clear(); this.siteViews.clear(); this.rideViews.clear(); this.chops.clear(); this.routes.clear(); this.workProjects.clear();
+    this.logViews.clear(); this.siteViews.clear(); this.rideViews.clear();this.crew.clear(); this.chops.clear(); this.routes.clear(); this.workProjects.clear();
     for (const f of this.fallers.values()) this.world.remove(f.model);
     this.fallers.clear();
     this.streamStamp='';
@@ -321,11 +322,11 @@ export class Scene {
     this.chops.set(tree.id,cut);
   }
 
-  startFall(tree:Tree, from:Point) {
+  startFall(tree:Tree, from:Point, wedge=0) {
     if(this.fallers.has(tree.id)) return;
     const model=treeModels[tree.kind].clone();
     const dir=new T.Vector3(tree.x-from.x,0,tree.z-from.z).normalize();
-    dir.applyAxisAngle(treeAxis,(hash(this.game.seed,tree.id,12)-.5)*.95);
+    dir.applyAxisAngle(treeAxis,wedge || (hash(this.game.seed,tree.id,12)-.5)*.95);
     model.position.set(tree.x,height(tree.x,tree.z),tree.z);
     model.scale.setScalar(tree.scale);
     this.world.add(model);
@@ -360,7 +361,7 @@ export class Scene {
     for(const log of this.game.logs.values()) {
       if(distance(log,at)>=80) continue;
       const existing=this.logViews.get(log.id);
-      if(existing && Boolean(existing.body) === !log.cargo) continue;
+      if(existing && Boolean(existing.body) === !(log.cargo||log.carrier)) continue;
       if(existing) {
         if(existing.body) this.physics.removeRigidBody(existing.body);
         this.world.remove(existing.model);
@@ -369,7 +370,7 @@ export class Scene {
       model.position.set(log.x,log.y,log.z);
       model.quaternion.set(...log.q);
       this.world.add(model);
-      if(log.cargo) { this.logViews.set(log.id,{model,length:log.length}); continue; }
+      if(log.cargo||log.carrier) { this.logViews.set(log.id,{model,length:log.length}); continue; }
       const body=this.physics.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(log.x,log.y,log.z)
         .setRotation(model.quaternion).setLinearDamping(1.30).setAngularDamping(1.38).setCcdEnabled(true));
       const radius=species[log.kind].radius*clamp(log.kilograms/species[log.kind].mass,.56,1.25);
@@ -513,6 +514,38 @@ export class Scene {
     }
   }
 
+  private syncCrew(at:Point,dt:number,time:number) {
+    for(const site of this.game.sites) {
+      const worker=site.haul;
+      const present=this.crew.get(site.id);
+      if(!worker||distance(worker,at)>90) {
+        if(present){this.world.remove(present.root);this.crew.delete(site.id);}
+        continue;
+      }
+      const aim=new T.Vector3(worker.x,height(worker.x,worker.z),worker.z);
+      const visual=present??vehicleModel('skid');
+      if(!present) {
+        this.crew.set(site.id,visual);
+        visual.root.position.copy(aim);
+        this.world.add(visual.root);
+      }
+      const offset=aim.clone().sub(visual.root.position);
+      if(offset.lengthSq()>.04) {
+        visual.root.rotation.y=Math.atan2(-offset.x,-offset.z);
+        for(const wheel of visual.wheels)wheel.rotation.x=time*6;
+      }
+      visual.root.position.lerp(aim,Math.min(1,dt*7.5));
+      if(worker.phase==='delivery'&&worker.log!==undefined) {
+        const render=this.logViews.get(worker.log);
+        if(render){
+          const pos=visual.root.position;
+          render.model.position.set(pos.x-Math.sin(visual.root.rotation.y)*1.28,pos.y+.86,pos.z-Math.cos(visual.root.rotation.y)*1.28);
+          render.model.rotation.set(Math.PI*.5,visual.root.rotation.y+Math.PI*.5,0,'YXZ');
+        }
+      }
+    }
+  }
+
   private updateSimulation(dt:number, at:Point, yaw:number, held?:{log:Log; mode:'hand'|'rope'|'lift'}) {
     this.physicsTime+=dt;
     this.rope.visible=false;
@@ -591,6 +624,7 @@ export class Scene {
     this.syncLogs(at);
     this.syncSites(this.frameAge,at);
     if(active) this.updateSimulation(dt,at,yaw,held);
+    this.syncCrew(at,dt,this.frameAge);
     this.selection.visible=Boolean(target)&&!menu&&!drive;
     if(target) this.selection.position.set(target.x,height(target.x,target.z)+.05,target.z);
     this.ghost.visible=Boolean(build)&&!menu;
