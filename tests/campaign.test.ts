@@ -1101,6 +1101,30 @@ test('recovering a loaded trailer moves the hitched rig to the next usable yard'
   assert.equal(saved.logs.get(cargo[1].id)?.cargo,trailer.id);
 });
 
+test('settled cells survive reload and resume simulation when industry reaches them',()=>{
+  const original=new Campaign();
+  original.cash=5000;
+  const dry=indexAt(8,8),susceptible=indexAt(8,24);
+  const stable={...defaultSoil(),vegetation:0,groundwater:.1,moisture:.05,fertility:.2,erosion:.9,substrate:.9,stable:60,stage:6};
+  original.soil.set(dry,{...stable});
+  original.soil.set(susceptible,{...stable,substrate:.75});
+  const game=Campaign.restore(validateSave(JSON.parse(JSON.stringify(original.snapshot()))));
+  run(game,3);
+  assert.deepEqual(game.soil.get(dry),stable);
+  assert.equal(game.soil.get(susceptible)?.lastTick,game.clock);
+  const plant=build(game,'thermal',-8,11);
+  run(game,1);
+  const heated={...game.soil.get(dry)!};
+  assert.ok(heated.heat>stable.heat);
+  plant.on=false;
+  run(game,2);
+  assert.deepEqual(game.soil.get(dry),heated);
+  plant.on=true;
+  run(game,1);
+  assert.ok(game.soil.get(dry)!.heat>heated.heat);
+  assert.equal(game.desertByDistrict[homeDistrict],2);
+});
+
 test('barren terrain refreshes when erosion exposes cracks within the same stage',()=>{
   const game=new Campaign();
   const at={x:8,z:8};

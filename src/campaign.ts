@@ -1,6 +1,6 @@
 import { CELL, DISTRICT, DISTRICT_CELLS, DISTRICTS, SIZE, TOTAL, facilities, goods, recipes, species, tools, vehicles, vehicleTypes } from './catalog';
 import type { Facility, Good, Recipe, Stack, Tool, VehicleType } from './catalog';
-import { applyLand, blockers, cellPoint, clamp, defaultSoil, desertified, distance, districtAt, districtCell, hash, height, homeDistrict, indexAt, noPressure, treesIn } from './land';
+import { applyLand, blockers, cellPoint, clamp, defaultSoil, desertified, distance, districtAt, districtCell, hash, height, homeDistrict, indexAt, irreversibleSoil, noPressure, treesIn } from './land';
 import type { Blocker, Point, Pressure, Soil, Tree } from './land';
 import { quests } from './quests';
 import type { QuestId } from './quests';
@@ -167,6 +167,7 @@ export class Campaign {
   private landQueue = new Set<number>();
   private pressures=new Float64Array(TOTAL*pressureFields.length);
   private pressureTracked=new Uint8Array(TOTAL);
+  private pressureActive=new Uint8Array(TOTAL);
   readonly routePackets=new Map<string,{at:number;good:Good;from:Point;to:Point}>();
   readonly routeStatus=new Map<string,string>();
   private roadPower = new Map<string, boolean>();
@@ -1424,8 +1425,10 @@ export class Campaign {
   private simulateLand(dt: number) {
     const pressures=this.pressures, width=pressureFields.length;
     pressures.fill(0);
+    this.pressureActive.fill(0);
     const add=(i:number,effect:keyof Pressure,amount:number)=>{
       pressures[i*width+pressureSlots[effect]]+=amount;
+      if(amount)this.pressureActive[i]=1;
       if(!this.pressureTracked[i]){
         this.pressureTracked[i]=1;
         this.landQueue.add(i);
@@ -1571,19 +1574,21 @@ export class Campaign {
         if (project.kind === 'thermal') { add(i, 'heat', 2.7); add(i, 'removal', .58); }
       }
     }
-    const localPressure=noPressure();
+    const localPressure=noPressure(), idlePressure=noPressure();
     for (const i of this.landQueue) {
       const soil = this.getSoil(i), before = desertified(soil);
-      const cell=i*width;
-      let affected=false;
-      for(let index=0;index<width;index++){
-        const amount=pressures[cell+index];
-        localPressure[pressureFields[index]]=amount;
-        if(amount)affected=true;
+      const affected=this.pressureActive[i];
+      if(!affected&&before&&irreversibleSoil(soil)){
+        this.landQueue.delete(i);
+        this.pressureTracked[i]=0;
+        continue;
       }
-      if(!affected&&before&&soil.fertility<=.24&&soil.substrate>=.85)continue;
+      if(affected){
+        const cell=i*width;
+        for(let index=0;index<width;index++)localPressure[pressureFields[index]]=pressures[cell+index];
+      }
       const hadCanopy=soil.vegetation>.03;
-      if (applyLand(soil, localPressure, dt, this.rain, 1, this.clock)||hadCanopy!==(soil.vegetation>.03)) this.landRevision++;
+      if (applyLand(soil, affected?localPressure:idlePressure, dt, this.rain, 1, this.clock)||hadCanopy!==(soil.vegetation>.03)) this.landRevision++;
       const now = desertified(soil);
       if (before !== now) {
         this.desertCount += now ? 1 : -1;
@@ -1775,9 +1780,12 @@ export class Campaign {
     });
     game.mods = modifiers(game.ownedUpgrades);
     for (const [i, land] of game.soil) {
-      game.landQueue.add(i);
-      game.pressureTracked[i]=1;
-      if (!desertified(land)) continue;
+      const stable=desertified(land);
+      if(!stable||!irreversibleSoil(land)){
+        game.landQueue.add(i);
+        game.pressureTracked[i]=1;
+      }
+      if(!stable)continue;
       game.desertCount++;
       game.desertByDistrict[districtAt(i)]++;
     }

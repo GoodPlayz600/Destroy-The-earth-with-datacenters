@@ -504,8 +504,11 @@ export class Scene {
   }
 
   private syncSites(time:number, at:Point) {
-    for(const [id,view]of this.siteViews)if(!this.game.sites.some(site=>site.id===id)){
+    const sitesById=new Map(this.game.sites.map(site=>[site.id,site]));
+    for(const [id,view]of this.siteViews)if(!sitesById.has(id)){
       this.removeModel(view.root);this.siteViews.delete(id);
+      this.routes.get(id)?.removeFromParent();
+      this.routes.delete(id);
     }
     for(const site of this.game.sites) {
       const existing=this.siteViews.get(site.id);
@@ -572,7 +575,7 @@ export class Scene {
         view.signature=signature;
       }
       if(view.batch) view.batch.position.x=-.7+Math.sin(time*.85)*.52;
-      this.syncRoute(site,at);
+      this.syncRoute(site,at,sitesById);
     }
   }
 
@@ -612,9 +615,14 @@ export class Scene {
     this.world.add(network);
   }
 
-  private syncRoute(site:Site,at:Point) {
-    const targets=this.game.freightMode(site)||distance(site,at)>80?[]:
-      this.game.sites.filter(target=>(target.id===site.link||target.id===site.secondary)&&distance(site,target)<=110);
+  private syncRoute(site:Site,at:Point,sitesById:ReadonlyMap<string,Site>) {
+    const targets:Site[]=[];
+    if((site.link||site.secondary)&&!this.game.freightMode(site)&&distance(site,at)<=80){
+      const primary=site.link&&sitesById.get(site.link);
+      const alternate=site.secondary&&sitesById.get(site.secondary);
+      if(primary&&distance(site,primary)<=110)targets.push(primary);
+      if(alternate&&alternate!==primary&&distance(site,alternate)<=110)targets.push(alternate);
+    }
     const signature=targets.map(target=>target.id+(target.id===site.link?'p':'a')).join('|');
     const old=this.routes.get(site.id);
     if(old?.userData.signature===signature)return;
@@ -639,6 +647,17 @@ export class Scene {
   }
 
   private syncRides(at:Point,time:number,dt:number,driving?:Ride) {
+    if(!this.game.rides.length)return;
+    const ridesById=new Map(this.game.rides.map(ride=>[ride.id,ride]));
+    const cargoByRide=new Map<string,Log[]>();
+    for(const log of this.game.logs.values()){
+      if(!log.cargo)continue;
+      const load=cargoByRide.get(log.cargo);
+      if(load)load.push(log);
+      else cargoByRide.set(log.cargo,[log]);
+    }
+    const dispatched=new Set<string>();
+    for(const site of this.game.sites)if(site.dedicatedRide&&site.shipment)dispatched.add(site.dedicatedRide);
     for(const ride of this.game.rides) {
       const existing=this.rideViews.get(ride.id);
       if(distance(ride,at)>124) {
@@ -655,10 +674,10 @@ export class Scene {
       const visual=this.rideViews.get(ride.id)!;
       visual.root.position.set(ride.x,this.game.ground(ride.x,ride.z),ride.z);
       visual.root.rotation.y=ride.yaw;
-      visual.root.visible=(ride!==driving||Boolean(visual.forks))&&!this.game.sites.some(s=>s.dedicatedRide===ride.id&&s.shipment);
+      visual.root.visible=(ride!==driving||Boolean(visual.forks))&&!dispatched.has(ride.id);
       for(const part of visual.root.children)part.visible=ride!==driving||part===visual.forks;
       for(const wheel of visual.wheels) if(ride===driving) wheel.rotation.x=time*4;
-      const shipment=[...this.game.logs.values()].filter(l=>l.cargo===ride.id);
+      const shipment=cargoByRide.get(ride.id)??[];
       const def=vehicleTypes[ride.kind];
       const freight=ride.freight, signature=freight?freight.good+freight.quantity:'';
       if(visual.signature!==signature){
@@ -672,7 +691,7 @@ export class Scene {
         visual.signature=signature;
       }
       if(visual.forks)visual.forks.rotation.x+=( (shipment.length?-.12:.46)-visual.forks.rotation.x)*Math.min(1,dt*3);
-      const towing=this.game.rides.find(v=>v.id===ride.hitch);
+      const towing=ride.hitch&&ridesById.get(ride.hitch);
       let hitch=this.hitches.get(ride.id);
       if(towing){
         if(!hitch){hitch=ropeModel();this.world.add(hitch);this.hitches.set(ride.id,hitch);}

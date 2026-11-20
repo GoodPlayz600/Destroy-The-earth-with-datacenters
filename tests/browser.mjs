@@ -136,7 +136,7 @@ try{
     kind:0,length:2.6,kilograms:22,units:1,moisture:.67,quality:.76,
   });
   await p.locator('input[type=file]').setInputFiles({name:'refining-test.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(fixture))});
-  await p.getByText('Campaign imported',{exact:true}).waitFor();
+  await wait(id=>window.clearcutReview().logs.some(log=>log.id===id),fixture.nextId-1);
   await click('Close panel');
   await press('KeyB');
   await p.locator('.row').filter({hasText:'Field Sawbench'}).getByRole('button',{name:'$75',exact:true}).click();
@@ -174,7 +174,7 @@ try{
   boardOrder.contracts=Array.from({length:5},()=>({good:'paper',quantity:8,received:8,payout:350,deadline:boardOrder.clock+360,done:true,failed:false}));
   boardOrder.contracts.push({good:'boards',quantity:27,payout:1701,deadline:boardOrder.clock+1100,done:false,failed:false,plan:'supply'});
   await p.locator('input[type=file]').setInputFiles({name:'order-test.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(boardOrder))});
-  await p.getByText('Campaign imported',{exact:true}).waitFor();
+  await wait(()=>window.clearcutReview().contracts.some(contract=>contract.plan==='supply'&&contract.payout===1701));
   await click('Close panel');
   await press('KeyE');
   await p.getByRole('heading',{name:'Timber Exchange'}).waitFor();
@@ -385,10 +385,23 @@ try{
   const settled={vegetation:0,moisture:0,groundwater:0,fertility:0,heat:.12,pollution:0,erosion:1,substrate:1,
     stable:60,stage:6,clearedFor:400,lastTick:census.clock};
   census.soil=Array.from({length:65536},(_,i)=>[i,i===65535?{...settled,stable:59,stage:5}:settled]);
+  for(let n=0;n<360;n++){
+    const x=240+n%24*64,z=240+Math.floor(n/24)*64;
+    census.sites.push({id:'s'+census.nextId++,x,z,kind:'depot',input:[],output:[],jobs:[],on:true,fuel:0,status:'Operational'});
+  }
+  for(let n=0;n<80;n++){
+    const x=n<8?30+n%4*8:245+n%24*64,z=n<8?34+Math.floor(n/4)*8:240+Math.floor(n/24)*64;
+    const truck={id:'v'+census.nextId++,x,z,kind:'truck',yaw:0,fuel:100,wear:10};
+    census.rides.push(truck);
+    for(let load=0;load<4;load++)census.logs.push({
+      id:census.nextId++,x,z,y:1+load*.25,q:[Math.SQRT1_2,0,0,Math.SQRT1_2],
+      kind:0,length:2.6,kilograms:22,units:1,moisture:.65,quality:.76,cargo:truck.id,
+    });
+  }
   const fixturePath=join(snapshots,'final-cell.json');
   await writeFile(fixturePath,JSON.stringify(census));
   await p.locator('input[type=file]').setInputFiles(fixturePath);
-  await p.getByText('Campaign imported',{exact:true}).waitFor();
+  await wait(nextId=>window.clearcutReview().nextId===nextId,census.nextId);
   await click('Close panel');
   await p.getByRole('heading',{name:'The last jungle',exact:true}).waitFor({timeout:80000});
   await p.getByText('65,536',{exact:true}).waitFor();
@@ -411,6 +424,24 @@ try{
   assert.ok((await inspect()).won);
   await click('Close panel');
   assert.equal(await p.getByRole('heading',{name:'The last jungle',exact:true}).isVisible(),false);
+  console.log('Measuring animation frames in the restored industrial save');
+  const frames=await p.evaluate(()=>new Promise(resolve=>{
+    let first,previous;
+    const times=[];
+    const sample=now=>{
+      first??=now;
+      if(previous!==undefined)times.push(now-previous);
+      previous=now;
+      if(now-first<5000){requestAnimationFrame(sample);return;}
+      times.sort((a,b)=>a-b);
+      resolve({sampleMs:Math.round(now-first),frames:times.length,
+        medianMs:times[Math.floor(times.length*.5)],p95Ms:times[Math.floor(times.length*.95)]});
+    };
+    requestAnimationFrame(sample);
+  }));
+  assert.ok(frames.frames>1);
+  console.log('Industrial animation frames '+JSON.stringify({sites:census.sites.length,vehicles:census.rides.length,
+    logs:census.logs.length,...frames}));
   await press('Escape');
   await click('Settings');
   await select('Look mode','pointer');
@@ -445,7 +476,7 @@ try{
     await mobile.getByRole('button',{name:/Pause$/}).tap();
     await mobile.getByRole('button',{name:'Settings',exact:true}).tap();
     await mobile.locator('input[type=file]').setInputFiles({name:'touch-rope-test.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(ropeTest))});
-    await mobile.getByText('Campaign imported',{exact:true}).waitFor();
+    await mobile.waitForFunction(()=>window.clearcutReview().ownedUpgrades.includes('03-01'));
     await mobile.getByRole('button',{name:'Close panel',exact:true}).tap();
     await rope.tap();
     await mobile.locator('.hold-context').waitFor();
