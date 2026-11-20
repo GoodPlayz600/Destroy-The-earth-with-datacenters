@@ -652,7 +652,8 @@ export class Scene {
       const visual=this.rideViews.get(ride.id)!;
       visual.root.position.set(ride.x,this.game.ground(ride.x,ride.z),ride.z);
       visual.root.rotation.y=ride.yaw;
-      visual.root.visible=ride!==driving&&!this.game.sites.some(s=>s.dedicatedRide===ride.id&&s.shipment);
+      visual.root.visible=(ride!==driving||Boolean(visual.forks))&&!this.game.sites.some(s=>s.dedicatedRide===ride.id&&s.shipment);
+      for(const part of visual.root.children)part.visible=ride!==driving||part===visual.forks;
       for(const wheel of visual.wheels) if(ride===driving) wheel.rotation.x=time*4;
       const shipment=[...this.game.logs.values()].filter(l=>l.cargo===ride.id);
       const def=vehicleTypes[ride.kind];

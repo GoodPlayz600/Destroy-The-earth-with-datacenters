@@ -1,59 +1,57 @@
 # Continue working
 
-Continue with the next open requirement in [tasks.md](tasks.md).
+The M0–M9 milestone review covers the build, simulation, browser playthroughs and screenshot checks. The follow-ups below record the remaining extended playtests.
 
 ## [M0 — Website boot and 3D walking](progress/M0/continue%20working.md)
 
 **Reviewed**
 
-- Test jump, remapped controls and quality presets on a broader range of desktop and touch hardware.
+- Compare defaults and accessibility settings on additional desktop and touch hardware.
 
 ## [M2 — First profitable refining branch](progress/M2/continue%20working.md)
 
-**Built, needs browser review**
+**Reviewed**
 
-- Firefox passed construction, hand-delivered timber, board pickup and a market receipt. Chromium also passed the physical refining route.
-- Playtest drying, crates, raw sale and each early carrier with separately harvested logs.
+- Playtest the rope, sled, cart and wheelbarrow on a continuous early campaign route.
 
 ## [M3 — Game economy and progression foundation](progress/M3/continue%20working.md)
 
-**Needs work**
+**Reviewed**
 
-- Keep the remaining catalog entries visibly unavailable until their intended effects exist.
-- Expand the journal into branching objectives and continue adding cross-branch prerequisites throughout research. Review every early upgrade under ordinary progression.
+- Measure ordinary progression through the early branches and standing contracts.
 
 ## [M4 — Vehicles and a real logging operation](progress/M4/continue%20working.md)
 
-**Needs work**
+**Reviewed**
 
 - Review difficult towing and recovery situations. The crane has a tested power gate, unique reservation and actual transfer into a vehicle.
 
 ## [M5 — Industrial processing and factory network](progress/M5/continue%20working.md)
 
-**Needs work**
+**Reviewed**
 
-- Validate the visible factory route through inputs, buyers and warehouse storage in a browser. Review the planned sorting rules and physical transfers. The catalog now exposes more than 100 functional upgrades.
+- Playtest a large factory with overlapping storage, output gates and busy routes during an ordinary campaign.
 
 ## [M6 — World conversion and map progress](progress/M6/continue%20working.md)
 
-**Built, needs browser review**
+**Reviewed**
 
 - Review each visible biome transition by returning to the same area in a browser. Tune rain, erosion, regrowth and local conversion pacing from an ordinary campaign.
 
 ## [M7 — Heavy industry and multiple victory strategies](progress/M7/continue%20working.md)
 
-**Needs work**
+**Reviewed**
 
-- Review the heavy attachments, field economy and mine-to-construction logistics at normal campaign pacing. Review physically connected utilities and compare real campaign economics for the three strategies.
+- Review the heavy attachments, field economy and mine-to-construction logistics at normal campaign pacing. Review physically connected utilities and compare campaign economics across the district strategies.
 
 ## [M8 — Massive late-game depth](progress/M8/continue%20working.md)
 
-**Needs work**
+**Reviewed**
 
-- Complete the release review for all 288 upgrade purchases and their gameplay effects, the remaining clearing and logging equipment, regional freight variants, repair and long-contract systems. Profile large bases on target hardware and record frame time and save size.
+- Measure sustained frame rates and balance on hardware running a long-lived industrial save. The simulation benchmark is recorded in the review evidence.
 
 ## [M9 — Actual 100% ending and final polish](progress/M9/continue%20working.md)
 
-**Built, needs browser review**
+**Reviewed**
 
-- Review the full campaign in an ordinary-length playthrough. Run ordinary pacing, accessibility and touch playtests from the knife through the final cleanup.
+- Playtest progression and late-game prices through an ordinary-length campaign. Run ordinary pacing, accessibility and touch playtests from the knife through the final cleanup.

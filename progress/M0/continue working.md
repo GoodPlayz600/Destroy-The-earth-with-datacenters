@@ -2,4 +2,4 @@
 
 **Reviewed**
 
-- Test jump, remapped controls and quality presets on a broader range of desktop and touch hardware.
+- Compare defaults and accessibility settings on additional desktop and touch hardware.

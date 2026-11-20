@@ -1,10 +1,10 @@
 # M3 — Game economy and progression foundation
 
-**Needs work**
+**Reviewed**
 
 - [x] “Data registry for all upgrade nodes, prerequisites, branching and costs.”
 - [x] “Implement at least the 48 early-game upgrades with actual gameplay effects.”
-- [ ] “Player journal, first quest series, milestones, unlock notifications.”
+- [x] “Player journal, first quest series, milestones, unlock notifications.”
 - [x] “Recipes, inventory, buy/sell ledger, market contract lifecycle.”
 - [x] “Local IndexedDB autosave + manual export/import.”
 - [x] “Basic options and input remapping.”

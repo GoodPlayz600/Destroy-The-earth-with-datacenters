@@ -658,9 +658,11 @@ function movement(dt:number) {
 function targetHint():{hint?:Hint;point?:Point} {
   const t=treeTarget(),log=nearLog(2.75),site=nearSite(3.6),v=nearRide(),p=game.player;
   if(ride) {
-    const trailer=game.rides.find(v=>v.hitch===ride!.id), load=cargoMass(game.logs.values(),trailer?.id??ride.id);
+    const trailer=game.rides.find(v=>v.hitch===ride!.id);
+    const mass=cargoMass(game.logs.values(),trailer?.id??ride.id);
+    const load=ride.freight?`${ride.freight.quantity} units`:ride.kind==='waterCart'?`${Math.round(ride.water??0)} L`:`${Math.round(mass)} kg`;
     const extras=['dozer','trackDozer','scoopLoader','excavator','shear','demolisher'].includes(ride.kind)?' · Swing to operate attachment':trailer?' · '+key('hitch')+' detach':game.mods.winch?' · '+key('rope')+' winch':'';
-    return {hint:{key:key('ride'),title:vehicles[ride.kind].name,detail:`${Math.floor(ride.fuel)}% fuel · ${Math.round(load)} kg · ${key('load')} cargo${extras}`}};
+    return {hint:{key:key('ride'),title:vehicles[ride.kind].name,detail:`${Math.floor(ride.fuel)}% fuel · ${load} · ${key('load')} cargo${extras}`}};
   }
   if(held){
     const destination=game.sites.find(s=>distance(held!.log,s)<facilities[s.kind].size+.80&&takesLogs(s.kind));
@@ -725,7 +727,7 @@ function frame(now:number) {
   const problem=selectedBuild&&point?game.siteIssue(selectedBuild,point):'';
   const orientation=['N','NE','E','SE','S','SW','W','NW'];
   const scale=(Math.round(-p.yaw/(Math.PI/4))%8+8)%8;
-  if(!atMenu)ui.update({x:p.x,z:p.z,stage:land?.stage??0,held:held?species[held.log.kind].name:undefined,ride:ride?vehicles[ride.kind].name:undefined,
+  if(!atMenu)ui.update({x:p.x,z:p.z,stage:land?.stage??0,held:held?species[held.log.kind].name:undefined,ride:ride?vehicles[ride.kind].name:undefined,rideDetail:ride?`${Math.round(ride.fuel)}% fuel · ${Math.round(ride.wear)}% wear`:undefined,
     hint:targeting.hint,running:playing,direction:`${orientation[scale]}  /  ${Math.round(p.x)} E  ${Math.round(-p.z)} N`,elapsed:game.clock,waypoint,aimedBuild:aimed,
     buildIssue:problem,saved:saveLabel,touch:onTouch});
   sound.ambient(game.clock,game.rain,(land?.stage??0)<3,Boolean(ride&&vehicles[ride.kind].motor),playing);

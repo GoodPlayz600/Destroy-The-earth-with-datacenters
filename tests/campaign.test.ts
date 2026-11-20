@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Campaign, canWin, getQuantity, priceFor, put, take } from '../src/campaign';
 import type { Log, Project } from '../src/campaign';
-import { CELLS, TOTAL, facilities, recipes, species } from '../src/catalog';
+import { CELLS, TOTAL, facilities, recipes, species, vehicleTypes } from '../src/catalog';
+import type { Facility } from '../src/catalog';
 import { applyLand, conversionLabel, defaultSoil, desertified, districtAt, height, homeDistrict, indexAt, noPressure, treesIn } from '../src/land';
 import { validateSave } from '../src/storage';
-import { upgradeFacility, upgrades } from '../src/upgrades';
+import { forestryUnlocks, modifiers, upgradeFacility, upgrades } from '../src/upgrades';
 const upgradePrerequisiteFacilities=Object.values(upgradeFacility);
 
 const run = (g:Campaign,n:number) => { for(let i=0;i<n;i++) g.tick(1); };
@@ -883,4 +884,83 @@ test('challenge variants persist their distinct limits and first bulletin change
   run(standard,1);run(lean,1);
   assert.ok((a.gridCapacity??0)>(b.gridCapacity??0));
   assert.notEqual(g.eventAt(0),g.eventAt(300));
+});
+
+test('each upgrade changes a modifier or unlocks a modeled facility, vehicle, tool or achievement',()=>{
+  const facilityUnlocks=Object.values(facilities).flatMap(f=>f.research??[]);
+  const vehicleUnlocks=Object.values(vehicleTypes).flatMap(v=>v.research??[]);
+  const toolUnlocks=Object.values(forestryUnlocks);
+  const direct=new Set<string>([...facilityUnlocks,...vehicleUnlocks,...toolUnlocks,'24-12']);
+  for(const upgrade of upgrades){
+    const before=modifiers(new Set());
+    const after=modifiers(new Set([upgrade.id]));
+    const changed=Object.entries(after).some(([key,v])=>v!==before[key as keyof typeof before]);
+    assert.ok(changed||direct.has(upgrade.id),upgrade.id+' has no connected effect');
+  }
+});
+
+test('facility and upgrade prerequisites can be reached without a circular dependency',()=>{
+  const built=new Set<Facility>(), known=new Set<string>();
+  let changed=true;
+  while(changed){
+    const before=built.size+known.size;
+    for(const [id,def]of Object.entries(facilities))if((!def.research||known.has(def.research))&&(!def.requires||built.has(def.requires)))built.add(id as Facility);
+    for(const u of upgrades)if((!u.previous||known.has(u.previous))&&(!upgradeFacility[u.id]||built.has(upgradeFacility[u.id])))known.add(u.id);
+    changed=built.size+known.size!==before;
+  }
+  const blocked=upgrades.filter(upgrade=>!known.has(upgrade.id));
+  assert.deepEqual(blocked.map(x=>x.id),[]);
+});
+
+test('stranded vehicle recovery preserves the original log and cargo reservation',()=>{
+  const g=new Campaign();
+  g.cash=1500;
+  const ride=g.acquireRide('pickup',{x:5,z:12})!;
+  const wood=baseLog(g,5,12);wood.cargo=ride.id;
+  g.logs.set(wood.id,wood);
+  ride.x=206;ride.z=198;ride.fuel=0;ride.wear=100;
+  const money=g.cash;
+  assert.ok(g.recoverRide(ride));
+  assert.equal(g.cash,money-18);
+  assert.ok(ride.fuel>=20&&ride.wear<=65);
+  assert.equal(g.logs.size,1);
+  assert.equal(g.logs.get(wood.id)?.cargo,ride.id);
+  const saved=Campaign.restore(validateSave(JSON.parse(JSON.stringify(g.snapshot()))));
+  assert.equal(saved.logs.get(wood.id)?.cargo,saved.rides[0].id);
+});
+
+test('manual sawbench mode keeps a workpiece available until the player cranks it',()=>{
+  const g=new Campaign();
+  g.cash=480;
+  const bench=build(g,'bench',0,5);
+  assert.ok(g.buyUpgrade('09-01'));
+  bench.manual=true;
+  put(bench.input,{good:'timber',quantity:1,quality:.74,moisture:.60});
+  run(g,5);
+  assert.equal(getQuantity(bench.input),1);
+  assert.equal(bench.jobs.length,0);
+  assert.ok(g.crankBench(bench));
+  run(g,5);
+  assert.equal(getQuantity(bench.output,'boards'),2);
+  assert.equal(getQuantity(bench.input),0);
+});
+
+test('wood-energy heat exchange reduces the live electrical draw of a kiln',()=>{
+  const g=new Campaign();
+  g.cash=280000;
+  build(g,'bench',0,5);
+  const retort=build(g,'charcoal',10,12);
+  assert.ok(g.buyUpgrade('13-01'));
+  build(g,'charcoalDrum',2,13);
+  for(let n=2;n<=7;n++)assert.ok(g.buyUpgrade('13-'+String(n).padStart(2,'0')));
+  build(g,'mill',-9,10);
+  const kiln=build(g,'kiln',7,3);
+  build(g,'generator',-13,3);
+  run(g,1);
+  assert.equal(kiln.gridFlow,5);
+  put(retort.input,{good:'timber',quantity:2,quality:.8,moisture:.61});
+  put(kiln.input,{good:'boards',quantity:4,quality:.85,moisture:.54});
+  run(g,2);
+  assert.ok(retort.jobs.length>0);
+  assert.equal(kiln.gridFlow,2);
 });

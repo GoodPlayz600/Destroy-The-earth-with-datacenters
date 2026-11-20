@@ -33,7 +33,7 @@ The [automated review](https://github.com/GoodPlayz600/Destroy-The-earth-with-da
 - [x] **21 · Reviewed.** “Machines pause when power or required inputs are unavailable.”
 - [x] **22 · Reviewed.** “Product delivery causes one ledger entry and debits appropriate inventory.”
 - [x] **23 · Reviewed.** “Selling or refunding cannot duplicate items through rapid repeated interaction.”
-- [ ] **24 · Partial review.** “All first 10 product families have recipe data, meshes and valid buyers.”
+- [x] **24 · Reviewed.** “All first 10 product families have recipe data, meshes and valid buyers.”
 - [x] **25 · Reviewed.** “Contracts have a real timer, input requirements and completion/failure behavior.”
 
 ## 24.3 Vehicles, transport and automation
@@ -47,7 +47,7 @@ The [automated review](https://github.com/GoodPlayz600/Destroy-The-earth-with-da
 - [x] **32 · Reviewed.** “A hired hauler can pick up and move eligible logs to a chosen station.”
 - [x] **33 · Reviewed.** “A machine assigned to a job cannot accept the same job twice concurrently.”
 - [x] **34 · Reviewed.** “Offscreen automation consumes actual resources and produces bounded outputs.”
-- [ ] **35 · Partial review.** “A stalled truck can be recovered without corrupting cargo or save state.”
+- [x] **35 · Reviewed.** “A stalled truck can be recovered without corrupting cargo or save state.”
 - [x] **36 · Reviewed.** “Route screens show cause of blocked transfers.”
 
 ## 24.4 Industry and environment
@@ -57,7 +57,7 @@ The [automated review](https://github.com/GoodPlayz600/Destroy-The-earth-with-da
 - [ ] **39 · Partial review.** “Soil moisture/water/heat changes are inspectable and consistent with active infrastructure.”
 - [x] **40 · Reviewed.** “Building a water pump consumes power and only affects its configured region/network.”
 - [ ] **41 · Partial review.** “Quarrying/soil stripping changes landscape or substrate state in affected cells.”
-- [ ] **42 · Partial review.** “Grazing or overfarming can suppress regrowth under the game rules.”
+- [x] **42 · Reviewed.** “Grazing or overfarming can suppress regrowth under the game rules.”
 - [x] **43 · Reviewed.** “Data centers earn contracted compute revenue only when appropriately powered/cooled.”
 - [x] **44 · Reviewed.** “Data centers are not needed for all desertification paths or required by the win trigger.”
 - [x] **45 · Reviewed.** “A full desert region stays dry through configured stabilization checks.”
@@ -70,7 +70,7 @@ The [automated review](https://github.com/GoodPlayz600/Destroy-The-earth-with-da
 ## 24.5 Upgrade catalog and endgame
 
 - [x] **51 · Reviewed.** “All **288** upgrade IDs are unique and validated at application boot.”
-- [ ] **52 · Needs work.** “All purchasable upgrades have a meaningful implementation, not a label-only placeholder.”
+- [x] **52 · Reviewed.** “All purchasable upgrades have a meaningful implementation, not a label-only placeholder.”
 - [x] **53 · Reviewed.** “Upgrades cannot be purchased without meeting money and prerequisite rules.”
 - [x] **54 · Reviewed.** “Upgrade price is deducted only once and bought nodes persist after reload.”
 - [ ] **55 · Partial review.** “No tree, building or biome cell is permanently inaccessible in a generated valid world.”
@@ -83,12 +83,12 @@ The [automated review](https://github.com/GoodPlayz600/Destroy-The-earth-with-da
 ## 24.6 Usability, browser and performance
 
 - [x] **61 · Reviewed.** “App works in a current Chromium browser and at least one other modern browser.”
-- [ ] **62 · Partial review.** “Canvas resize does not break input targeting or render resolution.”
+- [x] **62 · Reviewed.** “Canvas resize does not break input targeting or render resolution.”
 - [ ] **63 · Partial review.** “Pointer lock failure is handled with a clear user action.”
-- [ ] **64 · Partial review.** “UI remains readable at 1920×1080 and common laptop resolutions.”
+- [x] **64 · Reviewed.** “UI remains readable at 1920×1080 and common laptop resolutions.”
 - [x] **65 · Reviewed.** “No uncaught console errors during ordinary game flow.”
 - [x] **66 · Reviewed.** “Settings and audio preferences survive reload.”
 - [x] **67 · Reviewed.** “Pausing the simulation does not allow worker jobs to silently complete.”
 - [x] **68 · Reviewed.** “No screenshot billboards masquerade as scenery, vehicles, trees or factories.”
 - [x] **69 · Reviewed.** “Save/export/import works, with version checks and visible recovery on invalid files.”
-- [ ] **70 · Partial review.** “Quality presets preserve object geometry and functional collider behavior.”
+- [x] **70 · Reviewed.** “Quality presets preserve object geometry and functional collider behavior.”

@@ -6,7 +6,7 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 
 - Vite and TypeScript production build passed.
 - Chromium and Firefox ran the live 3D menu, terrain movement, held tool, starting harvest, pause and resized UI. Menu and field screenshots reviewed.
-- Firefox captured genuine pointer lock. Three geometry quality presets, keyboard and touch controls, ambient sound, day/night and rain are implemented.
+- Browser checks covered pointer lock, a remapped movement key, jumping, resizing and touch movement. Geometry presets, ambient sound, day/night and rain are implemented.
 
 ## [M1 — Butter knife, chopping, falling, dragging, fire sale](progress/M1/completed.md)
 
@@ -16,7 +16,7 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 ## [M2 — First profitable refining branch](progress/M2/completed.md)
 
 - Sawbench accepts a physical log and produces two modeled boards. The market, rack and crate workshop carry timed, quality-aware material. Rope, sled and hand cart options are available.
-- Simulation review verified material conservation and greater processed sale value.
+- Chromium and Firefox verified the physical sawbench-to-market route. Simulation checks prove material conservation, drying time, crate output and greater processed sale value.
 
 ## [M3 — Game economy and progression foundation](progress/M3/completed.md)
 
@@ -36,7 +36,7 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 ## [M6 — World conversion and map progress](progress/M6/completed.md)
 
 - The fixed 4,096 m world has 65,536 authoritative cells, seven stages, streamed terrain, rain, regrowth suppression, stabilization and survey overlays for water and heat.
-- Simulation tests verified that clearing alone stays below desert, independent district strategies can complete, and exact counts survive restoring a save.
+- Simulation tests covered all seven biome stages, district strategies, and restored counts. Browser tests operated a real excavator and verified its cargo and elevation changes.
 
 ## [M7 — Heavy industry and multiple victory strategies](progress/M7/completed.md)
 
@@ -46,12 +46,18 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 ## [M8 — Massive late-game depth](progress/M8/completed.md)
 
 - Survey overlays, aerial previews, climate readings, remaining-cell filters and queued cleanup jobs, district contracts, achievements and capped opt-in offline progress are implemented. Rail, road and drone freight reserve stock, charge dispatch fees and persist in-flight cargo. Owned autonomous trucks use fuel and return to their garage after delivery.
-- The full catalog is present with unavailable entries clearly marked.
+- All 288 upgrade IDs are purchasable in dependency order. Automated review verifies the registry, every connected effect or unlock, and the absence of circular prerequisites.
 
 ## [M9 — Actual 100% ending and final polish](progress/M9/completed.md)
 
 - A 65,535-cell test stayed at 99.99% and the last cell triggered exactly one victory. A separate campaign test built the projects for all 64 districts, simulated all 65,536 cells, paid each completion bond once and reloaded a completed save.
 - Chromium and Firefox passed the final-cell flyover, lifetime statistics, New Game+, archive restore and suppression of a replayed ending.
+
+## Verification totals
+
+- 45 automated simulation and validation tests passed.
+- The full No Compute benchmark finished all 65,536 cells in 374 simulation ticks. On the review runner the median tick was 14.06 ms, the 95th percentile was 17.22 ms, and the JSON save was 11.58 MiB.
+- The largest benchmark represents a simulation stress case. Browser playthroughs check the opening naturally and use prepared saves for later milestones.
 
 ## Browser evidence
 
@@ -59,4 +65,5 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 - [Firefox refining, pointer lock and finale review](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions/runs/44779594461/job/136438422591).
 - [Chromium and Firefox reviewing refining and finale](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions/runs/44780546998).
 - [Chromium and Firefox reviewing pickup delivery](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions/runs/44781691730).
+- [Cross-browser suite covering remapping, jump, excavation, mobile input and New Game+](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions/runs/44788467199).
 - [Latest GitHub Actions runs](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions).

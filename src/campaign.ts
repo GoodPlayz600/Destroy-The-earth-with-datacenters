@@ -37,7 +37,7 @@ export const consumes = (recipe: Recipe | undefined, good: Good) => recipe?.inpu
 export const takesLogs=(kind:Facility) => storageSite(kind)||kind==='fire'||buyerSite(kind)||(isRecipe(kind)&&(recipes[kind] as Recipe).input?.[0]&&['timber','branches'].includes((recipes[kind] as Recipe).input![0]));
 export type Site = Point & {
   id: string; kind: Facility; yaw?:number; input: Stack[]; output: Stack[]; jobs: Batch[];
-  on: boolean; fuel: number; status: string; enlarged?:boolean; sortGood?:Good; secondary?:string; shipped?:number; freightPlan?:'road'|'rail'; dedicatedRide?:string; scrubbers?:boolean; staffed?:boolean; clearingTarget?:number; payroll?:number; shift?:'day'|'continuous'; order?:'harvest'|'haul'|'clear';
+  on: boolean; fuel: number; status: string; manual?:boolean; enlarged?:boolean; sortGood?:Good; secondary?:string; shipped?:number; freightPlan?:'road'|'rail'; dedicatedRide?:string; scrubbers?:boolean; staffed?:boolean; clearingTarget?:number; payroll?:number; shift?:'day'|'continuous'; order?:'harvest'|'haul'|'clear';
   mechanic?:{ride:string;time:number}; crane?:{log:number;ride:string;remaining:number;x:number;y:number;z:number}; winch?:{log:number; ready:number}; planted?:number; fertilizer?:boolean; intensive?:boolean; water?: number; climate?:ClimateSample[]; waterMode?:'all'|'farm'|'industry'; waterRate?:'normal'|'conserve'|'deplete'; reserve?:number; priority?:boolean; gridFlow?:number; gridCapacity?:number; uptime?:number; service?:number; yieldCarry?:number; layout?: 'quality'|'volume'; sortHigh?:boolean; link?: string; haul?: Haul; shipment?:Shipment; mode?: 'sell' | 'charcoal';
 };
 export type Ride = Point & { id: string; kind: VehicleType; yaw: number; fuel: number; wear: number; hitch?:string; hitchReady?:number; attachment?:'saw'|'tow'; water?:number; freight?:Stack };
@@ -139,6 +139,7 @@ export class Campaign {
   private tickTime = 0;
   private landQueue = new Set<number>();
   private pressures=new Float64Array(TOTAL*pressureFields.length);
+  private pressureTracked=new Uint8Array(TOTAL);
   readonly routePackets=new Map<string,{at:number;good:Good;from:Point;to:Point}>();
   private roadPower = new Map<string, boolean>();
 
@@ -360,9 +361,12 @@ export class Campaign {
     return true;
   }
 
-  getSoil(i: number) {
-    if (!this.soil.has(i)) this.soil.set(i, defaultSoil());
-    return this.soil.get(i)!;
+  getSoil(i:number) {
+    const existing=this.soil.get(i);
+    if(existing)return existing;
+    const base=defaultSoil();
+    this.soil.set(i,base);
+    return base;
   }
 
   private standingFraction(i: number) {
@@ -615,6 +619,30 @@ export class Campaign {
     if (this.tool !== 'knife') this.finance(-10, 'Service tool');
     this.wear = this.tool === 'knife' ? this.mods.knifeDurability : 100;
     this.battery = 100;
+    return true;
+  }
+
+  recoverRide(ride:Ride) {
+    if(!this.rides.includes(ride)||this.cash<18||this.sites.some(s=>s.dedicatedRide===ride.id&&s.shipment))return false;
+    const depots=this.sites.filter(s=>s.kind==='serviceBay'||s.kind==='depot'||s.kind==='market')
+      .sort((a,b)=>distance(a,ride)-distance(b,ride));
+    const yard=depots[0];
+    if(!yard)return false;
+    let position:Point|undefined;
+    for(let n=0;n<12;n++){
+      const angle=n*Math.PI/6, radius=facilities[yard.kind].size+3.2;
+      const candidate={x:yard.x+Math.cos(angle)*radius,z:yard.z+Math.sin(angle)*radius};
+      const tile=indexAt(candidate.x,candidate.z);
+      if(tile<0||this.rides.some(other=>other!==ride&&distance(other,candidate)<2.8)
+        ||treesIn(this.seed,tile).some(tree=>this.isStanding(tree)&&distance(tree,candidate)<2.5))continue;
+      position=candidate;break;
+    }
+    if(!position)return false;
+    this.finance(-18,'Recover stranded vehicle');
+    const trailer=this.rides.find(v=>v.hitch===ride.id);
+    if(trailer){trailer.hitch=undefined;trailer.hitchReady=undefined;}
+    Object.assign(ride,position,{fuel:Math.max(20,ride.fuel),wear:Math.min(65,ride.wear)});
+    this.notice('Recovered '+vehicleTypes[ride.kind].name+' to '+facilities[yard.kind].name);
     return true;
   }
 
@@ -1085,6 +1113,9 @@ export class Campaign {
       if(kilns.includes(site.kind)&&this.mods.smartKiln)watts=Math.max(1,watts-2);
       const fan=site.kind==='rack'&&this.mods.dryingFan&&supply.some(source=>source.free>=2&&this.gridReach(site,source.site));
       if(fan)watts=2;
+      if(this.mods.heatExchange&&kilns.includes(site.kind)&&this.sites.some(source=>source.on&&
+        (biomassSites.includes(source.kind)&&source.fuel>0||['charcoal','charcoalDrum'].includes(source.kind)&&source.jobs.length>0)
+        &&this.waterReach(site,source,58)))watts=Math.max(1,watts-3);
       if(site.kind==='kiln'&&this.mods.heatReuse&&this.sites.some(s=>s.kind==='fire'&&s.jobs.length>0&&distance(site,s)<22))watts=Math.max(0,watts-3);
       const within=this.mods.campus&&computing?118:78;
       const network=watts?supply.filter(source=>source.free>0&&this.gridReach(site,source.site,within)):[];
@@ -1149,7 +1180,7 @@ export class Campaign {
         site.jobs.splice(site.jobs.indexOf(work),1);
       }
       const concurrent=site.kind==='millComplex'?3:mills.includes(site.kind)&&site.kind!=='bench'&&this.mods.twinBlade?2:1;
-      if(site.jobs.length<concurrent&&(!computing||computeNeeded>0)&&this.makeBatch(site,recipe,Boolean(fan))&&computing) {
+      if(!site.manual&&site.jobs.length<concurrent&&(!computing||computeNeeded>0)&&this.makeBatch(site,recipe,Boolean(fan))&&computing) {
         const running=site.jobs.at(-1)!;
         running.quantity=Math.min(running.quantity,computeNeeded);
         computeNeeded-=running.quantity;
@@ -1194,7 +1225,8 @@ export class Campaign {
         const swift=this.sites.some(s=>s.kind==='poweredBelt'&&this.roadPower.get(s.id)&&distance(site,s)<16);
         const motorized=['picker','sortGate','robotSorter'].includes(site.kind);
         if(motorized&&!this.roadPower.get(site.id)){site.status='Route blocked · no power';continue;}
-        const max=site.kind==='fuelSilo'||swift?12:site.kind==='picker'?10:4;
+        const hub=this.mods.logistics&&this.sites.some(s=>s.kind==='logisticsHub'&&s.on&&distance(s,site)<40);
+        const max=hub?16:site.kind==='fuelSilo'||swift?12:site.kind==='picker'?10:4;
         const receiver=storageSite(target.kind)?target.output:target.input;
         const amount=Math.min(max,lot.quantity,buyerSite(target.kind)?max:this.capacity(target)-getQuantity(receiver));
         if(amount<=0){site.status='Route blocked · receiver full';continue;}
@@ -1305,7 +1337,10 @@ export class Campaign {
     pressures.fill(0);
     const add=(i:number,effect:keyof Pressure,amount:number)=>{
       pressures[i*width+pressureSlots[effect]]+=amount;
-      this.landQueue.add(i);
+      if(!this.pressureTracked[i]){
+        this.pressureTracked[i]=1;
+        this.landQueue.add(i);
+      }
     };
     for (const site of this.sites) {
       const def = facilities[site.kind], center = indexAt(site.x, site.z);
@@ -1651,6 +1686,7 @@ export class Campaign {
     game.mods = modifiers(game.ownedUpgrades);
     for (const [i, land] of game.soil) {
       game.landQueue.add(i);
+      game.pressureTracked[i]=1;
       if (!desertified(land)) continue;
       game.desertCount++;
       game.desertByDistrict[districtAt(i)]++;

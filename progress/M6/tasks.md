@@ -1,6 +1,6 @@
 # M6 — World conversion and map progress
 
-**Built, needs browser review**
+**Reviewed**
 
 - [x] “Finite 4,096 m map architecture, region streaming and save state.”
 - [x] “Full biome data cells with clearing, plains, degradation, barren and desert.”

@@ -1,5 +1,5 @@
 # M5 — Industrial processing and factory network
 
-**Needs work**
+**Reviewed**
 
-- Validate the visible factory route through inputs, buyers and warehouse storage in a browser. Review the planned sorting rules and physical transfers. The catalog now exposes more than 100 functional upgrades.
+- Playtest a large factory with overlapping storage, output gates and busy routes during an ordinary campaign.

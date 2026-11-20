@@ -2,4 +2,4 @@
 
 **Reviewed**
 
-Opening milestone passed review. Continue with [M2](../M2/tasks.md).
+The recorded milestone checks passed.

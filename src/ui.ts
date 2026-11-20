@@ -38,7 +38,7 @@ const tc=(value:string,title:string)=>el('div','stat-card',label(title),el('stro
 export type Page='settings'|'help'|'credits'|'inventory'|'build'|'map'|'upgrades'|'journal'|'site'|'pause'|'victory';
 export type Hint={ title:string; detail:string; key?:string; bar?:number; };
 type Hud={
-  x:number;z:number; stage:number; held?:string; ride?:string; hint?:Hint; running:boolean; direction:string;
+  x:number;z:number; stage:number; held?:string; ride?:string; rideDetail?:string; hint?:Hint; running:boolean; direction:string;
   elapsed:number; waypoint?:Point; aimedBuild?:string; buildIssue?:string; saved:string; touch:boolean;
 };
 type Controller={
@@ -167,7 +167,7 @@ export class UI {
 
   update(h:Hud) {
     const g=this.c.game();
-    const stamp=[g.cash,g.desertCount,g.tool,g.stats.harvest,g.stats.fire,g.stats.produced,h.stage,h.direction,h.saved,h.ride,h.held,h.running,h.aimedBuild,h.buildIssue].join('|');
+    const stamp=[g.cash,g.desertCount,g.won,g.tool,g.stats.harvest,g.stats.fire,g.stats.produced,h.stage,h.direction,h.saved,h.ride,h.held,h.running,h.aimedBuild,h.buildIssue].join('|');
     if(stamp!==this.signature) {
       this.signature=stamp;
       this.cashNode.textContent=cash(g.cash);
@@ -177,7 +177,7 @@ export class UI {
       this.stateNode.textContent=stages[h.stage];
       this.toolNode.textContent=h.ride??tools[g.tool].name;
       this.saved.textContent=h.saved;
-      const [step,body]=g.stats.harvest===0?['First cut',h.touch?'Walk to the sapling. Swipe to aim at its trunk, then hold Swing.':'Approach a sapling. Aim at its trunk and hold Swing.']
+      const [step,body]=g.won?['Campaign complete','Every cell is stable desert. Keep exploring or open the journal to review the run.']:g.stats.harvest===0?['First cut',h.touch?'Walk to the sapling. Swipe to aim at its trunk, then hold Swing.':'Approach a sapling. Aim at its trunk and hold Swing.']
         :g.stats.fire===0?['Make the first sale',h.touch?'Hold Grab beside the trunk. Drag it into the Ash Exchange and release.':'Hold Interact beside the trunk. Drag it into the Ash Exchange and release.']
         :g.stats.produced===0?['Put your timber to work','Buy an upgrade or build a Field Sawbench for higher-value lumber.']
         :['The last jungle','Connect mills and industry. Convert every cell into stable desert.'];
@@ -186,7 +186,7 @@ export class UI {
         : h.held?el('div','hold-context',label('HAULING'),el('strong','',h.held),sub('Release inside the station intake'))
         : '');
     }
-    this.statusLine.textContent=h.ride??`Integrity ${Math.round(g.wear)}  ·  ${['electric','chainsaw','harvester'].includes(g.tool)?'Power '+Math.floor(g.battery)+'%':'Stamina '+Math.floor(g.stamina)}`;
+    this.statusLine.textContent=h.rideDetail??`Integrity ${Math.round(g.wear)}  ·  ${['electric','chainsaw','harvester'].includes(g.tool)?'Power '+Math.floor(g.battery)+'%':'Stamina '+Math.floor(g.stamina)}`;
     this.meter.style.setProperty('--amount',String(g.stamina/g.mods.stamina*100)+'%');
     this.touch.hidden=!h.touch;
     const hintStamp=JSON.stringify(h.hint);
@@ -321,7 +321,10 @@ export class UI {
         ...Object.keys(goods).filter(k=>getQuantity(g.stock,k as Good)>0).map(k=>row(goods[k as Good][0],`${getQuantity(g.stock,k as Good)} units`))),
       section('Fleet',g.rides.length?undefined:sub('No vehicles in service.'),
         ...g.rides.map(v=>row(vehicles[v.kind].name,`${Math.floor(v.fuel)}% fuel · ${Math.floor(cargoMass(g.logs.values(),v.id))} kg cargo · ${Math.round(v.x)}, ${Math.round(v.z)}`,
-          btn('Mark',()=>this.c.waypoint(v)))))));
+          btn('Mark',()=>this.c.waypoint(v)),btn('Recover · $18',()=>{
+            if(!g.recoverRide(v))this.notice('Vehicle cannot be recovered right now');
+            this.c.refresh();
+          },g.cash<18))))));
   }
 
   private build() {
@@ -519,7 +522,8 @@ export class UI {
         fields.includes(s.kind)&&g.mods.override?row('Crop rotation',s.intensive?'Intensive':'Normal',btn('Switch',()=>{
           s.intensive=!s.intensive;this.site();
         })):undefined,
-        s.kind==='bench'&&g.mods.benchCrank?row('Manual crank','Start a faster hand-sawn batch from the input buffer',
+        s.kind==='bench'&&g.mods.benchCrank?row('Manual crank',s.manual?'Wait for your crank order':'Start the next batch automatically',
+          btn(s.manual?'Use automatic feed':'Use manual feed',()=>{s.manual=!s.manual;this.site();}),
           btn('Crank saw',()=>{if(g.crankBench(s))this.site();},Boolean(s.jobs.length)||getQuantity(s.input,'timber')===0)):undefined,
         g.mods.cutPatterns&&mills.includes(s.kind)?row('Cut pattern',s.layout==='volume'?'Maximize volume':s.layout==='quality'?'Select high-grade cuts':'Standard throughput',
           btn('Cycle',()=>{s.layout=s.layout==='volume'?'quality':s.layout==='quality'?undefined:'volume';this.site();})):undefined,

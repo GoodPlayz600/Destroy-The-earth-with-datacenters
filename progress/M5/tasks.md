@@ -1,12 +1,12 @@
 # M5 — Industrial processing and factory network
 
-**Needs work**
+**Reviewed**
 
 - [x] “Sawmills, kilns, joinery, pallet plant, chipper and paper chain.”
 - [x] “Machine buffers, recipe times, electricity and product quality.”
 - [x] “Belts, rollers, warehouses, route sorting, product buyers.”
-- [ ] “Workers and work orders; basic time-saving automation.”
-- [ ] “First 10 full product families and at least 100 genuinely implemented upgrade effects.”
+- [x] “Workers and work orders; basic time-saving automation.”
+- [x] “First 10 full product families and at least 100 genuinely implemented upgrade effects.”
 
 **Exit test**
 

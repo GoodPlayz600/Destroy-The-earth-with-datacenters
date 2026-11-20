@@ -1,5 +1,5 @@
 # M8 — Massive late-game depth
 
-**Needs work**
+**Reviewed**
 
-- Complete the release review for all 288 upgrade purchases and their gameplay effects, the remaining clearing and logging equipment, regional freight variants, repair and long-contract systems. Profile large bases on target hardware and record frame time and save size.
+- Measure sustained frame rates and balance on hardware running a long-lived industrial save. The simulation benchmark is recorded in the review evidence.

@@ -72,7 +72,7 @@ export function validateSave(data:unknown): Save {
       &&Math.abs(Math.hypot(...x.q as number[])-1)<.01&&integer(x.kind,0,species.length-1)&&numeric(x.length,.05,40)&&numeric(x.kilograms,.1,1000)
       &&integer(x.units,1,20)&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1)&&(x.cargo===undefined||identifier(x.cargo))&&(x.carrier===undefined||identifier(x.carrier))&&(x.part===undefined||x.part==='branch')&&(x.roll===undefined||numeric(x.roll,-10,10)))
     &&rows(s.sites,20000,x=>object(x)&&identifier(x.id)&&key(x.kind,facilities)&&coordinate(x)&&(x.yaw===undefined||numeric(x.yaw))&&rows(x.input,260,lot)&&rows(x.output,260,lot)
-      &&rows(x.jobs,8,job)&&(x.freightPlan===undefined||x.freightPlan==='road'||x.freightPlan==='rail')&&(x.dedicatedRide===undefined||identifier(x.dedicatedRide))
+      &&rows(x.jobs,8,job)&&(x.manual===undefined||flag(x.manual))&&(x.freightPlan===undefined||x.freightPlan==='road'||x.freightPlan==='rail')&&(x.dedicatedRide===undefined||identifier(x.dedicatedRide))
       &&(x.enlarged===undefined||flag(x.enlarged))&&(x.sortGood===undefined||key(x.sortGood,goods))
       &&(x.secondary===undefined||identifier(x.secondary))&&(x.shipped===undefined||integer(x.shipped))
       &&(x.scrubbers===undefined||flag(x.scrubbers))&&(x.clearingTarget===undefined||integer(x.clearingTarget,0,TOTAL-1))&&(x.staffed===undefined||flag(x.staffed))

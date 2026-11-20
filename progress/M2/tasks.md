@@ -1,11 +1,11 @@
 # M2 — First profitable refining branch
 
-**Built, needs browser review**
+**Reviewed**
 
 - [x] “Add real sawbench, pocket saw, segments, and plank model output.”
 - [x] “Add raw timber buyer and board buyer with actual receipts.”
 - [x] “Add drying rack and hand-built crate or pallet recipe.”
-- [ ] “Build a small logging route with rope, sled and wheelbarrow.”
+- [x] “Build a small logging route with rope, sled and wheelbarrow.”
 - [x] “Market UI compares fire, raw, and processed value.”
 - [x] “Purchase and equip early physical-tool upgrades.”
 
