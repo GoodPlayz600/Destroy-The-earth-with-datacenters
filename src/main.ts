@@ -69,6 +69,7 @@ const show=(message:string)=>ui.notice(message);
 const ui=new UI(root,{
   game:()=>game,prefs,open,begin,resume,menu:mainMenu,refresh:()=>{if(page)ui.show(page);void persist();},
   save:()=>{void persist(true);},download:()=>{downloadSave(game.snapshot());show('Campaign exported');},restore:(file)=>{void importFile(file);},
+  cloudSnapshot:()=>startedBefore?game.snapshot():undefined, restoreCloud:replaceFromBackup,
   archives:()=>archives, restoreArchive:(slot)=>{void restoreArchive(slot);},
   applySettings, binding:(id)=>{recording=id;ui.recording(id);},
   build:(f)=>{selectedBuild=f;selectedVehicle=undefined;resume();},
@@ -85,7 +86,7 @@ function collapseControls() {
   if(held?.mode==='hand'&&!prefs.sticky) release();
 }
 function open(target:Page) {
-  if(!scene) return;
+  if(!scene&&!['account','leaderboard','help','credits'].includes(target)) return;
   if(active()) collapseControls();
   page=target;
   if(hasLock()) document.exitPointerLock();
@@ -110,7 +111,7 @@ document.addEventListener('pointerlockerror',pointerUnavailable);
 function resume() {
   recording=undefined;
   page=undefined;
-  if(atMenu) { ui.showMenu(hasSave,saveError);return; }
+  if(atMenu) { ui.showMenu(hasSave,saveError,Boolean(scene));return; }
   ui.showPlay();
   canvas.focus({preventScroll:true});
   if(!hasLock()) acquirePointer();
@@ -128,7 +129,7 @@ function applySettings() {
   sound.volume(prefs.volume);
 }
 function resetSession(next:Campaign) {
-  game=next;scene.replace(next);held=undefined;ride=undefined;waypoint=undefined;selectedSite=undefined;
+  game=next;scene?.replace(next);held=undefined;ride=undefined;waypoint=undefined;selectedSite=undefined;
   selectedBuild=undefined;selectedVehicle=undefined;survey=undefined;airborne=0;vY=0;swing=0;victoryAge=game.won?-2:-1;lastHarvest=game.stats.harvest;
   collapseControls();
 }
@@ -173,9 +174,10 @@ async function replaceFromBackup(save:Save) {
   }
   await saveCampaign(save);
   resetSession(Campaign.restore(save));
+  saveLabel='SAVED LOCALLY';
   hasSave=true;startedBefore=true;
   await refreshArchives();
-  if(atMenu) resume();
+  if(atMenu) { saveError='';resume(); }
 }
 async function importFile(file:File) {
   try {
@@ -787,7 +789,7 @@ async function boot() {
     requestAnimationFrame(frame);
   } catch(error) {
     console.error(error);
-    ui.fatal('Project Clearcut needs WebGL 2 with hardware acceleration enabled.');
+    ui.showMenu(hasSave,'Enable WebGL 2 and hardware acceleration to play the campaign.',false);
   }
 }
 void boot();

@@ -43,3 +43,13 @@ The browser review checks the opening from a fresh campaign and imports prepared
 Heavy equipment and utilities unlock through the 24 research branches. Use the survey's remaining-cell markers to find unconverted ground. Site panels show deliveries, production buffers, power, water, and dispatch assignments. In a developed campaign, authorized crews can work on marked parcels while you continue harvesting and hauling.
 
 Run `npm run test:performance` to exercise all 64 districts, reload the completed save, and measure another 180 simulation ticks. The funded scenario reports tick times and serialized save size. The browser review also samples five seconds of animation in a prepared industrial save at 960 × 660 with low graphics. Compare frame times on the same device and graphics settings.
+
+## Accounts, cloud backup and leaderboard
+
+On the hosted game, open **Account** from the main menu or pause screen. Accounts use ChatGPT sign-in. The game saves automatically in the current browser. Choose **Back up campaign** to store a copy on your account, and **Restore cloud backup** on another device to continue it. Restoring saves the current local campaign in **Settings → Archives**.
+
+To share a run, create a cloud backup, enter a display name and choose **Post backup progress**. The board lists up to 50 entries per campaign mode. Ranking favors stable desert cells, then faster completion, then lifetime earnings. Entries reflect player-submitted campaign saves. You can remove your entries from Account.
+
+The main menu and leaderboard reserve ad placements. These are empty slots until an ad provider or sponsor creative is connected.
+
+`npm run build:sites` builds the Sites Worker as well as the browser bundle. The hosted game uses the `DB` binding for rankings and `SAVES` for private backups. The static build still supports local play, saves and imports. Online services require the Sites deployment.

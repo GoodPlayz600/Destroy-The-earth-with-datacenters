@@ -343,3 +343,35 @@ kbd { display: inline-flex; align-items: center; justify-content: center; min-wi
   .hud:has(.touch:not([hidden])) .assist { bottom: 12.8rem; }
   .touch-button { min-height: 2.3rem; }
 }
+
+.online-links { display: flex; align-items: center; gap: .45rem; }
+.online-links .nav-key { border: 1px solid var(--line); background: #17221ae8; padding: .6rem .85rem; }
+.online-links .nav-key:hover { background: #344431; }
+.online-links kbd { display: none; }
+.online-panel { display: grid; gap: 1rem; }
+.online-panel .sub { font-size: .9rem; }
+.online-panel > [role="status"]:empty { display: none; }
+.online-panel a { pointer-events: auto; }
+.online-auth { display: inline-flex; text-decoration: none; justify-self: start; }
+.online-auth:focus-visible { outline: 2px solid var(--amber); outline-offset: 4px; }
+.online-input { background: #111c15; border: 1px solid var(--line); border-radius: .25rem; padding: .55rem .7rem; min-height: 2.6rem; }
+.sponsor-slot { border: 1px dashed #dfd6a350; background: #121a16c9; border-radius: .2rem; display: grid; place-items: center; }
+.sponsor-menu { position: absolute; right: clamp(24px,5.1vw,84px); bottom: clamp(85px,13vh,150px); width: 300px; height: 100px; }
+.sponsor-leaderboard { max-width: 728px; min-height: 90px; width: 100%; margin: .2rem auto; }
+.rank-scroll { overflow-x: auto; }
+.rank-scroll:empty { display: none; }
+.rank-table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.rank-table :is(th,td) { padding: .7rem .55rem; text-align: left; border-bottom: 1px solid var(--line); }
+.rank-table thead { color: var(--amber); }
+.rank-table .rank-self { background: #96b57b27; }
+.rank-table small { display: block; color: var(--soft); white-space: nowrap; }
+.menu-content h1 { font-size: clamp(2.65rem, 7.9vw, 8.5rem); }
+@media (max-width: 920px), (max-height: 590px) {
+  .sponsor-menu { display: none; }
+}
+@media (max-width: 560px) {
+  .online-links .nav-key { padding: .45rem; }
+  .menu-header .wordmark { max-width: 8.15rem; font-size: .52rem; letter-spacing: .06em; }
+  .menu-content h1 { font-size: clamp(2.35rem, 9vw, 4.2rem); }
+  .rank-table :is(th,td) { padding: .45rem; font-size: .85rem; }
+}
