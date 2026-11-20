@@ -57,7 +57,7 @@ export const recipes = {
   data: { name: 'Process compute contract', output: ['compute', 2], time: 24, power: 12 },
 } as const satisfies Record<string, Recipe>;
 
-export type Facility = keyof typeof recipes | 'fire' | 'market' | 'depot' | 'generator' | 'substation' | 'pump' | 'pipe' | 'tank' | 'grazing' | 'thermal' | 'dryer' | 'forestry' | 'road' | 'belt' | 'rail';
+export type Facility = keyof typeof recipes | 'fire' | 'market' | 'depot' | 'railDepot' | 'dronePad' | 'generator' | 'substation' | 'pump' | 'pipe' | 'tank' | 'grazing' | 'thermal' | 'dryer' | 'forestry' | 'road' | 'belt' | 'rail';
 type Building = {
   name: string; price: number; color: string; size: number; requires?: Facility;
   effect?: 'fire' | 'pump' | 'grazing' | 'quarry' | 'thermal' | 'dryer' | 'forestry' | 'data';
@@ -70,6 +70,8 @@ export const facilities: Record<Facility, Building> = {
   workshop: { name: 'Crate Workshop', price: 195, color: '#ac8052', size: 3, requires: 'bench' },
   market: { name: 'Timber Exchange', price: 160, color: '#5c8878', size: 2.5 },
   depot: { name: 'Freight Depot', price: 520, color: '#76807c', size: 4 },
+  railDepot: { name: 'Regional Rail Depot', price: 1600, color: '#8a8170', size: 4.5, requires: 'depot' },
+  dronePad: { name: 'Cargo Drone Pad', price: 2300, color: '#6e7d68', size: 3.5, requires: 'depot', power: 5 },
   mill: { name: 'Sawmill', price: 530, color: '#59817c', size: 4, requires: 'bench' },
   kiln: { name: 'Lumber Kiln', price: 490, color: '#b0784f', size: 3.5, requires: 'mill' },
   joinery: { name: 'Fine Joinery', price: 670, color: '#ab8a5e', size: 4, requires: 'kiln' },

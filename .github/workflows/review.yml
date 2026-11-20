@@ -26,6 +26,11 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - uses: actions/upload-artifact@v4
+        if: matrix.browser == 'chromium'
+        with:
+          name: Project-Clearcut-Web
+          path: dist/
       - run: npx playwright install --with-deps ${{ matrix.browser }}
       - if: matrix.browser == 'chromium'
         run: xvfb-run --auto-servernum env HEADED=1 npm run test:browser

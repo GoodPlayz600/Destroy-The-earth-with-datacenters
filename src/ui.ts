@@ -1,11 +1,11 @@
 import { DISTRICTS, TOTAL, facilities, goods, recipes, tools, vehicles } from './catalog';
 import type { Facility, Good, Recipe, Tool, VehicleType } from './catalog';
-import { cargoMass, getQuantity, priceFor, projectPrices } from './campaign';
+import { cargoMass, getQuantity, priceFor, projectPrices, storageSite } from './campaign';
 import type { Campaign, Project, Site } from './campaign';
 import { conversionLabel, districtName, soilColors, stages } from './land';
 import type { Point } from './land';
 import { bindingOptions, defaults } from './storage';
-import type { Binding, Preferences } from './storage';
+import type { Archive, Binding, Preferences } from './storage';
 import { branches } from './upgrade-spec';
 import { forestryUnlocks, upgrades } from './upgrades';
 
@@ -42,7 +42,7 @@ type Hud={
 type Controller={
   game:()=>Campaign; prefs:Preferences; open:(page:Page)=>void; begin:(kind:'resume'|'new'|'plus')=>void;
   resume:()=>void; menu:()=>void; refresh:()=>void; save:()=>void; download:()=>void; restore:(file:File)=>void;
-  applySettings:()=>void; binding:(key:Binding)=>void; build:(f:Facility)=>void; ride:(v:VehicleType)=>void;
+  archives:()=>Archive[]; restoreArchive:(slot:string)=>void; applySettings:()=>void; binding:(key:Binding)=>void; build:(f:Facility)=>void; ride:(v:VehicleType)=>void;
   waypoint:(p:Point)=>void; site:()=>Site|undefined; touch:(key:string,pressed:boolean)=>void; fullscreen:()=>void;
 };
 
@@ -290,7 +290,8 @@ export class UI {
         row('Toggle grabbing','Tap Interact to latch, then tap again to release',check(prefs.sticky,v=>prefs.sticky=v))),
       section('Campaign data',
         row('Offline industry','Simulate up to five minutes on return',check(prefs.offline,v=>prefs.offline=v)),
-        row('Save files','',btn('Export',()=>this.c.download()),btn('Import',()=>file.click()),file)),
+        row('Save files','',btn('Export',()=>this.c.download()),btn('Import',()=>file.click()),file),
+        ...this.c.archives().map(archive=>row(archive.label,new Date(archive.date).toLocaleString(),btn('Restore archive',()=>this.c.restoreArchive(archive.slot))))),
       section('Bindings',...bindingRows,btn('Reset bindings',()=>{
         prefs.bindings=structuredClone(defaults.bindings);this.c.applySettings();this.show('settings');
       })),
@@ -434,17 +435,20 @@ export class UI {
         s.output.length?undefined:sub('No batches ready. Resume play to run production.'),
         ...s.output.map(lot=>row(goods[lot.good][0],`${lot.quantity} units · ${Math.floor(lot.quality*100)}% grade`,
           btn('Take one',()=>{g.transfer(s,lot.good,1,true);this.site();}),btn('Take batch',()=>{g.transfer(s,lot.good,lot.quantity,true);this.site();})))),
-      section('Feed from your bag',...g.stock.filter(lot=>s.kind==='depot'||recipe?.input?.[0]===lot.good).map(lot=>row(goods[lot.good][0],`${lot.quantity} units available`,
+      section('Feed from your bag',...g.stock.filter(lot=>storageSite(s.kind)||recipe?.input?.[0]===lot.good).map(lot=>row(goods[lot.good][0],`${lot.quantity} units available`,
         btn('Feed one',()=>{g.transfer(s,lot.good,1,false);this.site();}),btn('Feed batch',()=>{g.transfer(s,lot.good,lot.quantity,false);this.site();})))),
-      section('Freight route',sub(s.link?`Connected to ${facilities[g.sites.find(t=>t.id===s.link)!.kind].name}`:'Choose a compatible facility within 16 m or bridge the gap with freight infrastructure.'),
-        ...g.sites.filter(target=>target!==s && (target.kind==='market'||target.kind==='depot'||Object.hasOwn(recipes,target.kind)||target.kind==='fire')).map(target=>
+      section('Freight route',
+        s.shipment?row('Shipment on the move',`${s.shipment.load.quantity} × ${goods[s.shipment.load.good][0]} · ${Math.max(0,Math.ceil(s.shipment.duration-s.shipment.elapsed))}s`):undefined,
+        sub(!s.link&&s.kind==='railDepot'?'Lay connected track between the depot and its destination.':
+          !s.link&&s.kind==='dronePad'?'Power the charger, then choose a destination up to 320 m away.':s.link?`Connected to ${facilities[g.sites.find(t=>t.id===s.link)!.kind].name}`:'Choose a compatible facility within 16 m or bridge the gap with freight infrastructure.'),
+        ...g.sites.filter(target=>target!==s && (target.kind==='market'||storageSite(target.kind)||Object.hasOwn(recipes,target.kind)||target.kind==='fire')).map(target=>
           row(facilities[target.kind].name,`${Math.round(Math.hypot(s.x-target.x,s.z-target.z))} m`,btn('Connect',()=>{
-            if(!g.connect(s,target))this.notice('Route outside reach · add freight infrastructure');
+            if(!g.connect(s,target))this.notice('Route out of reach, disconnected or already in use');
             this.site();
           },s.link===target.id)))));
     }
     if(s.kind==='forestry') {
-      const options=g.sites.filter(target=>target.kind==='market'||target.kind==='depot'||(Object.hasOwn(recipes,target.kind)&&(recipes[target.kind as keyof typeof recipes] as Recipe).input?.[0]==='timber'));
+      const options=g.sites.filter(target=>target.kind==='market'||storageSite(target.kind)||(Object.hasOwn(recipes,target.kind)&&(recipes[target.kind as keyof typeof recipes] as Recipe).input?.[0]==='timber'));
       content.append(section('Log hauler',sub(s.haul?.status??'Hire a worker to collect physical fallen logs within 85 m.'),
         ...options.filter(target=>target!==s&&Math.hypot(s.x-target.x,s.z-target.z)<=110).map(target=>
           row(facilities[target.kind].name,'Timber receiving station',btn(s.haul?'Assign':'Hire · $340',()=>{

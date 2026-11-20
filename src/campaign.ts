@@ -7,10 +7,12 @@ import { forestryUnlocks, modifiers, upgradeFacility, upgradesById } from './upg
 export const VERSION = 1;
 export type Log = Point & { id: number; y: number; q: [number, number, number, number]; kind: number; length: number; kilograms: number; units: number; moisture: number; quality: number; cargo?: string; carrier?: string };
 export type Haul = Point & { target: string; log?: number; phase: 'waiting'|'pickup'|'delivery'|'return'; status: string; };
+export const storageSite = (kind:Facility) => kind==='depot'||kind==='railDepot'||kind==='dronePad';
+export type Shipment = { mode:'rail'|'air'; load:Stack; target:string; path:Point[]; duration:number; elapsed:number; };
 type Batch = Stack & { remaining: number; payout?: number };
 export type Site = Point & {
-  id: string; kind: Facility; input: Stack[]; output: Stack[]; jobs: Batch[];
-  on: boolean; fuel: number; status: string; water?: number; link?: string; haul?: Haul; mode?: 'sell' | 'charcoal';
+  id: string; kind: Facility; yaw?:number; input: Stack[]; output: Stack[]; jobs: Batch[];
+  on: boolean; fuel: number; status: string; water?: number; link?: string; haul?: Haul; shipment?:Shipment; mode?: 'sell' | 'charcoal';
 };
 export type Ride = Point & { id: string; kind: VehicleType; yaw: number; fuel: number; wear: number };
 export type Ledger = { date: number; note: string; amount: number };
@@ -240,23 +242,23 @@ export class Campaign {
       this.sellStack(this.logStack(log));
     } else {
       const recipe: Recipe | undefined = isRecipe(site.kind) ? recipes[site.kind] : undefined;
-      if (site.kind !== 'depot' && recipe?.input?.[0] !== 'timber') return false;
-      if (!put(site.kind === 'depot' ? site.output : site.input, this.logStack(log), this.capacity(site))) return false;
+      if (!storageSite(site.kind) && recipe?.input?.[0] !== 'timber') return false;
+      if (!put(storageSite(site.kind) ? site.output : site.input, this.logStack(log), this.capacity(site))) return false;
     }
     this.logs.delete(log.id);
     return true;
   }
 
   capacity(site: Site) {
-    return site.kind === 'depot' ? 260 : site.kind === 'fire' ? 32 : site.kind === 'bench' || site.kind === 'rack' ? 20 : 42;
+    return storageSite(site.kind) ? 260 : site.kind === 'fire' ? 32 : site.kind === 'bench' || site.kind === 'rack' ? 20 : 42;
   }
 
   transfer(site: Site, good: Good, quantity: number, retrieve: boolean) {
     const source = retrieve ? site.output : this.stock;
-    const destination = retrieve ? this.stock : site.kind === 'depot' ? site.output : site.input;
+    const destination = retrieve ? this.stock : storageSite(site.kind) ? site.output : site.input;
     const capacity = retrieve ? 150 : this.capacity(site);
     const recipe: Recipe | undefined = isRecipe(site.kind) ? recipes[site.kind] : undefined;
-    if (!retrieve && site.kind !== 'depot' && recipe?.input?.[0] !== good) return false;
+    if (!retrieve && !storageSite(site.kind) && recipe?.input?.[0] !== good) return false;
     if (getQuantity(destination) + quantity > capacity) return false;
     const stack = take(source, good, quantity);
     return stack ? put(destination, stack, capacity) : false;
@@ -315,6 +317,7 @@ export class Campaign {
     const issue = this.siteIssue(kind, at);
     if (issue) { this.notice(issue); return; }
     const site = this.makeSite(kind, at.x, at.z);
+    site.yaw=this.player.yaw;
     this.sites.push(site);
     this.finance(-facilities[kind].price, facilities[kind].name);
     this.notice(facilities[kind].name + ' installed');
@@ -366,26 +369,79 @@ export class Campaign {
   }
 
   connect(source: Site, target: Site) {
-    if (source === target || !this.sites.includes(source) || !this.sites.includes(target)) return false;
-    const route = distance(source, target) <= 16 || this.reachable(source, target, ['belt','rail','road'], 26);
+    if (source === target || !this.sites.includes(source) || !this.sites.includes(target) || source.shipment) return false;
+    const route=source.kind==='railDepot'
+      ?this.findPath(source,target,['rail'],12)
+      :source.kind==='dronePad'?distance(source,target)<=320
+      :distance(source,target)<=16||this.reachable(source,target,['belt','rail','road'],26);
     if (!route) return false;
     source.link = target.id;
     return true;
   }
 
-  private reachable(a: Point, b: Point, kinds: Facility[], span: number) {
-    const nodes = this.sites.filter(s => s.on && kinds.includes(s.kind));
-    const visited = new Set<Point>([a]), stack: Point[] = [a];
-    while (stack.length) {
-      const from = stack.pop()!;
-      if (distance(from, b) <= span) return true;
-      for (const node of nodes) {
-        if (visited.has(node) || distance(from, node) > span) continue;
-        stack.push(node);
-        visited.add(node);
+  private findPath(from:Point,to:Point,kinds:Facility[],span:number) {
+    if(distance(from,to)<=span)return [from,to];
+    const nodes=this.sites.filter(s=>s.on&&kinds.includes(s.kind));
+    const parents=new Map<Point,Point|undefined>([[from,undefined]]);
+    const queue=[from];
+    for(let index=0;index<queue.length;index++) {
+      const current=queue[index];
+      if(distance(current,to)<=span) {
+        const path=[to,current];
+        let parent=parents.get(current);
+        while(parent){path.push(parent);parent=parents.get(parent);}
+        return path.reverse();
+      }
+      for(const next of nodes) {
+        if(parents.has(next)||distance(current,next)>span)continue;
+        parents.set(next,current);
+        queue.push(next);
       }
     }
-    return false;
+    return undefined;
+  }
+
+  private reachable(a: Point, b: Point, kinds: Facility[], span: number) {
+    return Boolean(this.findPath(a,b,kinds,span));
+  }
+
+  private freight(site:Site,target:Site,dt:number) {
+    const rail=site.kind==='railDepot', capacity=rail?30:8;
+    const now=site.shipment;
+    if(now) {
+      if(now.elapsed<now.duration) {
+        now.elapsed+=dt;
+        site.status=`${rail?'Train':'Drone'} en route · ${Math.ceil(now.duration-now.elapsed)}s remaining`;
+        return;
+      }
+      if(!target.on){site.status='Freight held · receiver offline';return;}
+      if(target.kind==='market') this.sellStack(now.load);
+      else if(!put(storageSite(target.kind)?target.output:target.input,now.load,this.capacity(target))) {
+        site.status='Freight held · receiver full';
+        return;
+      }
+      site.shipment=undefined;
+      site.status='Shipment delivered';
+      return;
+    }
+    if(!target.on){site.status='Freight blocked · receiver offline';return;}
+    if(!rail&&!this.roadPower.get(site.id)){site.status='Drone charger needs grid power';return;}
+    const path=rail?this.findPath(site,target,['rail'],12):distance(site,target)<=320?[site,target]:undefined;
+    if(!path){site.status=rail?'Freight blocked · broken track':'Freight blocked · out of range';return;}
+    const length=path.slice(1).reduce((n,p,index)=>n+distance(p,path[index]),0);
+    const recipe: Recipe | undefined = isRecipe(target.kind) ? recipes[target.kind] : undefined;
+    const lot=site.output.find(l=>storageSite(target.kind)||target.kind==='market'||recipe?.input?.[0]===l.good);
+    if(!lot){site.status=site.output.length?'Freight blocked · incompatible cargo':'Waiting for freight';return;}
+    const available=target.kind==='market'?capacity:this.capacity(target)-getQuantity(storageSite(target.kind)?target.output:target.input);
+    const amount=Math.min(lot.quantity,capacity,available);
+    if(amount<=0){site.status='Freight blocked · receiver full';return;}
+    const fee=Math.max(2,Math.round(length*(rail?.021:.055)));
+    if(this.cash<fee){site.status='Freight blocked · dispatch costs';return;}
+    const load=take(site.output,lot.good,amount);
+    if(!load)return;
+    this.finance(-fee,rail?'Rail freight dispatch':'Drone freight dispatch');
+    site.shipment={mode:rail?'rail':'air',target:target.id,load,path:path.map(({x,z})=>({x,z})),duration:Math.max(3,length/(rail?12:22)),elapsed:0};
+    site.status='Shipment dispatched';
   }
 
   private supplyCooling(site:Site,dt:number) {
@@ -476,19 +532,21 @@ export class Campaign {
         moisture: recipe.moisture ?? input?.moisture ?? .16, remaining: recipe.time });
     }
     for (const site of this.sites) {
-      if (!site.on || !site.link || !site.output.length) continue;
+      if (!site.on || !site.link) continue;
       const target = this.sites.find(s => s.id === site.link);
+      if(target&&(site.kind==='railDepot'||site.kind==='dronePad')){this.freight(site,target,dt);continue;}
+      if(!site.output.length)continue;
       if (!target?.on) { site.status = 'Route blocked · receiver offline'; continue; }
       if (distance(site, target) > 26 && !this.reachable(site, target, ['belt','rail','road'], 26)) { site.status = 'Route blocked · disconnected'; continue; }
       if (target.kind === 'fire' && this.mods.stoker) continue;
       const recipe: Recipe | undefined = isRecipe(target.kind) ? recipes[target.kind] : undefined;
-      const lot = site.output.find(s => target.kind === 'depot' || target.kind === 'market' || recipe?.input?.[0] === s.good);
+      const lot = site.output.find(s => storageSite(target.kind) || target.kind === 'market' || recipe?.input?.[0] === s.good);
       if (!lot) { site.status = 'Route blocked · incompatible cargo'; continue; }
       if (target.kind === 'market') {
         const shipped = take(site.output, lot.good, Math.min(4, lot.quantity));
         if (shipped) this.sellStack(shipped);
       } else {
-        const buffer = target.kind === 'depot' ? target.output : target.input;
+        const buffer = storageSite(target.kind) ? target.output : target.input;
         const n = Math.min(4, lot.quantity, this.capacity(target) - getQuantity(buffer));
         if (n <= 0) { site.status = 'Route blocked · receiver full'; continue; }
         const shipped = take(site.output, lot.good, n);
@@ -498,7 +556,7 @@ export class Campaign {
   }
 
   assignHauler(base:Site,target:Site) {
-    const supported=target.kind==='market'||target.kind==='depot'||(isRecipe(target.kind)&&(recipes[target.kind] as Recipe).input?.[0]==='timber');
+    const supported=target.kind==='market'||storageSite(target.kind)||(isRecipe(target.kind)&&(recipes[target.kind] as Recipe).input?.[0]==='timber');
     if(base.kind!=='forestry'||!supported||distance(base,target)>110||base.haul?.log) return false;
     if(!base.haul) {
       if(this.cash<340) return false;

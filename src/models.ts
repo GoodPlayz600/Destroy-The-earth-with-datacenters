@@ -183,7 +183,7 @@ export function siteModel(kind: Facility): SiteModel {
     batch(fixed);
     return { root, moving, glow };
   }
-  if (kind === 'market' || kind === 'depot') {
+  if (kind === 'market' || kind === 'depot' || kind === 'railDepot') {
     box(fixed,timber,0,.14,0,size*1.68,.28,size*1.4);
     for(let n=-1;n<=1;n+=2) for(let m=-1;m<=1;m+=2) box(fixed,timber,n*size*.71,1.45,m*size*.6,.14,2.65,.14);
     box(fixed,paint,0,2.85,0,size*1.87,.16,size*1.62).rotation.x = -.10;
@@ -193,7 +193,22 @@ export function siteModel(kind: Facility): SiteModel {
     box(fixed,mat('#a38660'),0,.8,-.53,size*1.32,.36,.65);
     fixed.add(productModel('crates',2).translateX(size*.43).translateZ(.42));
     fixed.add(productModel('boards',4).translateX(-size*.42).translateZ(.35));
-    sign(fixed,kind === 'market' ? 'TIMBER' : 'FREIGHT',kind === 'market' ? 'EXCHANGE' : 'DEPOT',0,-size*.9,paint,0);
+    sign(fixed,kind === 'market' ? 'TIMBER' : kind==='railDepot'?'RAIL':'FREIGHT',kind === 'market' ? 'EXCHANGE' : 'DEPOT',0,-size*.9,paint,0);
+    if(kind==='railDepot') {
+      for(const x of [-.70,.70])box(fixed,steel,x,.09,size*1.1,.13,.13,5.3);
+      for(let i=0;i<7;i++)box(fixed,timber,0,.05,size*1.1+(i-3)*.75,2.1,.11,.17);
+    }
+  } else if (kind === 'dronePad') {
+    cylinder(fixed,steel,0,.15,0,2.4,.30);
+    cylinder(fixed,paint,0,.33,0,2.27,.09);
+    for (const x of [-.45,.45]) box(fixed,amber,x,.385,0,.13,.02,1.8);
+    box(fixed,amber,0,.386,0,.94,.021,.12);
+    for(let n=0;n<8;n++) {
+      const angle=n*Math.PI*.25;
+      cylinder(fixed,amber,Math.cos(angle)*2.12,.41,Math.sin(angle)*2.12,.11,.12);
+    }
+    box(fixed,dark,0,.70,-2.0,1.1,.85,.44);
+    box(fixed,glass,0,.90,-1.745,.62,.29,.08);
   } else if (kind === 'pipe' || kind === 'tank') {
     if (kind==='pipe') {
       for (const x of [-1.4,1.4]) box(fixed,steel,x,.27,0,.26,.54,.54);
@@ -368,4 +383,48 @@ export function ropeModel() {
   const shape=new T.Mesh(rodGeo,mat('#d5bd87'));
   shape.visible=false;
   return shape;
+}
+
+export function freightModel(mode:'rail'|'air',good:Good,quantity:number) {
+  const root=new T.Group(), solid=new T.Group(), motion:T.Object3D[]=[];
+  root.add(solid);
+  if(mode==='air') {
+    box(solid,steel,0,0,0,.80,.26,1.05);
+    box(solid,glass,0,-.02,-.55,.68,.17,.13);
+    for(const x of [-.72,.72])for(const z of [-.70,.70]){
+      box(solid,steel,x*.60,.07,z,.98,.08,.14);
+      cylinder(solid,amber,x,.11,z,.19,.12);
+      const rotor=new T.Group();
+      rotor.position.set(x,.21,z);
+      box(rotor,dark,0,0,0,1.1,.022,.06);
+      box(rotor,steel,0,0,0,.06,.022,1.1);
+      root.add(rotor);
+      motion.push(rotor);
+    }
+    const crate=productModel(good,Math.min(quantity,3));
+    crate.scale.setScalar(.57);
+    crate.position.y=-.55;
+    solid.add(crate);
+  } else {
+    box(solid,dark,0,.36,-1.8,1.6,.31,4.1);
+    box(solid,amber,0,.86,-2.43,1.41,.78,2.1);
+    box(solid,amber,0,1.21,-.98,1.44,1.51,1.14);
+    box(solid,glass,0,1.57,-1.58,1.12,.39,.13);
+    box(solid,steel,0,2,-.98,1.53,.15,1.32);
+    box(solid,dark,0,1.35,-3.01,.24,.83,.21);
+    box(solid,timber,0,.43,1.68,1.52,.23,3.0);
+    box(solid,steel,0,.35,.04,.22,.11,.63);
+    for(const x of [-.61,.61]) {
+      box(solid,steel,x,.72,1.66,.09,.34,3.05);
+      for(const z of [-3.08,-2.13,-1.0,.76,2.75]){
+        const wheel=cylinder(solid,dark,x,.33,z,.31,.19);
+        wheel.rotation.z=Math.PI*.5;
+      }
+    }
+    const flatbed=productModel(good,Math.min(quantity,6));
+    flatbed.position.set(-.27,.59,1.58);
+    solid.add(flatbed);
+  }
+  batch(solid);
+  return {root,motion};
 }

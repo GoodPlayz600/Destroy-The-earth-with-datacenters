@@ -333,3 +333,53 @@ test('every campaign district can finish through playable projects and the compl
   assert.ok(restored.won);
   assert.equal(restored.scan().length,0);
 });
+
+test('rail and air freight reserve real stock, travel, and deliver only once',()=>{
+  const g=new Campaign();
+  g.cash=18000;
+  build(g,'depot',-10,10);
+  const rail=build(g,'railDepot',0,13), market=g.sites[1];
+  assert.equal(g.connect(rail,market),false);
+  build(g,'rail',4,7);
+  assert.ok(g.connect(rail,market));
+  put(rail.output,{good:'boards',quantity:26,quality:.85,moisture:.42});
+  run(g,1);
+  assert.equal(getQuantity(rail.output),0);
+  assert.equal(rail.shipment?.load.quantity,26);
+  assert.equal(g.stats.sold,0);
+  assert.equal(g.connect(rail,g.sites[0]),false);
+  market.on=false;
+  run(g,10);
+  assert.equal(g.stats.sold,0);
+  assert.match(rail.status,/receiver offline/);
+  const resumed=Campaign.restore(validateSave(JSON.parse(JSON.stringify(g.snapshot()))));
+  assert.equal(resumed.sites.find(s=>s.id===rail.id)?.shipment?.load.quantity,26);
+  market.on=true;
+  run(g,10);
+  assert.equal(rail.shipment,undefined);
+  assert.equal(g.stats.sold,26);
+  const air=build(g,'dronePad',9,10);
+  assert.ok(g.connect(air,market));
+  put(air.output,{good:'dry',quantity:12,quality:.92,moisture:.1});
+  run(g,6);
+  assert.equal(getQuantity(air.output),12);
+  assert.match(air.status,/power/);
+  build(g,'generator',14,12);
+  run(g,1);
+  assert.equal(air.shipment?.load.quantity,8);
+  assert.equal(getQuantity(air.output),4);
+  run(g,20);
+  assert.equal(g.stats.sold,38);
+});
+
+test('lot-based receipts use the exact moisture and grade displayed in the market',()=>{
+  const g=new Campaign();
+  const a={good:'boards' as const,quantity:2,quality:.61,moisture:.62};
+  const b={good:'boards' as const,quantity:2,quality:.90,moisture:.20};
+  put(g.stock,a);put(g.stock,b);
+  const selected=g.stock[1], expected=priceFor(selected);
+  assert.ok(g.sellInventory('boards',2,selected));
+  assert.equal(g.cash,expected);
+  assert.deepEqual(g.stock,[a]);
+  assert.equal(g.sellInventory('boards',2,selected),false);
+});

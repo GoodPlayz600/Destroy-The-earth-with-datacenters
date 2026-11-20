@@ -4,7 +4,7 @@ import { CELL, SIZE, facilities, species } from './catalog';
 import type { Campaign, Log, Ride, Site } from './campaign';
 import { clamp, distance, hash, height, indexAt, soilColors, treesIn } from './land';
 import type { Point, Tree } from './land';
-import { box, distantTrees, leafBlade, logModel, mat, productModel, ropeModel, siteModel, stone, stumpModel, toolModel, treeModels, vehicleModel } from './models';
+import { box, distantTrees, freightModel, leafBlade, logModel, mat, productModel, ropeModel, siteModel, stone, stumpModel, toolModel, treeModels, vehicleModel } from './models';
 
 const CHUNK = 32;
 const terrainMaterial = new T.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: T.DoubleSide });
@@ -31,6 +31,9 @@ export class Scene {
   private chops = new Map<number,T.Group>();
   private routes = new Map<string,T.Group>();
   private crew = new Map<string, ReturnType<typeof vehicleModel>>();
+  private freight = new Map<string, ReturnType<typeof freightModel>>();
+  private freightClock = 0;
+  private freightTime = new Map<string,number>();
   private particles: Particle[] = [];
   private painter = new T.Object3D();
   private ambient: T.HemisphereLight;
@@ -132,9 +135,9 @@ export class Scene {
     this.game=game;
     for (const [key,chunk] of this.chunks) this.dropChunk(key,chunk);
     for (const {model,body} of this.logViews.values()) { this.world.remove(model); if (body) this.physics.removeRigidBody(body); }
-    for (const collection of [this.siteViews,this.rideViews,this.crew]) for (const {root} of collection.values()) this.removeModel(root);
+    for (const collection of [this.siteViews,this.rideViews,this.crew,this.freight]) for (const {root} of collection.values()) this.removeModel(root);
     for (const obj of [...this.chops.values(), ...this.routes.values()]) this.world.remove(obj);
-    this.logViews.clear(); this.siteViews.clear(); this.rideViews.clear();this.crew.clear(); this.chops.clear(); this.routes.clear();
+    this.logViews.clear(); this.siteViews.clear(); this.rideViews.clear();this.crew.clear(); this.freight.clear();this.freightTime.clear();this.chops.clear(); this.routes.clear();
     for (const f of this.fallers.values()) this.world.remove(f.model);
     this.fallers.clear();
     this.streamStamp='';
@@ -469,6 +472,7 @@ export class Scene {
       if(!this.siteViews.has(site.id)) {
         const visual=siteModel(site.kind);
         visual.root.position.set(site.x,height(site.x,site.z),site.z);
+        if(['road','rail','belt','pipe'].includes(site.kind))visual.root.rotation.y=site.yaw??0;
         this.world.add(visual.root);
         this.siteViews.set(site.id,visual);
       }
@@ -514,7 +518,7 @@ export class Scene {
   }
 
   private syncRoute(site:Site,at:Point) {
-    const reverse=this.game.sites.find(s=>s.id===site.link);
+    const reverse=site.kind==='railDepot'||site.kind==='dronePad'?undefined:this.game.sites.find(s=>s.id===site.link);
     if(!reverse || distance(site,at)>80) {
       const route=this.routes.get(site.id);
       if(route) { this.world.remove(route); this.routes.delete(site.id); }
@@ -560,6 +564,38 @@ export class Scene {
         log.y=height(ride.x,ride.z)+.79+Math.floor(n/3)*.32;
         log.q=new T.Quaternion().setFromEuler(new T.Euler(Math.PI*.5,ride.yaw,0,'YXZ')).toArray();
       }
+    }
+  }
+
+  private syncFreight(at:Point,dt:number,active:boolean) {
+    if(active)this.freightClock+=dt;
+    for(const site of this.game.sites){
+      const shipping=site.shipment;
+      const current=this.freight.get(site.id);
+      if(!shipping) {
+        if(current){this.removeModel(current.root);this.freight.delete(site.id);}
+        this.freightTime.delete(site.id);
+        continue;
+      }
+      const time=this.freightTime.get(site.id)??shipping.elapsed;
+      const next=active?Math.min(shipping.elapsed+.85,shipping.duration,time+dt):time;
+      this.freightTime.set(site.id,next);
+      const path=shipping.path, legs=path.slice(1).map((p,n)=>distance(p,path[n]));
+      let remaining=legs.reduce((sum,l)=>sum+l,0)*clamp(next/shipping.duration);
+      let leg=0;
+      while(leg<legs.length-1&&remaining>legs[leg])remaining-=legs[leg++];
+      const a=path[leg],b=path[leg+1],scale=legs[leg]?clamp(remaining/legs[leg]):0;
+      const x=a.x+(b.x-a.x)*scale,z=a.z+(b.z-a.z)*scale;
+      if(distance(at,{x,z})>96){
+        if(current){this.removeModel(current.root);this.freight.delete(site.id);}
+        continue;
+      }
+      const visual=current??freightModel(shipping.mode,shipping.load.good,shipping.load.quantity);
+      if(!current){this.freight.set(site.id,visual);this.world.add(visual.root);}
+      const altitude=shipping.mode==='air'?1.0+Math.sin(clamp(next/shipping.duration)*Math.PI)*12:0;
+      visual.root.position.set(x,height(x,z)+altitude,z);
+      visual.root.rotation.y=Math.atan2(a.x-b.x,a.z-b.z);
+      for(const blades of visual.motion)blades.rotation.y=this.freightClock*29;
     }
   }
 
@@ -687,6 +723,7 @@ export class Scene {
     this.syncSites(this.frameAge,at);
     if(active) this.updateSimulation(dt,at,yaw,held);
     this.syncCrew(at,dt,this.frameAge);
+    this.syncFreight(at,dt,active);
     this.selection.visible=Boolean(target)&&!menu&&!drive;
     if(target) this.selection.position.set(target.x,height(target.x,target.z)+.05,target.z);
     this.ghost.visible=Boolean(build)&&!menu;

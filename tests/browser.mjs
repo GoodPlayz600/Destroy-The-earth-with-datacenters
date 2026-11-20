@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -30,7 +30,7 @@ try{
   p.setDefaultTimeout(35000);
   const errors=[];
   p.on('pageerror',error=>{errors.push(error.message);console.error('Browser page error:',error.stack);});
-  p.on('console',message=>{if(message.type()==='error'&&!message.text().includes('favicon')) errors.push(message.text());});
+  p.on('console',message=>{if(message.type()==='error'&&!message.text().includes('favicon')) {errors.push(message.text());console.error(message.text());}});
   const inspect=()=>p.evaluate(()=>window.clearcutReview());
   const wait=(f,arg)=>p.waitForFunction(f,arg,{timeout:42000,polling:45});
   const press=code=>p.keyboard.press(code);
@@ -44,6 +44,7 @@ try{
     finally{await p.keyboard.up(code);}
   };
   await p.goto(target);
+  console.log('Reviewing fresh campaign');
   await p.getByRole('button',{name:'Play campaign'}).waitFor();
   await screenshot(p,'menu');
   await click('Settings');
@@ -113,6 +114,7 @@ try{
   await click('Export');
   await (await exported).saveAs(join(snapshots,'campaign.json'));
   await p.setViewportSize({width:960,height:660});
+  console.log('Reviewing imported refining fixture');
   const fixture=await inspect();
   fixture.player={x:0,z:9.5,yaw:0,pitch:-.03};
   fixture.cash=100;
@@ -148,8 +150,38 @@ try{
   assert.ok(refined.cash>75);
   assert.equal(refined.stock.length,0);
   assert.equal(refined.stats.produced,2);
+  console.log('Reviewing final-cell settlement and archive');
+  await click('Close panel');
+  await press('Escape');
+  await click('Settings');
+  const census=await inspect();
+  const settled={vegetation:0,moisture:0,groundwater:0,fertility:0,heat:.12,pollution:0,erosion:1,substrate:1,
+    stable:60,stage:6,clearedFor:400,lastTick:census.clock};
+  census.soil=Array.from({length:65536},(_,i)=>[i,i===65535?{...settled,stable:59,stage:5}:settled]);
+  const fixturePath=join(snapshots,'final-cell.json');
+  await writeFile(fixturePath,JSON.stringify(census));
+  await p.locator('input[type=file]').setInputFiles(fixturePath);
+  await p.getByText('Campaign imported',{exact:true}).waitFor();
+  await click('Close panel');
+  await p.getByRole('heading',{name:'The last jungle',exact:true}).waitFor({timeout:80000});
+  await p.getByText('65,536',{exact:true}).waitFor();
+  assert.ok((await inspect()).won);
+  await screenshot(p,'victory');
+  await click('New Game+');
+  const plus=await inspect();
+  assert.equal(plus.won,false);
+  assert.equal(plus.cash,0);
+  assert.notEqual(plus.seed,census.seed);
+  await press('Escape');
+  await click('Settings');
+  const completedArchive=p.locator('.row').filter({hasText:'Campaign '+census.seed});
+  await completedArchive.getByRole('button',{name:'Restore archive'}).click();
+  await p.getByText('Archived campaign restored',{exact:true}).waitFor();
+  assert.ok((await inspect()).won);
+  await click('Close panel');
+  assert.equal(await p.getByRole('heading',{name:'The last jungle',exact:true}).isVisible(),false);
   assert.deepEqual(errors,[]);
-  console.log(`${engine}: menu, WebGL, walk, swing, fell, haul, burn, upgrade, pause, reload, map, resize, save export/import, sawbench placement, physical feed and market sale passed.`);
+  console.log(`${engine}: menu, WebGL, walk, swing, fell, haul, burn, upgrade, pause, reload, map, resize, save export/import, sawbench placement, physical feed, market sale, victory and New Game+ archives passed.`);
 } catch(error) {
   const page=browser?.contexts()[0]?.pages()[0];
   if(page){

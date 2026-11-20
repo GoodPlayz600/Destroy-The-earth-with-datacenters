@@ -66,11 +66,14 @@ export function validateSave(data:unknown): Save {
     &&rows(s.logs,30000,x=>object(x)&&integer(x.id,1)&&coordinate(x)&&numeric(x.y,-40,80)&&rows(x.q,4,y=>numeric(y,-1.001,1.001))&&x.q.length===4
       &&Math.abs(Math.hypot(...x.q as number[])-1)<.01&&integer(x.kind,0,species.length-1)&&numeric(x.length,.05,40)&&numeric(x.kilograms,.1,1000)
       &&integer(x.units,1,20)&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1)&&(x.cargo===undefined||identifier(x.cargo))&&(x.carrier===undefined||identifier(x.carrier)))
-    &&rows(s.sites,20000,x=>object(x)&&identifier(x.id)&&key(x.kind,facilities)&&coordinate(x)&&rows(x.input,260,lot)&&rows(x.output,260,lot)
+    &&rows(s.sites,20000,x=>object(x)&&identifier(x.id)&&key(x.kind,facilities)&&coordinate(x)&&(x.yaw===undefined||numeric(x.yaw))&&rows(x.input,260,lot)&&rows(x.output,260,lot)
       &&rows(x.jobs,8,job)&&flag(x.on)&&numeric(x.fuel,0,100)&&text(x.status)&&(x.water===undefined||numeric(x.water,0,1200))&&(x.link===undefined||identifier(x.link))
       &&(x.mode===undefined||x.mode==='sell'||x.mode==='charcoal')
       &&(x.haul===undefined||(object(x.haul)&&coordinate(x.haul)&&identifier(x.haul.target)
-        &&(x.haul.log===undefined||integer(x.haul.log,1))&&text(x.haul.status)&&['waiting','pickup','delivery','return'].includes(String(x.haul.phase)))))
+        &&(x.haul.log===undefined||integer(x.haul.log,1))&&text(x.haul.status)&&['waiting','pickup','delivery','return'].includes(String(x.haul.phase))))
+      &&(x.shipment===undefined||(object(x.shipment)&&['rail','air'].includes(String(x.shipment.mode))&&lot(x.shipment.load)
+        &&identifier(x.shipment.target)&&rows(x.shipment.path,2000,p=>object(p)&&coordinate(p))&&x.shipment.path.length>=2
+        &&numeric(x.shipment.elapsed,0)&&numeric(x.shipment.duration,1,10000))))
     &&rows(s.rides,10000,x=>object(x)&&identifier(x.id)&&key(x.kind,vehicles)&&coordinate(x)&&numeric(x.fuel,0,100)&&numeric(x.wear,0,100)&&numeric(x.yaw))
     &&rows(s.stock,150,lot)&&rows(s.ownedTools,Object.keys(tools).length,x=>key(x,tools))&&(s.ownedTools as unknown[]).includes(s.tool)
     &&rows(s.ownedUpgrades,288,x=>typeof x==='string'&&upgradesById.get(x)?.implemented===true)&&distinct(s.ownedUpgrades as unknown[])
@@ -85,7 +88,7 @@ export function validateSave(data:unknown): Save {
   if(rides.size!==checked.rides.length||sites.size!==checked.sites.length
     ||!distinct(checked.logs.map(l=>l.id))||!distinct(checked.soil.map(([i])=>i))||!distinct(checked.projects.map(p=>p.district))
     ||checked.logs.some(log=>log.cargo&&!rides.has(log.cargo)||log.carrier&&!sites.has(log.carrier))
-    ||checked.sites.some(site=>site.link&&!sites.has(site.link)||site.haul&&!sites.has(site.haul.target))
+    ||checked.sites.some(site=>site.link&&!sites.has(site.link)||site.haul&&!sites.has(site.haul.target)||site.shipment&&!sites.has(site.shipment.target))
     ||[...checked.logs.map(l=>l.id),...Array.from(rides,x=>Number(x.slice(1))),...Array.from(sites,x=>Number(x.slice(1)))].some(i=>i>=checked.nextId)) {
     throw Error('This save contains invalid object references.');
   }
@@ -102,10 +105,10 @@ function database() {
   });
   return db;
 }
-export async function loadCampaign() {
+export async function loadCampaign(slot='active') {
   const storage=await database();
   return new Promise<Save|undefined>((resolve,reject)=>{
-    const read=storage.transaction('campaigns').objectStore('campaigns').get('active');
+    const read=storage.transaction('campaigns').objectStore('campaigns').get(slot);
     read.onsuccess=()=>{
       try { resolve(read.result===undefined?undefined:validateSave(read.result)); } catch(error) { reject(error); }
     };
@@ -120,6 +123,23 @@ export async function saveCampaign(save:Save, slot='active') {
     tx.oncomplete=()=>resolve();
     tx.onerror=()=>reject(tx.error);
     tx.onabort=()=>reject(tx.error);
+  });
+}
+export type Archive = { slot: string; date: number; label: string };
+export async function listArchives() {
+  const storage=await database();
+  return new Promise<Archive[]>((resolve,reject)=>{
+    const request=storage.transaction('campaigns').objectStore('campaigns').getAllKeys();
+    request.onsuccess=()=>{
+      const archives=request.result.flatMap(key=>{
+        if(typeof key!=='string')return [];
+        const match=key.match(/^(archive-\d+|before-import)-(\d+)$/);
+        if(!match)return [];
+        return [{slot:key,date:Number(match[2]),label:match[1]==='before-import'?'Before import':'Campaign '+match[1].slice(8)}];
+      });
+      resolve(archives.sort((a,b)=>b.date-a.date).slice(0,25));
+    };
+    request.onerror=()=>reject(request.error);
   });
 }
 export function downloadSave(save:Save) {

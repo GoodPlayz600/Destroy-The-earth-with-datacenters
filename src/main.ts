@@ -9,14 +9,14 @@ import './style.css';
 import { Vector3 } from 'three';
 import { SIZE, facilities, recipes, species, tools, vehicles } from './catalog';
 import type { Facility, Tool, VehicleType } from './catalog';
-import { Campaign, cargoMass } from './campaign';
+import { Campaign, cargoMass, storageSite } from './campaign';
 import type { Log, Ride, Save, Site } from './campaign';
 import { clamp, distance, height, indexAt } from './land';
 import type { Point, Tree } from './land';
 import { Scene, initializePhysics } from './scene';
 import { Sound } from './sound';
-import { downloadSave, loadCampaign, readPreferences, saveCampaign, validateSave, writePreferences } from './storage';
-import type { Binding } from './storage';
+import { downloadSave, listArchives, loadCampaign, readPreferences, saveCampaign, validateSave, writePreferences } from './storage';
+import type { Archive, Binding } from './storage';
 import { UI } from './ui';
 import type { Hint, Page } from './ui';
 
@@ -47,6 +47,7 @@ let touchLook:{id:number;x:number;y:number}|undefined;
 let swing=0, swingPeriod=.32, reverse=false, vY=0, airborne=0, stride=0, dropTime=0, saveAge=0, victoryAge=-1;
 let toastDelay=0,bladeCycle=0;
 let lastHarvest=0;
+let archives:Archive[]=[];
 let latestSave:Promise<unknown>=Promise.resolve();
 const inputs=new Set<string>();
 const onTouch='ontouchstart' in window && matchMedia('(pointer: coarse)').matches;
@@ -60,6 +61,7 @@ const show=(message:string)=>ui.notice(message);
 const ui=new UI(root,{
   game:()=>game,prefs,open,begin,resume,menu:mainMenu,refresh:()=>{if(page)ui.show(page);void persist();},
   save:()=>{void persist(true);},download:()=>{downloadSave(game.snapshot());show('Campaign exported');},restore:(file)=>{void importFile(file);},
+  archives:()=>archives, restoreArchive:(slot)=>{void restoreArchive(slot);},
   applySettings, binding:(id)=>{recording=id;ui.recording(id);},
   build:(f)=>{selectedBuild=f;selectedVehicle=undefined;resume();},
   ride:(v)=>{selectedVehicle=v;selectedBuild=undefined;resume();},
@@ -79,6 +81,7 @@ function open(target:Page) {
   page=target;
   if(hasLock()) document.exitPointerLock();
   ui.show(target);
+  if(target==='settings')void refreshArchives();
 }
 function acquirePointer() {
   if(prefs.look!=='pointer'||onTouch||hasLock()||!canvas.requestPointerLock) return;
@@ -138,20 +141,39 @@ function persist(announce=false) {
   });
   return latestSave;
 }
+async function refreshArchives() {
+  try {
+    const previous=archives.map(x=>x.slot).join();
+    archives=await listArchives();
+    if(page==='settings'&&!recording&&previous!==archives.map(x=>x.slot).join())ui.show('settings');
+  } catch { /* A local-storage failure does not close the settings panel. */ }
+}
+async function replaceFromBackup(save:Save) {
+  await latestSave;
+  if(startedBefore) {
+    const current=structuredClone(game.snapshot());
+    await saveCampaign(current,`before-import-${Date.now()}`);
+  }
+  await saveCampaign(save);
+  resetSession(Campaign.restore(save));
+  hasSave=true;startedBefore=true;
+  await refreshArchives();
+  if(atMenu) resume();
+}
 async function importFile(file:File) {
   try {
     if(file.size>60*1024*1024) throw Error('Save file is too large.');
-    const save=validateSave(JSON.parse(await file.text()));
-    if(startedBefore) {
-      const previous=structuredClone(game.snapshot());
-      await saveCampaign(previous,`before-import-${Date.now()}`);
-    }
-    await saveCampaign(save);
-    resetSession(Campaign.restore(save));
-    hasSave=true;startedBefore=true;
+    await replaceFromBackup(validateSave(JSON.parse(await file.text())));
     show('Campaign imported');
-    if(atMenu) resume();
   } catch(error) { show(error instanceof Error?error.message:'Could not import campaign'); }
+}
+async function restoreArchive(slot:string) {
+  try {
+    const save=await loadCampaign(slot);
+    if(!save)throw Error('Archived campaign is unavailable.');
+    await replaceFromBackup(save);
+    show('Archived campaign restored');
+  } catch(error) {show(error instanceof Error?error.message:'Could not restore archived campaign');}
 }
 
 function look(dx:number,dy:number) {
@@ -167,6 +189,7 @@ canvas.addEventListener('pointerdown',e=>{
   if(e.button===0) {
     if(prefs.look==='pointer'&&!hasLock()) acquirePointer();
     using=true;
+    swingTool();
   } else if(e.button===2) { dragging=true;buttonAlt=true; }
 });
 canvas.addEventListener('pointermove',e=>{
@@ -241,7 +264,7 @@ function release() {
   const log=held.log;
   letGo();
   for(const s of game.sites) {
-    const sink=s.kind==='fire'||s.kind==='market'||s.kind==='depot'||['bench','mill','chipper','charcoal'].includes(s.kind);
+    const sink=s.kind==='fire'||s.kind==='market'||storageSite(s.kind)||['bench','mill','chipper','charcoal'].includes(s.kind);
     if(sink&&game.acceptLog(s,log)) {
       show(s.kind==='fire'?'Log accepted · burn in progress':'Timber delivered to '+facilities[s.kind].name);
       void persist();
@@ -342,8 +365,10 @@ function onAction(a:string,pressed:boolean) {
   }
 }
 function handleTouch(k:string,pressed:boolean) {
-  if(k==='swing')using=pressed;
-  else onAction(k,pressed);
+  if(k==='swing') {
+    using=pressed;
+    if(pressed)swingTool();
+  } else onAction(k,pressed);
 }
 function findBinding(code:string) { return (Object.keys(prefs.bindings) as Binding[]).find(k=>prefs.bindings[k]===code); }
 window.addEventListener('keydown',e=>{
@@ -466,7 +491,7 @@ function targetHint():{hint?:Hint;point?:Point} {
   const t=treeTarget(),log=nearLog(2.75),site=nearSite(3.6),v=nearRide(),p=game.player;
   if(ride)return { hint:{key:key('ride'),title:vehicles[ride.kind].name,detail:`${Math.floor(ride.fuel)}% fuel · ${Math.round(cargoMass(game.logs.values(),ride.id))} kg · ${key('load')} unload${ride.kind==='dozer'?' · Swing to strip soil':''}`}};
   if(held){
-    const destination=game.sites.find(s=>distance(held!.log,s)<facilities[s.kind].size+.80&&['fire','market','depot','bench','mill','chipper','charcoal'].includes(s.kind));
+    const destination=game.sites.find(s=>distance(held!.log,s)<facilities[s.kind].size+.80&&(storageSite(s.kind)||['fire','market','bench','mill','chipper','charcoal'].includes(s.kind)));
     if(destination)return {point:destination,hint:{key:held.mode==='hand'?key('interact'):key('drop'),title:facilities[destination.kind].name,
       detail:destination.kind==='fire'&&game.mods.scale?`Release to deliver · estimated $${game.fireValue(held.log)}`:'Release the log here to deliver'}};
     return {};
