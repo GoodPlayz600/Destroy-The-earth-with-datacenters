@@ -55,7 +55,7 @@ let leaving=false;
 const guest=()=>Boolean(room&&!room.isHost);
 type Held = {log:Log;mode:'hand'|'rope'|'lift'|'winch'};
 type Operator = {
-  pose:Pose; seen:number; lastAction:number; ride?:Ride; held?:Held; alt:boolean;
+  pose:Pose; seen:number; lastAction:number; lastActionKey:string; ride?:Ride; held?:Held; alt:boolean;
   steering:number; lastSteering:number; lastSwing:number; reverse:boolean;
   blade:number; cutter:number; earth:number;
 };
@@ -199,7 +199,7 @@ function observeOperator(actor:number,at:Pose) {
     if(!state.ride)state.pose=at;
     state.seen=now;
   }else {
-    state={pose:at,seen:now,lastAction:-Infinity,alt:false,steering:0,lastSteering:0,lastSwing:-Infinity,reverse:false,blade:0,cutter:0,earth:0};
+    state={pose:at,seen:now,lastAction:-Infinity,lastActionKey:'',alt:false,steering:0,lastSteering:0,lastSwing:-Infinity,reverse:false,blade:0,cutter:0,earth:0};
     operators.set(actor,state);
   }
   return state;
@@ -235,8 +235,9 @@ function handleOperator(actor:number,at:Pose,data:unknown):string|undefined {
     if(!Number.isInteger(a)||a<0||a>31||!canFor('vehicles',actor))return;
     state.steering=a;state.lastSteering=now;return;
   }
-  if(!(type==='field'&&a==='release')&&now-state.lastAction<45)return;
-  state.lastAction=now;
+  const actionKey=type+':'+(typeof a==='string'?a:'');
+  if(!(type==='field'&&a==='release')&&actionKey===state.lastActionKey&&now-state.lastAction<45)return;
+  state.lastAction=now;state.lastActionKey=actionKey;
   if(type==='menu'){
     if(typeof a!=='string'||!Object.hasOwn(campaignPermissions,a))return;
     const command=a as CampaignCommand,permission=campaignPermissions[command];
