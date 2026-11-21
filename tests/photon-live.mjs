@@ -67,6 +67,12 @@ try {
   assert.equal(await guest.getByRole('button',{name:'Host menu',exact:true}).count(),0);
   await escape(guest);
 
+  await guest.mouse.move(380,250);
+  await guest.mouse.down();
+  try {await guest.getByText('Make the first sale',{exact:true}).waitFor({timeout:26000});}
+  finally {await guest.mouse.up();}
+  console.log('Guest harvested a tree using the shared field controls.');
+
   await guest.keyboard.press('KeyT');
   await guest.getByRole('heading',{name:'Timber Exchange',exact:true}).waitFor();
   await click(guest,'Sell one');
@@ -106,9 +112,15 @@ try {
   await guest.keyboard.down('KeyS');
   try {await guest.waitForFunction(old=>document.querySelector('.compass')?.textContent!==old,before);}
   finally {await guest.keyboard.up('KeyS');}
+  await guest.keyboard.press('KeyQ');
+  await guest.getByRole('heading',{name:'Equipment',exact:true}).waitFor();
+  const position=await guest.locator('.compass').textContent();
+  await guest.locator('.overlay .row').filter({hasText:'Hand Cart'}).getByRole('button',{name:'Recover · $18',exact:true}).click();
+  await guest.waitForFunction(old=>document.querySelector('.compass')?.textContent!==old,position);
+  await escape(guest);
   await guest.keyboard.press('KeyF');
   await guest.getByText('Manual transport',{exact:true}).waitFor({state:'hidden'});
-  console.log('Guest entered, drove, and exited the shared Hand Cart.');
+  console.log('Guest entered, drove, recovered and exited the shared Hand Cart.');
 } catch(error) {
   console.log('Host status:',await status(host).catch(()=>null));
   console.log('Guest status:',await status(guest).catch(()=>null));
