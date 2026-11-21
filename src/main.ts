@@ -173,15 +173,16 @@ function runCampaignCommand(command:CampaignCommand,args:CommandArgs) {
   if(!can(campaignPermissions[command])){reject(campaignPermissions[command]);return;}
   if(guest())room?.action(pose(),['menu',command,...args]);
   else {
-    if(!campaignControl(game,command,args,game.player,vehicleOccupied,logHeld))show('Action unavailable. Check requirements and try again.');
+    if(!campaignControl(game,command,args,game.player,id=>vehicleOccupied(id,command==='recover'?(room?.actorNumber??0):undefined),logHeld))show('Action unavailable. Check requirements and try again.');
     if(page)ui.refreshLive(page);
     void persist();
   }
 }
 
-function vehicleOccupied(id:string) {
+function vehicleOccupied(id:string,except?:number) {
   const occupiedByHost=currentOperator===undefined?ride:hostRide;
-  return occupiedByHost?.id===id||[...operators].some(([actor,state])=>actor!==currentOperator&&state.ride?.id===id);
+  return (room?.actorNumber??0)!==except&&occupiedByHost?.id===id
+    ||[...operators].some(([actor,state])=>actor!==except&&state.ride?.id===id);
 }
 
 function logHeld(id:number) {
@@ -242,7 +243,7 @@ function handleOperator(actor:number,at:Pose,data:unknown):string|undefined {
     if(!canFor(permission,actor))return roomPermissions[permission]+' is disabled by the host.';
     const values=data.slice(2);
     if(!values.every(v=>typeof v==='string'&&v.length<=1400||typeof v==='number'&&Number.isFinite(v)||typeof v==='boolean'||v===null))return;
-    const ok=campaignControl(game,command,values,state.pose,vehicleOccupied,logHeld);
+    const ok=campaignControl(game,command,values,state.pose,id=>vehicleOccupied(id,command==='recover'?actor:undefined),logHeld);
     return ok?'Campaign updated.':'Action unavailable. Check requirements and try again.';
   }
   if(type==='build'||type==='vehicle'){
