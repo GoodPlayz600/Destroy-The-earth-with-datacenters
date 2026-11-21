@@ -1706,6 +1706,11 @@ export class Campaign {
     }
   }
 
+  private rainAt(event=this.eventAt()) {
+    const weather=Math.max(0,Math.sin(this.clock/96+this.seed%13)-.58)*2;
+    return event==='Thunderstorm'?Math.max(.55,weather):event==='Dry front'?weather*.2:weather;
+  }
+
   tick(dt: number, rest = true, heldId?:number) {
     this.clock += dt;
     if (rest) this.stamina = Math.min(this.mods.stamina, this.stamina + dt * 16 * this.mods.recover * this.mods.athlete);
@@ -1714,8 +1719,7 @@ export class Campaign {
     this.tickTime -= 1;
     const previous=this.eventAt(this.clock-1), current=this.eventAt();
     if(previous!==current&&current!=='Clear weather')this.notice(current+' · Field bulletin');
-    const weather=Math.max(0,Math.sin(this.clock/96+this.seed%13)-.58)*2;
-    this.rain=current==='Thunderstorm'?Math.max(.55,weather):current==='Dry front'?weather*.2:weather;
+    this.rain=this.rainAt(current);
     for (const contract of this.contracts) if (!contract.done && this.clock >= contract.deadline) contract.failed = true;
     this.simulateMachinery(1);
     this.simulateHaulers(1,heldId);
@@ -1779,6 +1783,7 @@ export class Campaign {
       logs: new Map(s.logs.map(l => [l.id, l])), achievements: new Set(s.achievements), claimed: new Set(s.claimed??[]),
     });
     game.mods = modifiers(game.ownedUpgrades);
+    game.rain=game.rainAt();
     for (const [i, land] of game.soil) {
       const stable=desertified(land);
       if(!stable||!irreversibleSoil(land)){

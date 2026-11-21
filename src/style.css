@@ -343,3 +343,23 @@ kbd { display: inline-flex; align-items: center; justify-content: center; min-wi
   .hud:has(.touch:not([hidden])) .assist { bottom: 12.8rem; }
   .touch-button { min-height: 2.3rem; }
 }
+
+.coop-dialog { width:min(630px,calc(100% - 24px)); max-height:calc(100dvh - 24px); padding:0; overflow:auto; color:inherit; }
+.coop-dialog::backdrop { background:#0c1510bd; backdrop-filter:blur(7px); }
+.coop-dialog .panel-content { padding-bottom:24px; }
+.coop-inputs,.coop-actions { display:flex; flex-wrap:wrap; gap:10px; }
+.coop-inputs > :first-child { flex:0 1 125px; }
+.coop-inputs > :last-child { flex:1 1 210px; }
+.coop-field { display:grid; gap:7px; font-size:.9rem; }
+.coop-field input {
+  min-width:0; width:100%; padding:9px 12px; border:1px solid #7a8d6680; border-radius:4px;
+  background:#101a14; color:#f3ecd6; font:inherit; font-family:'IBM Plex Mono',monospace;
+}
+.coop-field input:focus-visible { outline:2px solid #b7db88; outline-offset:2px; }
+.coop-status { margin:0; min-height:1.35em; color:#cbe5a5; font-size:.9rem; }
+.coop-code { font:700 clamp(1.5rem,6vw,2.6rem) 'IBM Plex Mono',monospace; letter-spacing:.14em; color:#d9eca5; }
+.coop-slots .row { gap:8px; }
+.coop-slots .row-actions { flex-wrap:wrap; }
+@media (max-width:500px) { .coop-slots .row { flex-wrap:wrap; } }
+
+.coop-dialog:not([open]) { display:none; }

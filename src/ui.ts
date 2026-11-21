@@ -42,7 +42,7 @@ type Hud={
   elapsed:number; waypoint?:Point; aimedBuild?:string; buildIssue?:string; saved:string; touch:boolean;
 };
 type Controller={
-  game:()=>Campaign; prefs:Preferences; open:(page:Page)=>void; begin:(kind:'resume'|'new'|'plus',challenge?:Challenge)=>void;
+  game:()=>Campaign; prefs:Preferences; multiplayer:()=>void; inRoom:()=>boolean; guest:()=>boolean; open:(page:Page)=>void; begin:(kind:'resume'|'new'|'plus',challenge?:Challenge)=>void;
   resume:()=>void; menu:()=>void; refresh:()=>void; save:()=>void; download:()=>void; restore:(file:File)=>void;
   archives:()=>Archive[]; restoreArchive:(slot:string)=>void; applySettings:()=>void; binding:(key:Binding)=>void; build:(f:Facility)=>void; ride:(v:VehicleType)=>void;
   survey:(p:Point)=>void; waypoint:(p:Point)=>void; site:()=>Site|undefined; touch:(key:string,pressed:boolean)=>void; fullscreen:()=>void;
@@ -119,6 +119,7 @@ export class UI {
     play.setAttribute('aria-label',playLabel);
     play.append(el('span','play-icon','▶'),playLabel,el('span','arrow','›'));
     buttons.append(play);
+    buttons.append(action('Multiplayer',this.c.multiplayer,'button secondary start-new'));
     buttons.append(action(hasSave?'New Game':'Challenges',()=>this.confirmNew(hasSave),'button secondary start-new'));
     buttons.append(el('div','menu-links',this.nav('','Settings','settings'),this.nav('','How to Play','help'),this.nav('','Credits','credits')));
     const content=el('main','menu-content',
@@ -129,7 +130,7 @@ export class UI {
     );
     const footer=el('footer','menu-footer',el('div','',label('FIELD SITE'),el('strong','','01  /  ASH EXCHANGE')),
       el('div','',label('CAMPAIGN OBJECTIVE'),el('strong','','65,536 CELLS  /  STABLE DESERT')),
-      el('div','',label('MODE'),el('strong','','SINGLE PLAYER')));
+      el('div','',label('MODE'),el('strong','','SOLO / CO-OP')));
     this.menu.replaceChildren(top,content,footer);
   }
 
@@ -236,8 +237,8 @@ export class UI {
   show(page:Page) {
     const g=this.c.game();
     const pages:Record<Page,()=>void>={
-      pause:()=>this.panel('Field paused','Production and field work are paused.',el('div','panel-content stack',
-        action('Resume campaign',()=>this.c.resume(),'button primary'),btn('Save campaign',()=>this.c.save()),btn('Settings',()=>this.c.open('settings')),
+      pause:()=>this.panel(this.c.inRoom()?'Room controls':'Field paused',this.c.inRoom()?'The shared campaign remains live while this panel is open.':'Production and field work are paused.',el('div','panel-content stack',
+        action('Resume campaign',()=>this.c.resume(),'button primary'),btn('Save campaign',()=>this.c.save()),this.c.inRoom()?btn('Room details',this.c.multiplayer):undefined,btn('Settings',()=>this.c.open('settings')),
         btn('How to Play',()=>this.c.open('help')),btn('Main menu',()=>this.c.menu()))),
       help:()=>this.panel('Field manual','Start at the Ash Exchange. The Timber Exchange across the clearing buys raw and refined inventory.',el('div','panel-content',
         section('Your first shift',
@@ -349,7 +350,7 @@ export class UI {
         const parts=[recipe?.name,item.supply?`${item.supply} kW grid output`:undefined,(recipe?.power??item.power)?`${recipe?.power??item.power} kW draw`:undefined,missing?`Requires ${facilities[item.requires!].name}`:unresearched?'Requires facility research':undefined].filter(Boolean);
         return row(item.name,parts.join(' · '),btn(cash(item.price),()=>this.c.build(kind),g.cash<item.price||Boolean(locked)));
       })),
-      section('Transport',...Object.entries(vehicleTypes).map(([k,item])=>{
+      this.c.guest()?undefined:section('Transport',...Object.entries(vehicleTypes).map(([k,item])=>{
         const missing=item.research&&!g.ownedUpgrades.has(item.research)?upgradesById.get(item.research):undefined;
         const requirement=missing?` · Requires ${missing.name}`:'';
         return row(item.name,`${item.capacity} kg payload · ${item.motor?'Motorized':'Manual'}${requirement}`,
@@ -437,7 +438,7 @@ export class UI {
       section('District '+districtName(district),sub(`${value(count)} / ${value(DISTRICT_CELLS)} cells stable${g.mods.census?' · '+(DISTRICT_CELLS-count)+' remaining · '+desertRules.stabilization+'s verified hold':''}`),
         biomeLegend,
         g.mods.droneSurvey?btn('Fly survey drone',()=>this.c.survey(districtCenter(district))):undefined,
-        g.districts.has(district)?sub('Permit active'):btn('Purchase permit · $950',()=>{if(g.buyDistrict(district))this.map();},g.cash<950)),
+        g.districts.has(district)?sub('Permit active'):btn('Purchase permit · $950',()=>{if(g.buyDistrict(district))this.map();},this.c.guest()||g.cash<950)),
       section('District projects',sub(`Each completed project pays a ${cash(projectBond)} bond once all district cells stabilize.`),
         ...Object.entries(districtProjects).map(([key,rules])=>{
           const kind=key as Project['kind'];
@@ -445,14 +446,14 @@ export class UI {
           const state=built?.kind===kind?(built.complete?`Bond paid · completed in ${duration(built.phase)}`:`Commissioned · ${duration(built.phase)} elapsed`):issues.join(' · ');
           const cost=`Net project cost after bond ${cash(rules.price-projectBond)}`;
           return row(rules.name,state?cost+' · '+state:cost,
-            btn(cash(rules.price),()=>{if(g.startProject(district,kind))this.map();},Boolean(issues.length)));
+            btn(cash(rules.price),()=>{if(g.startProject(district,kind))this.map();},this.c.guest()||Boolean(issues.length)));
         })),
       g.mods.aquiferMap?section('Aquifer connectivity',
         sub('District averages use the groundwater in their individual cells. Pump outlets serve facilities within their pipe network.'),
         ...[district-DISTRICTS,district+DISTRICTS,district-1,district+1].filter(i=>i>=0&&i<DISTRICTS**2&&Math.abs(Math.floor(i/DISTRICTS)-Math.floor(district/DISTRICTS))+
           Math.abs(i%DISTRICTS-district%DISTRICTS)===1).map(i=>row(districtName(i),Math.round(metrics[i].groundwater*100/DISTRICT_CELLS)+'% mean groundwater'))):undefined,
       section('Remaining-cell survey',filtered,
-        g.mods.lastPixel?btn('Queue visible cleanup jobs',()=>{for(const {i}of survey)g.dispatchCleanup(i);this.map();},!survey.length||!g.districts.has(district)):undefined,
+        g.mods.lastPixel?btn('Queue visible cleanup jobs',()=>{for(const {i}of survey)g.dispatchCleanup(i);this.map();},this.c.guest()||!survey.length||!g.districts.has(district)):undefined,
         ...survey.map(({i,at,soil})=>{
           const pending=g.cleanup.find(job=>job.cell===i);
           const actual=`Vegetation ${Math.round(soil.vegetation*100)}% · Moisture ${(soil.moisture*100).toFixed(g.mods.surveyor?1:0)}% · Substrate ${Math.round(soil.substrate*100)}%`;
@@ -463,7 +464,7 @@ export class UI {
             btn('Mark',()=>this.c.waypoint(at)),g.mods.cleanupDispatch?btn('Dispatch · $80',()=>{
               if(!g.dispatchCleanup(i))this.notice('A suitable crew, district permit and funds are required');
               this.map();
-            },Boolean(pending)||!g.districts.has(district)||g.cash<80):undefined);
+            },this.c.guest()||Boolean(pending)||!g.districts.has(district)||g.cash<80):undefined);
         })));
     this.panel('Land survey','The survey tracks every cell, including the ground beneath machinery and roads.',selected);
   }

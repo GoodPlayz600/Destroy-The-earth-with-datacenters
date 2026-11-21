@@ -16,10 +16,15 @@ import type { Point, Tree } from './land';
 import { Scene, initializePhysics } from './scene';
 import type { Rock } from './scene';
 import { Sound } from './sound';
-import { downloadSave, listArchives, loadCampaign, readPreferences, saveCampaign, validateSave, writePreferences } from './storage';
+import { downloadSave, listArchives, loadCampaign, readPreferences, saveCampaign, validateSave, writePreferences, saveRoomCheckpoint, downloadJson } from './storage';
 import type { Archive, Binding } from './storage';
 import { UI } from './ui';
 import type { Hint, Page } from './ui';
+import { connectRoom } from './coop';
+import type { CoopRoom, Launch } from './coop';
+import { CrewWork, placementAt, treeAim } from './coop-field';
+import { CoopLobby } from './coop-lobby';
+import { coopSlot, roomBackup } from './coop-wire';
 
 const canvas=document.querySelector<HTMLCanvasElement>('#world')!;
 const root=document.querySelector<HTMLDivElement>('#ui')!;
@@ -31,6 +36,14 @@ if(onTouch){
 let game=new Campaign();
 const height=(x:number,z:number)=>game.ground(x,z);
 let scene:Scene;
+let room:CoopRoom|undefined;
+let solo:Campaign|undefined;
+let roomCheckpoint:Save|undefined;
+let joining: {resolve:()=>void; reject:(error:Error)=>void}|undefined;
+let leaving=false;
+let guestGrab=false;
+const guest=()=>Boolean(room&&!room.isHost);
+const crew=new CrewWork(()=>game,(tree,pose)=>scene.startFall(tree,pose),tree=>scene.isFalling(tree),()=>held?.log);
 const sound=new Sound();
 let page:Page|undefined;
 let started=false;
@@ -58,17 +71,17 @@ let archives:Archive[]=[];
 let latestSave:Promise<unknown>=Promise.resolve();
 const inputs=new Set<string>();
 const hasLock=()=>document.pointerLockElement===canvas;
-const active=()=>started&&!atMenu&&!page;
+const active=()=>started&&!atMenu&&!page&&!leaving&&!lobby.open;
 const touchLabels:Partial<Record<Binding,string>>={interact:'Grab',drop:'Drop',jump:'Jump',ride:'Drive',load:'Cargo',rope:'Rope'};
 const key=(binding:Binding)=>onTouch&&touchLabels[binding]?touchLabels[binding]!:
   prefs.bindings[binding].replace(/^Key|^Digit/g,'');
-const forward=new Vector3();
-const head=new Vector3();
+const pose=()=>({...game.player,lift:airborne});
+const lobby=new CoopLobby(root);
 const show=(message:string)=>ui.notice(message);
 
 const ui=new UI(root,{
-  game:()=>game,prefs,open,begin,resume,menu:mainMenu,refresh:()=>{if(page)ui.show(page);void persist();},
-  save:()=>{void persist(true);},download:()=>{downloadSave(game.snapshot());show('Campaign exported');},restore:(file)=>{void importFile(file);},
+  game:()=>game,prefs,open,begin,resume,menu:mainMenu,multiplayer:showLobby,inRoom:()=>Boolean(room),guest,refresh:()=>{if(page)ui.show(page);void persist();},
+  save:()=>{void persist(true);},download:()=>{if(room){exportRoom();return;}downloadSave(game.snapshot());show('Campaign exported');},restore:(file)=>{void importFile(file);},
   archives:()=>archives, restoreArchive:(slot)=>{void restoreArchive(slot);},
   applySettings, binding:(id)=>{recording=id;ui.recording(id);},
   build:(f)=>{selectedBuild=f;selectedVehicle=undefined;resume();},
@@ -80,12 +93,118 @@ const ui=new UI(root,{
     else void document.documentElement.requestFullscreen().catch(()=>show('Fullscreen is unavailable in this browser'));
   },
 });
+function showLobby(message='') {
+  if(!scene)return;
+  if(active())open('pause');
+  lobby.show({
+    launch:launchRoom,canCopy:()=>hasSave,
+    live:()=>room&&started&&!atMenu?{...room.launch,host:room.isHost,count:room.count}:undefined,
+    leave:()=>void leaveRoom(),save:()=>void persist(true),download:exportRoom,
+  },message);
+}
+function exportRoom() {
+  if(!room)return;
+  const {code,region}=room.launch;
+  const save=room.isHost?game.snapshot():roomCheckpoint;
+  if(!save){show('Wait for the room checkpoint first.');return;}
+  downloadJson(roomBackup(code,region,save),`clearcut-room-${code}.json`);
+  show('Room backup exported');
+}
+function endRoom(message:string) {
+  const session=room;
+  if(!session)return;
+  const pending=joining;
+  joining=undefined;
+  void persist();
+  crew.clear();
+  room=undefined;
+  roomCheckpoint=undefined;
+  guestGrab=false;
+  leaving=false;
+  scene.replica=false;
+  scene.syncPlayers(undefined,0);
+  if(solo)resetSession(solo);
+  solo=undefined;
+  started=false;atMenu=true;page=undefined;
+  if(hasLock())document.exitPointerLock();
+  saveLabel='';
+  ui.showMenu(hasSave,saveError);
+  if(pending)pending.reject(Error(message));
+  else showLobby(message);
+}
+async function leaveRoom() {
+  const session=room;
+  if(!session||leaving)return;
+  leaving=true;
+  await persist(true);
+  await session.leave();
+  if(room===session)endRoom('Your room checkpoint is available under Saved rooms.');
+}
+function receiveRoomSave(save:Save) {
+  if(!room||room.isHost)return;
+  const first=Boolean(joining);
+  if(!first&&save.seed!==game.seed)throw Error('Unexpected campaign seed.');
+  const next=Campaign.restore(save);
+  roomCheckpoint=save;
+  if(first) {
+    next.player={...save.player};
+    next.player.x=clamp(next.player.x+1.6,-SIZE/2+.7,SIZE/2-.7);
+    resetSession(next);
+    started=true;atMenu=false;
+    sound.start(prefs.volume);
+    page=undefined;ui.showPlay();
+    joining?.resolve();
+    joining=undefined;
+  } else {
+    next.player=game.player;
+    next.landRevision=game.landRevision+1;
+    next.terrainRevision=game.terrainRevision+1;
+    game=next;scene.game=next;
+  }
+  if(first)void persist();
+}
+async function launchRoom(config:Launch,source:'new'|'solo'|'saved') {
+  if(room||!atMenu)throw Error('Return to the main menu before opening a room.');
+  const saved=source==='saved'?await loadCampaign(coopSlot(config.region,config.code)):undefined;
+  if(source==='saved'&&!saved)throw Error('This room checkpoint could not be loaded.');
+  const hosted=config.mode==='host'?(saved||source==='solo'?Campaign.restore(structuredClone(saved??game.snapshot())):
+    new Campaign(crypto.getRandomValues(new Uint32Array(1))[0]%2147483647)):undefined;
+  solo=game;
+  try {
+    room=await connectRoom(config,{
+      capture:()=>game.snapshot(),checkpoint:receiveRoomSave,
+      ended:message=>{if(!leaving)endRoom(message);},
+      action:(actor,at,data)=>crew.run(actor,at,data,performance.now()),
+      departed:actor=>crew.leave(actor),pose:(actor,at)=>{if(room?.isHost)crew.observe(actor,at,performance.now());},notice:message=>{
+        if(message.startsWith('That log'))guestGrab=false;
+        show(message);
+      },
+    });
+  } catch(error) {solo=undefined;throw error;}
+  saveAge=0;
+  scene.replica=guest();
+  if(hosted) {
+    resetSession(hosted);
+    started=true;atMenu=false;page=undefined;
+    sound.start(prefs.volume);
+    ui.showPlay();
+    await persist();
+  } else {
+    lobby.message('Receiving the host’s campaign checkpoint…');
+    await new Promise<void>((resolve,reject)=>{joining={resolve,reject};});
+  }
+}
 function collapseControls() {
   inputs.clear();using=false;buttonAlt=false;dragging=false;
   if(held?.mode==='hand'&&!prefs.sticky) release();
+  if(guestGrab&&!prefs.sticky)guestDrop();
 }
 function open(target:Page) {
   if(!scene) return;
+  if(guest()&&['inventory','upgrades','journal','site','victory'].includes(target)){
+    show('The host manages equipment, upgrades and industrial operations.');
+    return;
+  }
   if(active()) collapseControls();
   page=target;
   if(hasLock()) document.exitPointerLock();
@@ -116,6 +235,7 @@ function resume() {
   if(!hasLock()) acquirePointer();
 }
 function mainMenu() {
+  if(room){void leaveRoom();return;}
   void persist();
   collapseControls();atMenu=true;page=undefined;
   if(hasLock())document.exitPointerLock();
@@ -133,6 +253,7 @@ function resetSession(next:Campaign) {
   collapseControls();
 }
 function begin(kind:'resume'|'new'|'plus',challenge:Challenge='standard') {
+  if(room)return;
   if(kind!=='resume') {
     if(hasSave||startedBefore) {
       const current=structuredClone(game.snapshot());
@@ -147,13 +268,17 @@ function begin(kind:'resume'|'new'|'plus',challenge:Challenge='standard') {
   void persist();
 }
 function persist(announce=false) {
-  if(!startedBefore) return Promise.resolve();
-  const current=structuredClone(game.snapshot());
-  latestSave=latestSave.catch(()=>{}).then(()=>saveCampaign(current)).then(()=>{
-    saveLabel='SAVED LOCALLY';
-    if(announce)show('Campaign saved');
+  const session=room;
+  if(!session&&!startedBefore) return Promise.resolve();
+  const source=session&&!session.isHost?roomCheckpoint:game.snapshot();
+  if(!source)return Promise.resolve();
+  const current=structuredClone(source);
+  const slot=session&&coopSlot(session.launch.region,session.launch.code);
+  latestSave=latestSave.catch(()=>{}).then(()=>slot?saveRoomCheckpoint(current,slot):saveCampaign(current)).then(()=>{
+    if(room===session)saveLabel=session?'CHECKPOINT SAVED':'SAVED LOCALLY';
+    if(announce)show(session?'Room checkpoint saved':'Campaign saved');
   }).catch(()=>{
-    saveLabel='SAVE FAILED';
+    if(room===session)saveLabel='SAVE FAILED';
     if(announce)show('Could not save locally. Export your campaign in Settings.');
   });
   return latestSave;
@@ -166,6 +291,7 @@ async function refreshArchives() {
   } catch { /* A local-storage failure does not close the settings panel. */ }
 }
 async function replaceFromBackup(save:Save) {
+  if(room)throw Error('Import solo backups from the main menu. Multiplayer backups use Saved rooms.');
   await latestSave;
   if(startedBefore) {
     const current=structuredClone(game.snapshot());
@@ -238,7 +364,7 @@ window.addEventListener('resize',()=>scene?.resize());
 function nearLog(range=3,cargoBed?:Point) {
   let closest:Log|undefined,best=range;
   for(const log of game.logs.values()) {
-    if(log.cargo||log.carrier)continue;
+    if(log.cargo||log.carrier||crew.isHeld(log.id))continue;
     const p=scene.logPosition(log,game.player,range);
     if(!p)continue;
     const d=distance(game.player,p);
@@ -264,21 +390,12 @@ function nearRide(towVehicle=false) {
   return closest;
 }
 function treeTarget(reach=tools[game.tool].range) {
-  const p=game.player, eye=height(p.x,p.z)+1.64+airborne;
-  head.set(p.x,eye,p.z);
-  forward.set(-Math.sin(p.yaw)*Math.cos(p.pitch),Math.sin(p.pitch),-Math.cos(p.yaw)*Math.cos(p.pitch));
-  if(Math.abs(p.pitch)>1.40)return;
+  const p=pose();
   let chosen:Tree|undefined, closest=reach;
   for(const tree of scene.visibleTrees) {
     if(!game.isStanding(tree)||scene.isFalling(tree))continue;
-    const s=species[tree.kind], r=s.radius*tree.scale+(game.mods.forestryMastery?.19:.095);
-    if(distance(p,tree)>reach+.9)continue;
-    const along=((tree.x-p.x)*forward.x+(tree.z-p.z)*forward.z)/(forward.x**2+forward.z**2);
-    if(along<.22||along>closest)continue;
-    const y=eye+forward.y*along;
-    const width=Math.hypot(p.x+along*forward.x-tree.x,p.z+along*forward.z-tree.z);
-    if(width>r||y<height(tree.x,tree.z)+.21||y>height(tree.x,tree.z)+s.height*tree.scale*.84)continue;
-    closest=along;chosen=tree;
+    const depth=treeAim(game,p,tree,closest);
+    if(depth!==undefined){closest=depth;chosen=tree;}
   }
   return chosen;
 }
@@ -417,14 +534,30 @@ function pushOrCut() {
     if(game.cutLog(log.id,{x:log.x+Math.cos(p.yaw)*1.3,z:log.z-Math.sin(p.yaw)*1.3},game.mods.crosscut?(p.pitch<-.32?.33:.67):.5))show('Trunk cut into two usable sections');
   } else scene.shove(log,p.yaw);
 }
+function guestDrop() {
+  guestGrab=false;
+  room?.action(pose(),['drop',null]);
+}
+function guestAction(action:string) {
+  if(action==='interact'){
+    if(guestGrab){guestDrop();return;}
+    const log=nearLog();
+    if(log){guestGrab=true;room?.action(pose(),['grab',log.id]);}
+  } else if(action==='drop')guestDrop();
+  else if(action==='jump'){if(airborne===0)vY=5.2;}
+  else if(action==='map'||action==='build')open(action);
+  else if(!['forward','back','left','right','sprint'].includes(action))show('The host manages vehicles, tools and industrial operations.');
+}
 function onAction(a:string,pressed:boolean) {
   if(!pressed){
     inputs.delete(a);
+    if(guest()&&a==='interact'&&guestGrab&&!prefs.sticky)guestDrop();
     if(a==='interact'&&held?.mode==='hand'&&!prefs.sticky)release();
     return;
   }
   if(!active()||inputs.has(a))return;
   inputs.add(a);
+  if(guest()){guestAction(a);return;}
   switch(a) {
     case 'interact':interact();break;
     case 'drop':
@@ -467,6 +600,7 @@ function handleTouch(k:string,pressed:boolean) {
 }
 function findBinding(code:string) { return (Object.keys(prefs.bindings) as Binding[]).find(k=>prefs.bindings[k]===code); }
 window.addEventListener('keydown',e=>{
+  if(lobby.open)return;
   if(recording){
     e.preventDefault();
     if(e.code!=='Escape'){
@@ -495,15 +629,22 @@ window.addEventListener('keydown',e=>{
 });
 window.addEventListener('keyup',e=>{const bind=findBinding(e.code);if(bind)onAction(bind,false);});
 
-function placement() {
-  const p=game.player;
-  const base=clamp(4.7+Math.max(0,-p.pitch)*-.7,3.7,5.4);
-  const range=base+(selectedBuild?facilities[selectedBuild].size*.53:0);
-  return {x:Math.round((p.x-Math.sin(p.yaw)*range)*2)/2,z:Math.round((p.z-Math.cos(p.yaw)*range)*2)/2};
-}
+function placement() {return placementAt(game.player,selectedBuild);}
 function swingTool() {
   if(ride)return;
   if(!active()||swing>0||survey)return;
+  if(guest()){
+    if(selectedBuild){
+      room?.action(pose(),['build',selectedBuild]);
+      selectedBuild=undefined;using=false;
+    } else {
+      swingPeriod=game.swingTime;swing=swingPeriod;reverse=!reverse;
+      const tree=treeTarget();
+      if(tree)room?.action(pose(),['swing',tree.id]);
+      sound.swing(game.tool==='knife',Boolean(tree));
+    }
+    return;
+  }
   if(selectedBuild||selectedVehicle){
     using=false;
     const point=placement();
@@ -653,7 +794,7 @@ function movement(dt:number) {
   if(!ahead&&!sideways){stride+=(Math.round(stride/Math.PI)*Math.PI-stride)*dt*5;return;}
   const sprint=inputs.has('sprint')&&!held&&game.stamina>12;
   const base=(sprint?7.3*game.mods.sprint:4.65*game.mods.walk)*game.mods.athlete;
-  const load=held ? (held.mode==='rope'?.82:.67)*Math.max(.52,1-held.log.kilograms/210) : 1;
+  const load=guestGrab?.67:held ? (held.mode==='rope'?.82:.67)*Math.max(.52,1-held.log.kilograms/210) : 1;
   const soil=game.soil.get(indexAt(p.x,p.z)), mud=soil&&soil.moisture>.79 ? 1-.24*game.mods.mud : 1;
   if(sprint)game.stamina=Math.max(0,game.stamina-dt*14);
   const speed=dt*base*load*mud/Math.max(1,Math.hypot(ahead,sideways));
@@ -714,6 +855,16 @@ let before=performance.now();
 function frame(now:number) {
   const dt=clamp((now-before)/1000,0,.14);before=now;
   const playing=active(), p=game.player;
+  const simulating=Boolean(room?.isHost&&!atMenu&&!leaving);
+  if(room&&!atMenu){
+    room.pose(pose(),now);
+    if(room.isHost&&!leaving){
+      crew.tick(now);
+      if(!playing&&!game.won)game.tick(dt);
+    }
+    if(!playing){saveAge+=dt;if(saveAge>=8){saveAge=0;void persist();}}
+  }
+  scene.syncPlayers(room?.poses,dt);
   if(playing&&victoryAge<0){
     swing=Math.max(0,swing-dt);
     dropTime=Math.max(0,dropTime-dt);
@@ -724,11 +875,11 @@ function frame(now:number) {
       movement(dt);
       if(using)swingTool();
     }
-    game.tick(dt,!inputs.has('sprint')||(!inputs.has('forward')&&!inputs.has('right')&&!inputs.has('left')&&!inputs.has('back')),held?.log.id);
+    if(!guest())game.tick(dt,!inputs.has('sprint')||(!inputs.has('forward')&&!inputs.has('right')&&!inputs.has('left')&&!inputs.has('back')),held?.log.id);
     if(held&&(!game.logs.has(held.log.id)||distance(held.log,p)>Math.max(held.mode==='winch'?17:8,held.log.length+4)))letGo();
-    if(!held&&dropTime===0) {
+    if(!guest()&&!held&&dropTime===0) {
       for(const l of game.logs.values()) {
-        if(l.cargo||l.carrier||distance(l,p)>16)continue;
+        if(l.cargo||l.carrier||crew.isHeld(l.id)||distance(l,p)>16)continue;
         if(game.sites.some(s=>s.kind==='fire'&&distance(l,s)<1.15&&game.acceptLog(s,l))) { void persist();break; }
       }
     }
@@ -736,7 +887,7 @@ function frame(now:number) {
     if(saveAge>=8){saveAge=0;void persist();}
     if(waypoint&&distance(p,waypoint)<2.4){waypoint=undefined;show('Survey marker reached');}
   }
-  if(playing&&game.won&&game.completionTime>game.clock-1&&victoryAge===-1){victoryAge=0;sound.finish();void persist();}
+  if(playing&&!guest()&&game.won&&game.completionTime>game.clock-1&&victoryAge===-1){victoryAge=0;sound.finish();void persist();}
   if(victoryAge>=0){
     victoryAge+=dt;
     if(victoryAge>=11){victoryAge=-2;open('victory');}
@@ -753,9 +904,9 @@ function frame(now:number) {
   if(!atMenu)ui.update({x:p.x,z:p.z,stage:land?.stage??0,held:held?species[held.log.kind].name:undefined,ride:ride?vehicles[ride.kind].name:undefined,
     rideDetail:ride?(vehicles[ride.kind].motor?`${Math.round(ride.fuel)}% fuel · ${Math.round(ride.wear)}% wear`:'Manual transport'):undefined,
     hint:targeting.hint,running:playing,direction:`${orientation[scale]}  /  ${Math.round(p.x)} E  ${Math.round(-p.z)} N`,elapsed:game.clock,waypoint,aimedBuild:aimed,
-    buildIssue:problem,saved:saveLabel,touch:onTouch});
+    buildIssue:problem,saved:room?`${room.isHost?'HOST':'CO-OP'} · ${room.count}/4 · ${saveLabel||'SYNCING'}`:saveLabel,touch:onTouch});
   sound.ambient(game.clock,game.rain,(land?.stage??0)<3,Boolean(ride&&vehicles[ride.kind].motor),playing);
-  scene.render({dt,at:p,y:height(p.x,p.z)+(ride?1.89:1.64)+airborne,yaw:p.yaw,pitch:p.pitch,menu:atMenu,active:playing&&victoryAge<0&&!survey,survey,
+  scene.render({dt,at:p,y:height(p.x,p.z)+(ride?1.89:1.64)+airborne,yaw:p.yaw,pitch:p.pitch,menu:atMenu,active:simulating||playing&&victoryAge<0&&!survey,survey,
     swing:swing>0?1-swing/swingPeriod:0,reverse,reduced:prefs.reduced,stride,held,target:targeting.point,drive:ride,
     build:point?{point,valid:!problem,size:selectedBuild?facilities[selectedBuild].size:1.9}:undefined,
     waypoint,flyover:victoryAge>=0?victoryAge:undefined});
@@ -779,8 +930,10 @@ async function boot() {
   try {
     await initializePhysics();
     scene=new Scene(canvas,game);
+    scene.remotelyHeld=id=>crew.isHeld(id);
     applySettings();
     ui.showMenu(hasSave,saveError);
+    if(new URLSearchParams(location.search).has('room'))showLobby();
     if(import.meta.env.DEV&&new URLSearchParams(location.search).has('review')) {
       Object.defineProperty(window,'clearcutReview',{value:()=>structuredClone({...game.snapshot(),observed:{airborne,look:prefs.look}}),configurable:false});
     }

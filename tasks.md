@@ -16,6 +16,7 @@ Requirements in each milestone are quoted from [README §23](README.md#23-build-
 | [M7 — Heavy industry and multiple victory strategies](progress/M7/tasks.md) | Reviewed |
 | [M8 — Massive late-game depth](progress/M8/tasks.md) | Performance follow-up verified |
 | [M9 — Actual 100% ending and final polish](progress/M9/tasks.md) | Ending verified · campaign playtesting open |
+| [M10 — Photon multiplayer](progress/M10/tasks.md) | Implemented. Live Photon check awaits App ID. |
 
 See [completed.md](completed.md) for verifications and [continue working.md](continue%20working.md) for open work.
 See [acceptance review](progress/acceptance.md) for coverage against the original [acceptance matrix](README.md#24-acceptance-test-matrix).

@@ -77,3 +77,7 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 - [District survey and utility review](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions/runs/44812223252).
 - [Latest main-branch review, including large saves and the ending](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions/runs/44820753423).
 - [Latest GitHub Actions runs](https://github.com/GoodPlayz600/Destroy-The-earth-with-datacenters/actions).
+
+## [M10 — Photon multiplayer](progress/M10/completed.md)
+
+- Private invite rooms, guest forestry and building, and separate portable campaign checkpoints are implemented. See [multiplayer setup](MULTIPLAYER.md).

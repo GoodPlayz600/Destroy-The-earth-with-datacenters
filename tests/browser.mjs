@@ -47,6 +47,24 @@ try{
   console.log('Reviewing fresh campaign');
   await p.getByRole('button',{name:'Play campaign'}).waitFor();
   await screenshot(p,'menu');
+  await click('Multiplayer');
+  const lobby=p.getByRole('dialog',{name:'Multiplayer'});
+  await lobby.getByRole('button',{name:'Join room',exact:true}).click();
+  await lobby.getByText('Enter the App ID of a Photon Realtime application.').waitFor();
+  const roomSave={format:'clearcut-coop-1',code:'COPPER2345',region:'us',save:(await inspect())};
+  delete roomSave.save.observed;
+  await lobby.locator('input[type=file]').setInputFiles({
+    name:'room-backup.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(roomSave)),
+  });
+  await lobby.getByText('COPPER2345',{exact:true}).waitFor();
+  const backupDownload=p.waitForEvent('download');
+  await lobby.getByRole('button',{name:'Download',exact:true}).click();
+  assert.equal((await backupDownload).suggestedFilename(),'clearcut-room-COPPER2345.json');
+  await p.reload();
+  await click('Multiplayer');
+  await lobby.getByText('COPPER2345',{exact:true}).waitFor();
+  await lobby.getByRole('button',{name:'Close multiplayer'}).click();
+  await p.getByRole('button',{name:'Play campaign',exact:true}).waitFor();
   await click('Settings');
   await select('Graphics quality','low');
   await select('Look mode','drag');

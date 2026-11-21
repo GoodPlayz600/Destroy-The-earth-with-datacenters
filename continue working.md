@@ -50,3 +50,7 @@ The M0–M9 milestone review covers the build, simulation, browser playthroughs 
 
 - The exact 100% ending, flyover, archive, and New Game+ passed in prepared browser saves.
 - Playtest progression, late-game prices, accessibility, and touch controls from the knife through the final cleanup in an ordinary campaign.
+
+## [M10 — Photon multiplayer](progress/M10/continue%20working.md)
+
+Run the two-browser Photon Cloud acceptance check once a Realtime App ID is configured.

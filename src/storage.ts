@@ -152,6 +152,31 @@ export async function saveCampaign(save:Save, slot='active') {
     tx.onabort=()=>reject(tx.error);
   });
 }
+export async function listRoomSlots() {
+  const storage=await database();
+  return new Promise<string[]>((resolve,reject)=>{
+    const request=storage.transaction('campaigns').objectStore('campaigns').getAllKeys();
+    request.onsuccess=()=>resolve(request.result.filter((key):key is string=>typeof key==='string'&&/^coop-[a-z0-9-]+-[A-Z2-9]{10}$/.test(key)));
+    request.onerror=()=>reject(request.error);
+  });
+}
+
+export async function saveRoomCheckpoint(save:Save,slot:string) {
+  const storage=await database();
+  return new Promise<void>((resolve,reject)=>{
+    const tx=storage.transaction('campaigns','readwrite');
+    const store=tx.objectStore('campaigns');
+    const previous=store.get(slot);
+    previous.onsuccess=()=>{
+      const older=previous.result as Save | undefined;
+      if(!older||save.clock>older.clock||save.clock===older.clock&&save.savedAt>=older.savedAt)store.put(save,slot);
+    };
+    tx.oncomplete=()=>resolve();
+    tx.onerror=()=>reject(tx.error);
+    tx.onabort=()=>reject(tx.error);
+  });
+}
+
 export type Archive = { slot: string; date: number; label: string };
 export async function listArchives() {
   const storage=await database();
@@ -170,9 +195,12 @@ export async function listArchives() {
   });
 }
 export function downloadSave(save:Save) {
+  downloadJson(save,`clearcut-${save.seed}.json`);
+}
+export function downloadJson(data:unknown, filename:string) {
   const link=document.createElement('a');
-  link.download=`clearcut-${save.seed}.json`;
-  const url=URL.createObjectURL(new Blob([JSON.stringify(save)],{type:'application/json'}));
+  link.download=filename;
+  const url=URL.createObjectURL(new Blob([JSON.stringify(data)],{type:'application/json'}));
   link.href=url;
   link.click();
   setTimeout(()=>URL.revokeObjectURL(url),2000);

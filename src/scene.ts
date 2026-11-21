@@ -5,6 +5,7 @@ import { cargoPosition, computeSites, utilityNodes, waterPipes, waterSites } fro
 import type { Campaign, Log, Ride, Site } from './campaign';
 import { clamp, distance, hash, indexAt, showsGroundCracks, soilColors, treesIn } from './land';
 import type { Point, Tree } from './land';
+import type { Pose } from './coop-wire';
 import { box, distantTrees, freightModel, helperModel, leafBlade, logModel, mat, productModel, ropeModel, siteModel, stone, stumpModel, toolModel, treeModels, vehicleModel } from './models';
 
 const CHUNK = 32;
@@ -27,6 +28,9 @@ export class Scene {
   camera = new T.PerspectiveCamera(68,innerWidth / innerHeight,.095,220);
   toolCamera = new T.PerspectiveCamera(55,innerWidth / innerHeight,.03,12);
   physics = new R.World({ x:0,y:-13.8,z:0 });
+  replica=false;
+  private roomCrew=new Map<number,ReturnType<typeof helperModel>>();
+  remotelyHeld:(id:number)=>boolean=()=>false;
   private chunks = new Map<string, Chunk>();
   private fallers = new Map<number,Falling>();
   private logViews = new Map<number, { model:T.Group; body?: R.RigidBody; length: number }>();
@@ -165,6 +169,29 @@ export class Scene {
     this.landRevision=-1;
     this.terrainRevision=-1;
     this.stream(game.player,true);
+  }
+
+  syncPlayers(poses:ReadonlyMap<number,Pose>|undefined,dt:number) {
+    for(const [id,view] of this.roomCrew)if(!poses?.has(id)){
+      this.removeModel(view.root);
+      this.roomCrew.delete(id);
+    }
+    if(!poses)return;
+    for(const [id,pose] of poses) {
+      const target=new T.Vector3(pose.x,this.game.ground(pose.x,pose.z)+pose.lift,pose.z);
+      let view=this.roomCrew.get(id);
+      if(!view) {
+        view=helperModel();
+        box(view.root,mat('#b1e2a4'),0,1.84,0,.24,.05,.10);
+        view.root.position.copy(target);
+        this.world.add(view.root);
+        this.roomCrew.set(id,view);
+      }
+      const travel=target.distanceTo(view.root.position);
+      view.root.position.lerp(target,travel>15?1:Math.min(1,dt*11));
+      view.root.rotation.y=pose.yaw;
+      view.wheels.forEach((part,i)=>{part.rotation.x=Math.sin(this.frameAge*12+i*Math.PI/2)*Math.min(.55,travel*.4);});
+    }
   }
 
   private removeModel(group:T.Group) {
@@ -439,12 +466,15 @@ export class Scene {
     for(const log of this.game.logs.values()) {
       if(distance(log,at)>=78) continue;
       const chunk=this.chunks.get(Math.floor(log.x/CHUNK)*CHUNK+','+Math.floor(log.z/CHUNK)*CHUNK);
-      const physical=Boolean(chunk?.collider)&&!log.cargo&&!log.carrier;
+      const physical=!this.replica&&!this.remotelyHeld(log.id)&&Boolean(chunk?.collider)&&!log.cargo&&!log.carrier;
       const existing=this.logViews.get(log.id);
       if(existing&&Boolean(existing.body)===physical){
         if(existing.body){
           const from=existing.body.translation(), gap=distance(log,from);
           if(gap>.25&&gap<3)existing.body.applyImpulse({x:(log.x-from.x)*log.kilograms*1.2,y:0,z:(log.z-from.z)*log.kilograms*1.2},true);
+        } else if(this.replica||this.remotelyHeld(log.id)) {
+          existing.model.position.set(log.x,log.y,log.z);
+          existing.model.quaternion.set(...log.q);
         }
         continue;
       }
@@ -953,7 +983,7 @@ export class Scene {
       (this.game.soil.get(indexAt(at.x,at.z))?.stage??0)>=4){
       this.impact(new T.Vector3(at.x+(Math.random()-.5)*12,this.game.ground(at.x,at.z)+.6,at.z-4),'dust',4);
     }
-    if(active) this.updateSimulation(dt,at,yaw,held);
+    if(active&&!this.replica) this.updateSimulation(dt,at,yaw,held);
     this.syncCrew(at,dt,this.frameAge);
     this.syncFreight(at,dt,active);
     this.syncPackets(at);
