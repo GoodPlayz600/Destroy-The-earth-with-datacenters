@@ -8,6 +8,13 @@ const browser=await chromium.launch({headless:false,args:['--enable-unsafe-swift
 const viewport={width:760,height:500};
 const hostContext=await browser.newContext({viewport});
 const host=await hostContext.newPage();
+await host.addInitScript(()=>{
+  const raf=window.requestAnimationFrame.bind(window);
+  window.requestAnimationFrame=(frame)=>raf(function gate(time){
+    if(window.stopHostRendering)raf(gate);
+    else frame(time);
+  });
+});
 const guestContext=await browser.newContext({viewport});
 const guest=await guestContext.newPage();
 for(const p of [host,guest]){
@@ -53,7 +60,7 @@ try {
 
   const cover=await host.context().newPage();
   await cover.bringToFront();
-  await host.waitForFunction(()=>document.visibilityState==='hidden',null,{polling:150,timeout:10000});
+  await host.evaluate(()=>{window.stopHostRendering=true;});
   await guest.bringToFront();
 
   await guest.keyboard.press('KeyQ');
@@ -64,13 +71,13 @@ try {
   await upgrade.getByRole('button',{name:'$15',exact:true}).click();
   await upgrade.getByRole('button',{name:'Installed',exact:true}).waitFor();
   await escape(guest);
-  console.log('Guest opened gear and bought an upgrade with the host paused in a hidden tab.');
+  console.log('Guest opened gear and bought an upgrade with the host paused and no host animation frames.');
 
   await guest.keyboard.press('KeyB');
   await guest.locator('.overlay .row').filter({hasText:'Field Sawbench'}).getByRole('button',{name:'$75',exact:true}).click();
   await guest.locator('#world').click({position:{x:380,y:250}});
   await guest.getByText('Field Sawbench installed.',{exact:true}).waitFor();
-  console.log('Guest built a shared sawbench with the host tab hidden.');
+  console.log('Guest built a shared sawbench without host animation frames.');
 
   await guest.mouse.move(380,250);
   await guest.mouse.down();
@@ -91,6 +98,7 @@ try {
   await guest.keyboard.press('KeyJ');
   await guest.getByRole('heading',{name:'Field journal'}).waitFor();
   await escape(guest);
+  await host.evaluate(()=>{window.stopHostRendering=false;});
   await click(host,'Save and close room');
   await lobby(guest).getByText(code,{exact:true}).waitFor({timeout:20000});
   await lobby(host).getByText(code,{exact:true}).waitFor();
