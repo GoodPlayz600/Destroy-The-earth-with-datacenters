@@ -1,4 +1,4 @@
-import { CELL, DISTRICT, DISTRICT_CELLS, DISTRICTS, SIZE, TOTAL, facilities, goods, recipes, species, tools, vehicles, vehicleTypes } from './catalog';
+import { CELL, DISTRICT, DISTRICT_CELLS, DISTRICTS, SIZE, TOTAL, facilities, goods, recipes, stickBoards, species, tools, vehicles, vehicleTypes } from './catalog';
 import type { Facility, Good, Recipe, Stack, Tool, VehicleType } from './catalog';
 import { applyLand, blockers, cellPoint, clamp, defaultSoil, desertified, distance, districtAt, districtCell, hash, height, homeDistrict, indexAt, irreversibleSoil, noPressure, treesIn } from './land';
 import type { Blocker, Point, Pressure, Soil, Tree } from './land';
@@ -16,7 +16,7 @@ export type ClimateSample={time:number;desert:number;moisture:number;heat:number
 export type CleanupJob={cell:number;crew:string;travel:number};
 export type Prototype='edge'|'motor';
 export type Shipment = { mode:'rail'|'air'|'road'; returning?:boolean; load:Stack; target:string; path:Point[]; duration:number; elapsed:number; };
-type Batch = Stack & { remaining: number; payout?: number; offcut?: number; residue?:Good };
+type Batch = Stack & { remaining: number; payout?: number; offcut?: number; residue?:Good; residueMass?:number };
 export const mills: Facility[] = ['bench','bandsaw','mill','speedMill','millComplex'];
 export const biomassSites:Facility[]=['biopower','cogeneration','wastePower'];
 export const lineKinds:Facility[]=['belt','poweredBelt','rollerIntake','rail','road','serviceRoad','pavedRoad'];
@@ -33,7 +33,7 @@ export const waterPipes:Facility[]=['pipe','flowPipe'];
 export const waterCapacity=(kind:Facility)=>kind==='tank'?1200:kind==='coolTower'||kind==='tankFarm'?4200:
   kind==='pumpStation'||kind==='deepPump'?410:160;
 const kilns: Facility[] = ['smallKiln','kiln'];
-export const consumes = (recipe: Recipe | undefined, good: Good) => recipe?.input?.[0]===good||recipe?.secondary?.[0]===good;
+export const consumes = (recipe: Recipe | undefined, good: Good) => recipe?.input?.[0]===good||recipe?.secondary?.[0]===good||recipe===recipes.bench&&good==='branches';
 export const takesLogs=(kind:Facility) => storageSite(kind)||kind==='fire'||buyerSite(kind)||(isRecipe(kind)&&(recipes[kind] as Recipe).input?.[0]&&['timber','branches'].includes((recipes[kind] as Recipe).input![0]));
 export type Site = Point & {
   id: string; kind: Facility; yaw?:number; input: Stack[]; output: Stack[]; jobs: Batch[];
@@ -78,9 +78,17 @@ export const fields:Facility[]=['pasture','crop','megaFarm','soilRecovery'];
 export function getQuantity(stacks: Stack[], good?: Good) {
   return stacks.reduce((n, stack) => n + (!good || stack.good === good ? stack.quantity : 0), 0);
 }
+const referenceMass:Partial<Record<Good,number>>={
+  timber:22,branches:9,boards:10,dry:9,finished:8,treated:10,
+  chips:4,driedChips:3,ash:2,ore:11,mixedOre:11,furniture:26,
+};
+export const unitMass=(stack:Stack)=>stack.massPerUnit??referenceMass[stack.good]??10;
+export const stackMass=(stack:Stack)=>unitMass(stack)*stack.quantity;
+
 export function put(stacks: Stack[], stack: Stack, capacity = Infinity) {
   if (stack.quantity <= 0 || getQuantity(stacks) + stack.quantity > capacity) return false;
-  const lot = stacks.find(s => s.good === stack.good && Math.abs(s.quality - stack.quality) < .015 && Math.abs(s.moisture - stack.moisture) < .015);
+  const lot = stacks.find(s => s.good === stack.good && Math.abs(s.quality - stack.quality) < .015 && Math.abs(s.moisture - stack.moisture) < .015
+    && Math.abs(unitMass(s)-unitMass(stack))<.001 && Math.abs((s.valuePerUnit??0)-(stack.valuePerUnit??0))<.001);
   if (lot) {
     const total = lot.quantity + stack.quantity;
     lot.quality = (lot.quality * lot.quantity + stack.quality * stack.quantity) / total;
@@ -93,17 +101,22 @@ export function take(stacks: Stack[], good: Good, quantity: number, minQuality =
   if (!Number.isInteger(quantity) || quantity < 1) return;
   const eligible = stacks.filter(s => s.good === good && s.quality >= minQuality && s.moisture <= maxMoisture);
   if (getQuantity(eligible) < quantity) return;
-  let needed = quantity, quality = 0, moisture = 0;
+  let needed = quantity, quality = 0, moisture = 0, mass=0, value=0;
   for (const lot of eligible) {
     const n = Math.min(needed, lot.quantity);
     needed -= n;
     quality += n * lot.quality;
     moisture += n * lot.moisture;
+    mass += n * unitMass(lot);
+    value += n * (lot.valuePerUnit??0);
     lot.quantity -= n;
     if (!lot.quantity) stacks.splice(stacks.indexOf(lot), 1);
     if (!needed) break;
   }
-  return { good, quantity, quality: quality / quantity, moisture: moisture / quantity };
+  const result:Stack={good,quantity,quality:quality/quantity,moisture:moisture/quantity};
+  if(eligible.some(lot=>lot.massPerUnit!==undefined))result.massPerUnit=mass/quantity;
+  if(value>0)result.valuePerUnit=value/quantity;
+  return result;
 }
 function takeLot(stacks:Stack[],lot:Stack,quantity:number) {
   const index=stacks.indexOf(lot);
@@ -113,7 +126,12 @@ function takeLot(stacks:Stack[],lot:Stack,quantity:number) {
   if(!lot.quantity)stacks.splice(index,1);
   return removed;
 }
-export const priceFor = (stack: Stack) => Math.round(goods[stack.good][1] * stack.quantity * (.64 + stack.quality * .45 + (1 - stack.moisture) * .18));
+function lotValue(stack:Stack) {
+  const weight=.75+.25*unitMass(stack)/(referenceMass[stack.good]??10);
+  const grade=.64+stack.quality*.45+(1-stack.moisture)*.18;
+  return (goods[stack.good][1]*grade*weight+(stack.valuePerUnit??0))*stack.quantity;
+}
+export const priceFor=(stack:Stack)=>Math.round(lotValue(stack));
 export const canWin = (desertCount: number) => desertCount === TOTAL;
 export const cargoMass = (logs: Iterable<Log>, id: string) => Array.from(logs).reduce((sum, l) => sum + (l.cargo === id ? l.kilograms : 0), 0);
 
@@ -403,7 +421,7 @@ export class Campaign {
     return trees.filter(t => !this.removed.has(t.id)).length / Math.max(1, trees.length);
   }
 
-  logStack(log: Log): Stack { return { good: log.part==='branch'?'branches':'timber', quantity: log.units, quality: log.quality, moisture: log.moisture }; }
+  logStack(log: Log): Stack { return { good: log.part==='branch'?'branches':'timber', quantity: log.units, quality: log.quality, moisture: log.moisture, massPerUnit:log.kilograms/log.units }; }
   fireValue(log: Log) {
     return Math.round((log.units*13+log.kilograms*.2)*(this.mods.sortDry&&log.moisture<.45?1.22:1)
       *(this.mods.ashContracts&&log.units>=3?1.18:1));
@@ -415,7 +433,7 @@ export class Campaign {
       if (log.kilograms > this.mods.burnMass || site.jobs.length >= this.mods.burnSlots) return false;
       const toCharcoal = this.mods.carbon && site.mode === 'charcoal';
       site.jobs.push({
-        good: toCharcoal?'charcoal':'ash', quantity: toCharcoal ? log.units : this.mods.ash ? 1 : 0, moisture: .05, quality: .82,
+        good: toCharcoal?'charcoal':'ash', quantity: toCharcoal ? log.units : this.mods.ash ? 1 : 0, moisture: .05, quality: .82, massPerUnit:toCharcoal?log.kilograms*.32/log.units:log.kilograms*.12,
         remaining: (1.6 + log.kilograms * .044) / this.mods.burnSpeed,
         payout: toCharcoal ? 0 : this.fireValue(log),
       });
@@ -447,7 +465,8 @@ export class Campaign {
     return true;
   }
 
-  transfer(site: Site, good: Good, quantity: number, retrieve: boolean) {
+  transfer(site: Site, good: Good, quantity: number, retrieve: boolean, lot?:Stack) {
+    if(!Number.isInteger(quantity)||quantity<=0||lot&&lot.good!==good)return false;
     const source = retrieve ? site.output : this.stock;
     const destination = retrieve ? this.stock : storageSite(site.kind) ? site.output : site.input;
     const capacity = retrieve ? 150 : this.capacity(site);
@@ -455,7 +474,7 @@ export class Campaign {
     if(!retrieve&&!this.allowedStorage(site,good))return false;
     if (!retrieve && !storageSite(site.kind) && !consumes(recipe,good) && !(biomassSites.includes(site.kind)&&fuelGood(good))) return false;
     if (getQuantity(destination) + quantity > capacity) return false;
-    const stack = take(source, good, quantity);
+    const stack = lot?takeLot(source,lot,quantity):take(source, good, quantity);
     return stack ? put(destination, stack, capacity) : false;
   }
 
@@ -975,15 +994,17 @@ export class Campaign {
   }
 
   private makeBatch(site:Site,recipe:Recipe, poweredFan=false, crank=false) {
+    if(recipe===recipes.bench&&getQuantity(site.input,'timber')===0&&getQuantity(site.input,'branches')>0)recipe=stickBoards;
     const [good,baseQuantity]=recipe.output, mill=mills.includes(site.kind);
+    const sticks=recipe===stickBoards;
     const farming=fields.includes(site.kind), growing=farming&&site.kind!=='soilRecovery';
     if(farming&&!this.farmReady(site))return false;
     let quantity=baseQuantity;
     if(growing&&site.fertilizer)quantity+=Math.ceil(baseQuantity*.40);
     if(growing&&site.intensive)quantity+=Math.ceil(baseQuantity*.26);
-    const carry=mill&&this.mods.bladeGuide?(site.yieldCarry??0)+baseQuantity*.10:0;
+    const carry=mill&&!sticks&&this.mods.bladeGuide?(site.yieldCarry??0)+baseQuantity*.10:0;
     quantity+=Math.floor(carry+1e-8);
-    if(mill&&this.mods.cutPatterns&&site.layout==='volume')quantity+=1;
+    if(mill&&!sticks&&this.mods.cutPatterns&&site.layout==='volume')quantity+=1;
     const residue=site.kind==='crusher'?'sand':mill&&site.kind!=='bench'&&this.mods.offcuts?'chips':this.mods.recovery&&paperLines.includes(site.kind)?'wastePaper':
       this.mods.barkSorter&&site.kind==='charcoalDrum'?'chips':site.kind==='charcoal'||site.kind==='charcoalDrum'?'ash':undefined;
     const offcut=residue?1:0;
@@ -998,8 +1019,8 @@ export class Campaign {
       site.status='Awaiting suitable material';
       return false;
     }
-    if(pulpLines.includes(site.kind)&&!this.takeWater(site,site.kind==='bulkPulp'?48:16,51)){site.status='Pulp needs supplied water';return false;}
     if(recipe.labor&&this.cash<recipe.labor){site.status='Labor budget too low';return false;}
+    if(pulpLines.includes(site.kind)&&!this.takeWater(site,site.kind==='bulkPulp'?48:16,51)){site.status='Pulp needs supplied water';return false;}
     if(recipe.labor)this.finance(-recipe.labor,'Furniture assembly payroll');
     const input=first?take(site.input,first[0],firstCount,recipe.minQuality,recipe.maxMoisture):undefined;
     const parts=second?take(site.input,second[0],second[1],recipe.minQuality,recipe.maxMoisture):undefined;
@@ -1043,7 +1064,18 @@ export class Campaign {
       if(site.fertilizer){soil.pollution=clamp(soil.pollution+.12);soil.fertility=clamp(soil.fertility-.024);site.fertilizer=false;}
       this.landQueue.add(i);
     }
-    site.jobs.push({good,quantity,quality:clamp(quality),moisture,remaining,offcut,residue});
+    const batch:Batch={good,quantity,quality:clamp(quality),moisture,remaining,offcut,residue};
+    const inputs=[input,parts].filter((lot):lot is Stack=>Boolean(lot));
+    if(inputs.length){
+      const mass=inputs.reduce((sum,lot)=>sum+stackMass(lot),0);
+      const retained=inputs.reduce((sum,lot)=>sum+stackMass(lot)*(1-lot.moisture*.25),0)/(1-moisture*.25);
+      batch.massPerUnit=(offcut?retained*.88:retained)/quantity;
+      if(offcut)batch.residueMass=Math.min(mass,retained)*.12/offcut;
+      const prior=inputs.reduce((sum,lot)=>sum+lotValue(lot),0);
+      const target=prior+Math.max(2,prior*.12)+(recipe.labor??0);
+      batch.valuePerUnit=Math.max(0,(target-lotValue(batch))/quantity);
+    }
+    site.jobs.push(batch);
     site.status=recipe.name;
     return true;
   }
@@ -1096,6 +1128,8 @@ export class Campaign {
       const previous=ride.freight,total=previous.quantity+lot.quantity;
       lot.quality=(lot.quality*lot.quantity+previous.quality*previous.quantity)/total;
       lot.moisture=(lot.moisture*lot.quantity+previous.moisture*previous.quantity)/total;
+      lot.massPerUnit=(stackMass(previous)+stackMass(lot))/total;
+      lot.valuePerUnit=((previous.valuePerUnit??0)*previous.quantity+(lot.valuePerUnit??0)*lot.quantity)/total;
       lot.quantity=total;
     }
     ride.freight=lot;
@@ -1169,9 +1203,14 @@ export class Campaign {
         site.status = site.jobs.length ? 'Burning' : 'Ready for physical delivery';
         if (!site.jobs.length && this.mods.stoker) {
           const depot = this.sites.find(s => s.kind === 'depot' && s.link === site.id);
-          if (depot && getQuantity(site.output) < this.capacity(site)) {
-            const raw = take(depot.output, 'timber', 1);
-            if (raw) site.jobs.push({ good: 'ash', quantity: this.mods.ash ? 1 : 0, quality: .8, moisture: .05, remaining: 2 / this.mods.burnSpeed, payout: 17 });
+          if (depot && (!this.mods.ash||getQuantity(site.output)<this.capacity(site))) {
+            const material=depot.output.find(lot=>(lot.good==='timber'||lot.good==='branches')&&unitMass(lot)<=this.mods.burnMass);
+            const raw=material&&takeLot(depot.output,material,1);
+            if(raw){
+              const kg=stackMass(raw);
+              site.jobs.push({good:'ash',quantity:this.mods.ash?1:0,quality:.8,moisture:.05,massPerUnit:kg*.12,
+                remaining:(1.6+kg*.044)/this.mods.burnSpeed,payout:Math.round((13+kg*.2)*(this.mods.sortDry&&raw.moisture<.45?1.22:1))});
+            }
           }
         }
         for (const job of site.jobs) job.remaining -= dt;
@@ -1258,10 +1297,13 @@ export class Campaign {
       if (!recipe) continue;
       for(const work of [...site.jobs]){
         work.remaining-=dt;
-        site.status=recipe.name;
+        site.status=site.kind==='bench'&&work.good==='boards'&&work.quantity===1?stickBoards.name:recipe.name;
         if(work.remaining>0)continue;
-        if(!put(site.output,work,this.capacity(site))){site.status='Output full';continue;}
-        if(work.offcut)put(site.output,{good:work.residue??'chips',quantity:work.offcut,quality:.68,moisture:work.moisture},this.capacity(site));
+        const capacity=this.capacity(site);
+        if(getQuantity(site.output)+work.quantity+(work.offcut??0)>capacity){site.status='Output full';continue;}
+        const {remaining,offcut,residue,residueMass,payout,...product}=work;
+        put(site.output,product,capacity);
+        if(offcut)put(site.output,{good:residue??'chips',quantity:offcut,quality:.68,moisture:work.moisture,massPerUnit:residueMass},capacity);
         this.stats.produced+=work.quantity;
         site.jobs.splice(site.jobs.indexOf(work),1);
       }
@@ -1706,6 +1748,11 @@ export class Campaign {
     }
   }
 
+  private rainAt(event=this.eventAt()) {
+    const weather=Math.max(0,Math.sin(this.clock/96+this.seed%13)-.58)*2;
+    return event==='Thunderstorm'?Math.max(.55,weather):event==='Dry front'?weather*.2:weather;
+  }
+
   tick(dt: number, rest = true, heldId?:number) {
     this.clock += dt;
     if (rest) this.stamina = Math.min(this.mods.stamina, this.stamina + dt * 16 * this.mods.recover * this.mods.athlete);
@@ -1714,8 +1761,7 @@ export class Campaign {
     this.tickTime -= 1;
     const previous=this.eventAt(this.clock-1), current=this.eventAt();
     if(previous!==current&&current!=='Clear weather')this.notice(current+' · Field bulletin');
-    const weather=Math.max(0,Math.sin(this.clock/96+this.seed%13)-.58)*2;
-    this.rain=current==='Thunderstorm'?Math.max(.55,weather):current==='Dry front'?weather*.2:weather;
+    this.rain=this.rainAt(current);
     for (const contract of this.contracts) if (!contract.done && this.clock >= contract.deadline) contract.failed = true;
     this.simulateMachinery(1);
     this.simulateHaulers(1,heldId);
@@ -1779,6 +1825,7 @@ export class Campaign {
       logs: new Map(s.logs.map(l => [l.id, l])), achievements: new Set(s.achievements), claimed: new Set(s.claimed??[]),
     });
     game.mods = modifiers(game.ownedUpgrades);
+    game.rain=game.rainAt();
     for (const [i, land] of game.soil) {
       const stable=desertified(land);
       if(!stable||!irreversibleSoil(land)){

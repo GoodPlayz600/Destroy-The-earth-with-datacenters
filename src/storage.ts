@@ -47,8 +47,10 @@ const flag=(x:unknown)=>typeof x==='boolean';
 const identifier=(x:unknown)=>typeof x==='string'&&/^[sv][1-9]\d*$/.test(x)&&x.length<18;
 const text=(x:unknown)=>typeof x==='string'&&x.length<400;
 const coordinate=(x:Record<string,unknown>)=>numeric(x.x)&&numeric(x.z)&&indexAt(x.x,x.z)>=0;
-const lot=(x:unknown)=>object(x)&&key(x.good,goods)&&integer(x.quantity,1,5000)&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1);
-const job=(x:unknown)=>object(x)&&key(x.good,goods)&&integer(x.quantity,0,260)&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1)&&numeric(x.remaining,-100000,3600)&&(x.payout===undefined||integer(x.payout))&&(x.offcut===undefined||integer(x.offcut,0,8))&&(x.residue===undefined||key(x.residue,goods));
+const valuation=(x:Record<string,unknown>)=>(x.massPerUnit===undefined||numeric(x.massPerUnit,.000001,1e7))
+  &&(x.valuePerUnit===undefined||numeric(x.valuePerUnit,0,1e9));
+const lot=(x:unknown)=>object(x)&&key(x.good,goods)&&integer(x.quantity,1,5000)&&valuation(x)&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1);
+const job=(x:unknown)=>object(x)&&key(x.good,goods)&&integer(x.quantity,0,260)&&valuation(x)&&(x.residueMass===undefined||numeric(x.residueMass,.000001,1e7))&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1)&&numeric(x.remaining,-100000,3600)&&(x.payout===undefined||integer(x.payout))&&(x.offcut===undefined||integer(x.offcut,0,8))&&(x.residue===undefined||key(x.residue,goods));
 const soilFields=['vegetation','moisture','groundwater','fertility','heat','pollution','erosion','substrate'];
 const treeId=(x:unknown)=>integer(x,0,TOTAL*6-1);
 const distinct=(values: unknown[])=>new Set(values).size===values.length;
@@ -152,6 +154,31 @@ export async function saveCampaign(save:Save, slot='active') {
     tx.onabort=()=>reject(tx.error);
   });
 }
+export async function listRoomSlots() {
+  const storage=await database();
+  return new Promise<string[]>((resolve,reject)=>{
+    const request=storage.transaction('campaigns').objectStore('campaigns').getAllKeys();
+    request.onsuccess=()=>resolve(request.result.filter((key):key is string=>typeof key==='string'&&/^coop-[a-z0-9-]+-[A-Z2-9]{10}$/.test(key)));
+    request.onerror=()=>reject(request.error);
+  });
+}
+
+export async function saveRoomCheckpoint(save:Save,slot:string) {
+  const storage=await database();
+  return new Promise<void>((resolve,reject)=>{
+    const tx=storage.transaction('campaigns','readwrite');
+    const store=tx.objectStore('campaigns');
+    const previous=store.get(slot);
+    previous.onsuccess=()=>{
+      const older=previous.result as Save | undefined;
+      if(!older||save.clock>older.clock||save.clock===older.clock&&save.savedAt>=older.savedAt)store.put(save,slot);
+    };
+    tx.oncomplete=()=>resolve();
+    tx.onerror=()=>reject(tx.error);
+    tx.onabort=()=>reject(tx.error);
+  });
+}
+
 export type Archive = { slot: string; date: number; label: string };
 export async function listArchives() {
   const storage=await database();
@@ -170,9 +197,12 @@ export async function listArchives() {
   });
 }
 export function downloadSave(save:Save) {
+  downloadJson(save,`clearcut-${save.seed}.json`);
+}
+export function downloadJson(data:unknown, filename:string) {
   const link=document.createElement('a');
-  link.download=`clearcut-${save.seed}.json`;
-  const url=URL.createObjectURL(new Blob([JSON.stringify(save)],{type:'application/json'}));
+  link.download=filename;
+  const url=URL.createObjectURL(new Blob([JSON.stringify(data)],{type:'application/json'}));
   link.href=url;
   link.click();
   setTimeout(()=>URL.revokeObjectURL(url),2000);

@@ -1172,3 +1172,48 @@ test('wood-energy heat exchange reduces the live electrical draw of a kiln',()=>
   assert.ok(retort.jobs.length>0);
   assert.equal(kiln.gridFlow,2);
 });
+
+test('the sawbench accepts a physical stick and makes exactly one plank even with volume upgrades',()=>{
+  const g=new Campaign();
+  const bench=g.makeSite('bench',0,0);
+  g.sites.push(bench);
+  g.mods.bladeGuide=true;
+  g.mods.cutPatterns=true;
+  bench.layout='volume';
+  const stick={...baseLog(g,0,0),part:'branch' as const,kilograms:8,units:1};
+  g.logs.set(stick.id,stick);
+  assert.ok(g.acceptLog(bench,stick));
+  assert.equal(g.logs.has(stick.id),false);
+  run(g,6);
+  assert.equal(getQuantity(bench.output,'boards'),1);
+  assert.equal(getQuantity(bench.input,'branches'),0);
+  assert.equal(bench.output[0].massPerUnit,8);
+});
+
+test('weights, exact lots and cumulative processing value survive transport and save reload',()=>{
+  const g=new Campaign();
+  const light={...baseLog(g,0,0),kilograms:10},heavy={...baseLog(g,0,0),kilograms:42};
+  const thin=g.logStack(light),thick=g.logStack(heavy);
+  assert.ok(g.fireValue(heavy)>g.fireValue(light));
+  assert.ok(g.marketValue(thick)>g.marketValue(thin));
+  const bench=g.makeSite('bench',0,0), rack=g.makeSite('rack',4,0);
+  g.sites.push(bench,rack);
+  put(g.stock,thin);put(g.stock,thick);
+  assert.equal(g.stock.length,2);
+  assert.ok(g.transfer(bench,'timber',1,false,g.stock[1]));
+  assert.equal(g.stock[0].massPerUnit,10);
+  run(g,6);
+  const boards=bench.output[0];
+  assert.ok(priceFor(boards)>priceFor(thick));
+  assert.equal(boards.quantity*boards.massPerUnit!,42);
+  assert.ok(g.transfer(bench,'boards',2,true,boards));
+  assert.ok(g.transfer(rack,'boards',2,false));
+  run(g,28);
+  const dried=rack.output[0];
+  assert.ok(priceFor(dried)>priceFor(boards));
+  assert.ok(dried.quantity*dried.massPerUnit!<42);
+  const restored=Campaign.restore(validateSave(g.snapshot()));
+  const restoredLot=restored.sites.find(site=>site.id===rack.id)!.output[0];
+  assert.deepEqual(restoredLot,dried);
+  assert.equal(restored.marketValue(restoredLot),g.marketValue(dried));
+});

@@ -21,6 +21,10 @@ Open the localhost URL printed by Vite. Click **Play campaign**. Walk toward the
 
 In Settings, select **drag** look to use right-mouse drag in place of pointer lock. Touch devices use screen controls. Campaign saves live in IndexedDB for the site's origin. Export a backup from Settings before clearing browser data.
 
+## Multiplayer
+
+Open **Multiplayer** for a private Photon co-op room. See [Photon setup and shared saves](MULTIPLAYER.md).
+
 ## Build and check
 
 ```sh

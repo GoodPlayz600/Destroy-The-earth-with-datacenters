@@ -47,6 +47,25 @@ try{
   console.log('Reviewing fresh campaign');
   await p.getByRole('button',{name:'Play campaign'}).waitFor();
   await screenshot(p,'menu');
+  await click('Multiplayer');
+  const lobby=p.getByRole('dialog',{name:'Multiplayer'});
+  assert.equal(await lobby.getByRole('status').textContent(),'');
+  await lobby.getByRole('button',{name:'Join room',exact:true}).click();
+  await lobby.getByText('Enter the App ID of a Photon Realtime application.').waitFor();
+  const roomSave={format:'clearcut-coop-1',code:'COPPER2345',region:'us',save:(await inspect())};
+  delete roomSave.save.observed;
+  await lobby.locator('input[type=file]').setInputFiles({
+    name:'room-backup.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(roomSave)),
+  });
+  await lobby.getByText('COPPER2345',{exact:true}).waitFor();
+  const backupDownload=p.waitForEvent('download');
+  await lobby.getByRole('button',{name:'Download',exact:true}).click();
+  assert.equal((await backupDownload).suggestedFilename(),'clearcut-room-COPPER2345.json');
+  await p.reload();
+  await click('Multiplayer');
+  await lobby.getByText('COPPER2345',{exact:true}).waitFor();
+  await lobby.getByRole('button',{name:'Close multiplayer'}).click();
+  await p.getByRole('button',{name:'Play campaign',exact:true}).waitFor();
   await click('Settings');
   await select('Graphics quality','low');
   await select('Look mode','drag');
@@ -120,7 +139,7 @@ try{
   await p.setViewportSize({width:450,height:720});
   await press('Escape');
   await click('Settings');
-  const panel=await p.locator('.panel').boundingBox();
+  const panel=await p.locator('.overlay .panel').boundingBox();
   assert.ok(panel&&panel.x>=0&&panel.x+panel.width<=450);
   await screenshot(p,'narrow');
   const exported=p.waitForEvent('download');
@@ -408,7 +427,7 @@ try{
   assert.ok((await inspect()).won);
   await screenshot(p,'victory');
   await p.setViewportSize({width:1920,height:1080});
-  const large=await p.locator('.panel').boundingBox();
+  const large=await p.locator('.overlay .panel').boundingBox();
   assert.ok(large&&large.x>=0&&large.y>=0&&large.x+large.width<=1920&&large.y+large.height<=1080);
   await p.setViewportSize({width:960,height:660});
   await click('New Game+');

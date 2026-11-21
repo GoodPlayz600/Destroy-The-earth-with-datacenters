@@ -1,6 +1,6 @@
 import { DISTRICT_CELLS, DISTRICTS, TOTAL, facilities, goods, recipes, tools, vehicles, vehicleTypes } from './catalog';
 import type { Facility, Good, Recipe, Tool, VehicleType } from './catalog';
-import { biomassSites, buyerSite, cargoMass, computeSites, consumes, districtProjects, fields, fuelGood, getQuantity, isOpenContract, projectBond, storageSite, mills, waterSites, waterPumps, waterCapacity } from './campaign';
+import { biomassSites, buyerSite, cargoMass, computeSites, consumes, districtProjects, fields, fuelGood, getQuantity, isOpenContract, projectBond, stackMass, storageSite, mills, waterSites, waterPumps, waterCapacity } from './campaign';
 import type { Campaign, Challenge, Project, Site } from './campaign';
 import { blockers, conversionLabel, coverageLabel, desertRules, desertified, districtAt, districtCenter, districtName, soilColors, stages } from './land';
 import type { Blocker, Point } from './land';
@@ -42,7 +42,7 @@ type Hud={
   elapsed:number; waypoint?:Point; aimedBuild?:string; buildIssue?:string; saved:string; touch:boolean;
 };
 type Controller={
-  game:()=>Campaign; prefs:Preferences; open:(page:Page)=>void; begin:(kind:'resume'|'new'|'plus',challenge?:Challenge)=>void;
+  game:()=>Campaign; prefs:Preferences; multiplayer:()=>void; inRoom:()=>boolean; guest:()=>boolean; crewCommand:(action:string,target:string|null)=>void; open:(page:Page)=>void; begin:(kind:'resume'|'new'|'plus',challenge?:Challenge)=>void;
   resume:()=>void; menu:()=>void; refresh:()=>void; save:()=>void; download:()=>void; restore:(file:File)=>void;
   archives:()=>Archive[]; restoreArchive:(slot:string)=>void; applySettings:()=>void; binding:(key:Binding)=>void; build:(f:Facility)=>void; ride:(v:VehicleType)=>void;
   survey:(p:Point)=>void; waypoint:(p:Point)=>void; site:()=>Site|undefined; touch:(key:string,pressed:boolean)=>void; fullscreen:()=>void;
@@ -119,6 +119,7 @@ export class UI {
     play.setAttribute('aria-label',playLabel);
     play.append(el('span','play-icon','▶'),playLabel,el('span','arrow','›'));
     buttons.append(play);
+    buttons.append(action('Multiplayer',this.c.multiplayer,'button secondary start-new'));
     buttons.append(action(hasSave?'New Game':'Challenges',()=>this.confirmNew(hasSave),'button secondary start-new'));
     buttons.append(el('div','menu-links',this.nav('','Settings','settings'),this.nav('','How to Play','help'),this.nav('','Credits','credits')));
     const content=el('main','menu-content',
@@ -129,7 +130,7 @@ export class UI {
     );
     const footer=el('footer','menu-footer',el('div','',label('FIELD SITE'),el('strong','','01  /  ASH EXCHANGE')),
       el('div','',label('CAMPAIGN OBJECTIVE'),el('strong','','65,536 CELLS  /  STABLE DESERT')),
-      el('div','',label('MODE'),el('strong','','SINGLE PLAYER')));
+      el('div','',label('MODE'),el('strong','','SOLO / CO-OP')));
     this.menu.replaceChildren(top,content,footer);
   }
 
@@ -236,8 +237,8 @@ export class UI {
   show(page:Page) {
     const g=this.c.game();
     const pages:Record<Page,()=>void>={
-      pause:()=>this.panel('Field paused','Production and field work are paused.',el('div','panel-content stack',
-        action('Resume campaign',()=>this.c.resume(),'button primary'),btn('Save campaign',()=>this.c.save()),btn('Settings',()=>this.c.open('settings')),
+      pause:()=>this.panel(this.c.inRoom()?'Room controls':'Field paused',this.c.inRoom()?'The shared campaign remains live while this panel is open.':'Production and field work are paused.',el('div','panel-content stack',
+        action('Resume campaign',()=>this.c.resume(),'button primary'),btn('Save campaign',()=>this.c.save()),this.c.inRoom()?btn('Room details',this.c.multiplayer):undefined,btn('Settings',()=>this.c.open('settings')),
         btn('How to Play',()=>this.c.open('help')),btn('Main menu',()=>this.c.menu()))),
       help:()=>this.panel('Field manual','Start at the Ash Exchange. The Timber Exchange across the clearing buys raw and refined inventory.',el('div','panel-content',
         section('Your first shift',
@@ -311,17 +312,27 @@ export class UI {
     ));
   }
 
+  refreshLive(page:Page) {
+    const content=this.overlay.querySelector<HTMLElement>('.panel-content');
+    const tabs=this.overlay.querySelector<HTMLElement>('.branch-tabs');
+    const top=content?.scrollTop??0, left=tabs?.scrollLeft??0;
+    this.show(page);
+    this.overlay.querySelector<HTMLElement>('.panel-content')?.scrollTo({top});
+    this.overlay.querySelector<HTMLElement>('.branch-tabs')?.scrollTo({left});
+  }
+
   private inventory() {
     const g=this.c.game();
-    this.panel('Equipment','Tools, personal stock, and the current fleet.',el('div','panel-content',
+    this.panel('Equipment',this.c.guest()?'The equipped tool and supplies are shared by the crew.':'Tools, personal stock, and the current fleet.',el('div','panel-content',
       section('Hand tools',...Object.entries(tools).map(([k,item])=>{
         const id=k as Tool,owned=g.ownedTools.has(id);
         const node=id==='knife'?undefined:upgrades.find(upgrade=>upgrade.id===forestryUnlocks[id]);
         const locked=Boolean(node?.previous&&!g.ownedUpgrades.has(node.previous));
         return row(item.name,`Cut power ${item.power} · Range ${item.range} m`,btn(g.tool===id?'Equipped':owned?'Equip':locked?'Requires research':cash(item.cost),()=>{
-          if(g.acquireTool(id))this.c.refresh();
+          if(this.c.guest())this.c.crewCommand('equip',id);
+          else if(g.acquireTool(id))this.c.refresh();
         },g.tool===id||(!owned&&(locked||g.cash<item.cost))));
-      }),btn('Service equipped tool',()=>{if(g.retool())this.c.refresh();})),
+      }),btn('Service equipped tool',()=>{if(this.c.guest())this.c.crewCommand('service',null);else if(g.retool())this.c.refresh();})),
       section('Inventory',g.stock.length?undefined:sub('The tool bag has no saleable stock.'),
         ...Object.keys(goods).filter(k=>getQuantity(g.stock,k as Good)>0).map(k=>row(goods[k as Good][0],`${getQuantity(g.stock,k as Good)} units`))),
       section('Fleet',g.rides.length?undefined:sub('No vehicles in service.'),
@@ -334,7 +345,7 @@ export class UI {
             btn('Mark',()=>this.c.waypoint(v)),btn(tow||towing?'Recover rig · $18':'Recover · $18',()=>{
               if(!g.recoverRide(v))this.notice('Recovery needs an available vehicle and a clear yard');
               this.c.refresh();
-            },g.cash<18));
+            },this.c.guest()||g.cash<18));
         }))));
   }
 
@@ -365,16 +376,19 @@ export class UI {
     const available=upgrades.filter(u=>u.implemented).length;
     const research=g.mods.researchDesk?section('Research desk',sub(`${g.science} research points from production and survey milestones`),
       g.mods.prototypes?row('Prototype cutting edge','More cutting force on mature trunks',btn(g.prototypes.has('edge')?'Installed':'12 points',()=>{
-        if(g.develop('edge'))this.c.refresh();
+        if(this.c.guest())this.c.crewCommand('prototype','edge');
+        else if(g.develop('edge'))this.c.refresh();
       },g.prototypes.has('edge')||g.science<12)):undefined,
       g.mods.prototypes?row('Efficient motor assembly','Reduces the charge drawn by powered tools',btn(g.prototypes.has('motor')?'Installed':'20 points',()=>{
-        if(g.develop('motor'))this.c.refresh();
+        if(this.c.guest())this.c.crewCommand('prototype','motor');
+        else if(g.develop('motor'))this.c.refresh();
       },g.prototypes.has('motor')||g.science<20)):undefined):undefined;
     this.panel('Upgrades',`${g.ownedUpgrades.size} installed · ${available} available designs · ${cash(g.cash)} in the wallet`,el('div','panel-content',
       tabs,research,section(branches[this.branch],...displayed.map(item=>{
         const owned=g.ownedUpgrades.has(item.id),prereq=item.previous&&!g.ownedUpgrades.has(item.previous);
         const unavailable=!item.implemented||(item.id==='24-12'&&!g.won);
         return row(item.name,item.id==='24-12'&&!g.won?'Requires completed campaign':unavailable?'In development':item.description,btn(owned?'Installed':unavailable?'Unavailable':prereq?'Requires previous':cash(item.price),()=>{
+          if(this.c.guest()){this.c.crewCommand('upgrade',item.id);return;}
           if(!g.buyUpgrade(item.id))this.notice('Required facility or funds unavailable');
           this.c.refresh();
         },owned||unavailable||Boolean(prereq)||g.cash<item.price));
@@ -437,7 +451,7 @@ export class UI {
       section('District '+districtName(district),sub(`${value(count)} / ${value(DISTRICT_CELLS)} cells stable${g.mods.census?' · '+(DISTRICT_CELLS-count)+' remaining · '+desertRules.stabilization+'s verified hold':''}`),
         biomeLegend,
         g.mods.droneSurvey?btn('Fly survey drone',()=>this.c.survey(districtCenter(district))):undefined,
-        g.districts.has(district)?sub('Permit active'):btn('Purchase permit · $950',()=>{if(g.buyDistrict(district))this.map();},g.cash<950)),
+        g.districts.has(district)?sub('Permit active'):btn('Purchase permit · $950',()=>{if(g.buyDistrict(district))this.map();},this.c.guest()||g.cash<950)),
       section('District projects',sub(`Each completed project pays a ${cash(projectBond)} bond once all district cells stabilize.`),
         ...Object.entries(districtProjects).map(([key,rules])=>{
           const kind=key as Project['kind'];
@@ -445,14 +459,14 @@ export class UI {
           const state=built?.kind===kind?(built.complete?`Bond paid · completed in ${duration(built.phase)}`:`Commissioned · ${duration(built.phase)} elapsed`):issues.join(' · ');
           const cost=`Net project cost after bond ${cash(rules.price-projectBond)}`;
           return row(rules.name,state?cost+' · '+state:cost,
-            btn(cash(rules.price),()=>{if(g.startProject(district,kind))this.map();},Boolean(issues.length)));
+            btn(cash(rules.price),()=>{if(g.startProject(district,kind))this.map();},this.c.guest()||Boolean(issues.length)));
         })),
       g.mods.aquiferMap?section('Aquifer connectivity',
         sub('District averages use the groundwater in their individual cells. Pump outlets serve facilities within their pipe network.'),
         ...[district-DISTRICTS,district+DISTRICTS,district-1,district+1].filter(i=>i>=0&&i<DISTRICTS**2&&Math.abs(Math.floor(i/DISTRICTS)-Math.floor(district/DISTRICTS))+
           Math.abs(i%DISTRICTS-district%DISTRICTS)===1).map(i=>row(districtName(i),Math.round(metrics[i].groundwater*100/DISTRICT_CELLS)+'% mean groundwater'))):undefined,
       section('Remaining-cell survey',filtered,
-        g.mods.lastPixel?btn('Queue visible cleanup jobs',()=>{for(const {i}of survey)g.dispatchCleanup(i);this.map();},!survey.length||!g.districts.has(district)):undefined,
+        g.mods.lastPixel?btn('Queue visible cleanup jobs',()=>{for(const {i}of survey)g.dispatchCleanup(i);this.map();},this.c.guest()||!survey.length||!g.districts.has(district)):undefined,
         ...survey.map(({i,at,soil})=>{
           const pending=g.cleanup.find(job=>job.cell===i);
           const actual=`Vegetation ${Math.round(soil.vegetation*100)}% · Moisture ${(soil.moisture*100).toFixed(g.mods.surveyor?1:0)}% · Substrate ${Math.round(soil.substrate*100)}%`;
@@ -463,7 +477,7 @@ export class UI {
             btn('Mark',()=>this.c.waypoint(at)),g.mods.cleanupDispatch?btn('Dispatch · $80',()=>{
               if(!g.dispatchCleanup(i))this.notice('A suitable crew, district permit and funds are required');
               this.map();
-            },Boolean(pending)||!g.districts.has(district)||g.cash<80):undefined);
+            },this.c.guest()||Boolean(pending)||!g.districts.has(district)||g.cash<80):undefined);
         })));
     this.panel('Land survey','The survey tracks every cell, including the ground beneath machinery and roads.',selected);
   }
@@ -477,10 +491,10 @@ export class UI {
         return row(objective.title,`${objective.detail} · ${value(progress)} / ${value(objective.target)}`,
           btn(accomplished?'Recorded':objective.reward?`Claim ${cash(objective.reward)}`:'Record',()=>{
             if(g.claimQuest(id))this.c.refresh();
-          },accomplished||progress<objective.target));
+          },this.c.guest()||accomplished||progress<objective.target));
       })),
       g.mods.opsPolicy?section('Operations policy',row('Dispatch modes',g.policy,...(['manual','revenue','land'] as const).map(mode=>
-        btn(mode,()=>{g.policy=mode;this.c.refresh();},g.policy===mode)))):undefined,
+        btn(mode,()=>{g.policy=mode;this.c.refresh();},this.c.guest()||g.policy===mode)))):undefined,
       section('Operations',
         row('Field bulletin',g.eventAt()),
         row('Earnings per field minute',g.clock>2?cash(g.stats.earned/(g.clock/60)):'Begin field work'),
@@ -499,6 +513,14 @@ export class UI {
     const s=this.c.site(),g=this.c.game();
     if(!s) return this.c.resume();
     const def=facilities[s.kind];
+    if(this.c.guest()){
+      this.panel(def.name,'Live crew operations',el('div','panel-content',
+        cards(tc(s.status,'Facility status'),tc(String(getQuantity(s.input)),'Input stock'),tc(String(getQuantity(s.output)),'Output stock')),
+        section('Input',...s.input.map(lot=>row(goods[lot.good][0],`${lot.quantity} units · ${stackMass(lot).toFixed(1)} kg`))),
+        section('Output',...s.output.map(lot=>row(goods[lot.good][0],`${lot.quantity} units · ${stackMass(lot).toFixed(1)} kg`))),
+        section('In production',...s.jobs.map(job=>row(goods[job.good][0],`${Math.ceil(Math.max(0,job.remaining))} seconds remaining`)))));
+      return;
+    }
     const recipe:Recipe|undefined=Object.hasOwn(recipes,s.kind)?recipes[s.kind as keyof typeof recipes]:undefined;
     const primary=g.sites.find(target=>target.id===s.link);
     const secondary=g.sites.find(target=>target.id===s.secondary&&target!==primary);
@@ -506,11 +528,11 @@ export class UI {
     if(buyerSite(s.kind)) {
       const activeOrders=g.contracts.filter(deal=>isOpenContract(deal,g.clock));
       const orderHistory=g.contracts.filter(deal=>!isOpenContract(deal,g.clock)).slice(0,4);
-      content.append(section('Price comparison',sub('Typical returns per starter sapling. Buyer payout varies with quality and moisture.'),
+      content.append(section('Price comparison',sub('Typical returns per starter sapling. Buyer payout varies with weight, quality and moisture.'),
         row('Ash Exchange','One green sapling, paid after burning',el('strong','','~$17')),
         row('Timber Exchange','One unit of green timber',el('strong','','~$26')),
-        row('Field Sawbench','Two green boards, sold at the exchange',el('strong','','~$71'))),
-      section('Sell from your bag',...g.stock.filter(lot=>g.buyerAccepts(s,lot)).map(lot=>row(goods[lot.good][0],`${lot.quantity} units`,btn('Sell one',()=>{g.sellInventory(lot.good,1,lot,s);this.site();}),
+        row('Field Sawbench','Two green boards from timber or one plank per stick',el('strong','','~$71 per starter log'))),
+      section('Sell from your bag',...g.stock.filter(lot=>g.buyerAccepts(s,lot)).map(lot=>row(goods[lot.good][0],`${lot.quantity} units · ${stackMass(lot).toFixed(1)} kg`,btn('Sell one',()=>{g.sellInventory(lot.good,1,lot,s);this.site();}),
         btn(`Sell batch · ${cash(g.marketValue(lot,s))}`,()=>{g.sellInventory(lot.good,lot.quantity,lot,s);this.site();})))),
       section('Freight contracts',...activeOrders.map(deal=>{
         const quote=g.deliveryQuote(deal);
@@ -564,7 +586,7 @@ export class UI {
         })):undefined,
         s.kind==='bench'&&g.mods.benchCrank?row('Manual crank',s.manual?'Wait for your crank order':'Start the next batch automatically',
           btn(s.manual?'Use automatic feed':'Use manual feed',()=>{s.manual=!s.manual;this.site();}),
-          btn('Crank saw',()=>{if(g.crankBench(s))this.site();},Boolean(s.jobs.length)||getQuantity(s.input,'timber')===0)):undefined,
+          btn('Crank saw',()=>{if(g.crankBench(s))this.site();},Boolean(s.jobs.length)||getQuantity(s.input,'timber')+getQuantity(s.input,'branches')===0)):undefined,
         g.mods.cutPatterns&&mills.includes(s.kind)?row('Cut pattern',s.layout==='volume'?'Maximize volume':s.layout==='quality'?'Select high-grade cuts':'Standard throughput',
           btn('Cycle',()=>{s.layout=s.layout==='volume'?'quality':s.layout==='quality'?undefined:'volume';this.site();})):undefined,
         (g.mods.sortingCamera||g.mods.roboticSort)?row('Sorting gate',s.sortHigh?'Route high-grade batches only':'Route all compatible stock',
@@ -585,11 +607,12 @@ export class UI {
         s.kind==='fire'&&g.mods.carbon?row('Fire mode',s.mode==='charcoal'?'Charcoal collection':'Cash sale',btn('Switch',()=>{s.mode=s.mode==='charcoal'?'sell':'charcoal';this.site();})):undefined,
         ...s.jobs.map(job=>row(goods[job.good][0],`${Math.ceil(Math.max(0,job.remaining))}s remaining`))),
       section('Output',
+        s.kind==='bench'?sub('Feed one stick or branch to saw a single plank. One unit of timber makes two boards.'):undefined,
         s.output.length?undefined:sub('No batches ready. Resume play to run production.'),
-        ...s.output.map(lot=>row(goods[lot.good][0],`${lot.quantity} units · ${Math.floor(lot.quality*100)}% grade${g.mods.moistureGauge?' · '+Math.round(lot.moisture*100)+'% moisture':''}`,
-          btn('Take one',()=>{g.transfer(s,lot.good,1,true);this.site();}),btn('Take batch',()=>{g.transfer(s,lot.good,lot.quantity,true);this.site();})))),
+        ...s.output.map(lot=>row(goods[lot.good][0],`${lot.quantity} units · ${stackMass(lot).toFixed(1)} kg · ${Math.floor(lot.quality*100)}% grade${g.mods.moistureGauge?' · '+Math.round(lot.moisture*100)+'% moisture':''}`,
+          btn('Take one',()=>{g.transfer(s,lot.good,1,true,lot);this.site();}),btn('Take batch',()=>{g.transfer(s,lot.good,lot.quantity,true,lot);this.site();})))),
       section('Feed from your bag',...g.stock.filter(lot=>storageSite(s.kind)&&(s.kind!=='fuelSilo'||fuelGood(lot.good))||consumes(recipe,lot.good)||biomassSites.includes(s.kind)&&fuelGood(lot.good)).map(lot=>row(goods[lot.good][0],`${lot.quantity} units available`,
-        btn('Feed one',()=>{g.transfer(s,lot.good,1,false);this.site();}),btn('Feed batch',()=>{g.transfer(s,lot.good,lot.quantity,false);this.site();})))),
+        btn('Feed one',()=>{g.transfer(s,lot.good,1,false,lot);this.site();}),btn('Feed batch',()=>{g.transfer(s,lot.good,lot.quantity,false,lot);this.site();})))),
       section('Freight route',
         s.shipment?row(s.shipment.returning?'Returning to the garage':'Shipment on the move',`${s.shipment.returning?0:s.shipment.load.quantity} × ${goods[s.shipment.load.good][0]} · ${Math.max(0,Math.ceil(s.shipment.duration-s.shipment.elapsed))}s`):undefined,
         primary?row('Primary · '+facilities[primary.kind].name,g.routeStatus.get(s.id+':'+primary.id)??'Waiting for the next field tick',
