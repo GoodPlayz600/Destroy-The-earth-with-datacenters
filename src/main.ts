@@ -76,7 +76,6 @@ const touchLabels:Partial<Record<Binding,string>>={interact:'Grab',drop:'Drop',j
 const key=(binding:Binding)=>onTouch&&touchLabels[binding]?touchLabels[binding]!:
   prefs.bindings[binding].replace(/^Key|^Digit/g,'');
 const pose=()=>({...game.player,lift:airborne});
-const lobby=new CoopLobby(root);
 const show=(message:string)=>ui.notice(message);
 
 const ui=new UI(root,{
@@ -93,6 +92,8 @@ const ui=new UI(root,{
     else void document.documentElement.requestFullscreen().catch(()=>show('Fullscreen is unavailable in this browser'));
   },
 });
+const lobby=new CoopLobby(root);
+
 function showLobby(message='') {
   if(!scene)return;
   if(active())open('pause');
