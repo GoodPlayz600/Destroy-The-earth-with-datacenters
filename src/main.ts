@@ -79,7 +79,7 @@ const pose=()=>({...game.player,lift:airborne});
 const show=(message:string)=>ui.notice(message);
 
 const ui=new UI(root,{
-  game:()=>game,prefs,open,begin,resume,menu:mainMenu,multiplayer:showLobby,inRoom:()=>Boolean(room),guest,refresh:()=>{if(page)ui.show(page);void persist();},
+  game:()=>game,prefs,open,begin,resume,menu:mainMenu,multiplayer:()=>showLobby(),inRoom:()=>Boolean(room),guest,refresh:()=>{if(page)ui.show(page);void persist();},
   save:()=>{void persist(true);},download:()=>{if(room){exportRoom();return;}downloadSave(game.snapshot());show('Campaign exported');},restore:(file)=>{void importFile(file);},
   archives:()=>archives, restoreArchive:(slot)=>{void restoreArchive(slot);},
   applySettings, binding:(id)=>{recording=id;ui.recording(id);},

@@ -49,6 +49,7 @@ try{
   await screenshot(p,'menu');
   await click('Multiplayer');
   const lobby=p.getByRole('dialog',{name:'Multiplayer'});
+  assert.equal(await lobby.getByRole('status').textContent(),'');
   await lobby.getByRole('button',{name:'Join room',exact:true}).click();
   await lobby.getByText('Enter the App ID of a Photon Realtime application.').waitFor();
   const roomSave={format:'clearcut-coop-1',code:'COPPER2345',region:'us',save:(await inspect())};
