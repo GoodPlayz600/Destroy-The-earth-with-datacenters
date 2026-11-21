@@ -1,0 +1,21 @@
+name: Published Photon smoke test
+on:
+  push:
+    branches: [verify-live-photon]
+  pull_request:
+    branches: [verify-live-photon]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rooms:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: xvfb-run --auto-servernum node tests/photon-live.mjs
