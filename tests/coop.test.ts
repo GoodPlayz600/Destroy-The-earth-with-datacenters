@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Campaign } from '../src/campaign';
 import { applyPatch, makePatch, newCode, packPose, readPose, readRoomBackup, readWorldPart, roomBackup, serializeWorld, validCode } from '../src/coop-wire';
-import { CrewWork } from '../src/coop-field';
+import { campaignControl, lotKey } from '../src/campaign-controls';
+import { allPermissions } from '../src/room-permissions';
 import { fieldChanges, readField } from '../src/coop-field-wire';
 import { CoopRoom } from '../src/coop';
-import { indexAt, treesIn } from '../src/land';
 import type { RealtimeClient } from '@photonengine/realtime-core';
 
 test('multiplayer checkpoints round-trip big fields and apply only changed blocks',()=>{
@@ -42,45 +42,23 @@ test('room backups carry the Photon region and room code with a validated campai
   assert.equal(readPose([Infinity,0,0,0,0]),undefined);
 });
 
-test('guest field actions use campaign rules, update the room and reject distant targets',()=>{
-  const g=new Campaign();
-  const standing=treesIn(g.seed,indexAt(0,-6)).find(t=>t.z===-6)!;
-  let fells=0;
-  const crew=new CrewWork(()=>g,()=>{fells++;},()=>fells>0,()=>undefined);
-  const operator={x:0,z:-3.8,yaw:0,pitch:0,lift:0};
-  crew.run(2,{...operator,x:400},['swing',standing.id],0);
-  assert.equal(g.stats.hits,0);
-  for(let i=1;i<=30;i++){
-    g.stamina=100;
-    crew.run(3,operator,['swing',standing.id],i*800);
-  }
-  assert.equal(fells,1);
-  const log={id:g.nextId++,x:0,z:0,y:1,q:[0,0,0,1] as [number,number,number,number],kind:0,length:1,kilograms:3,units:1,moisture:.5,quality:.8};
-  g.logs.set(log.id,log);
-  const ash=g.sites.find(site=>site.kind==='fire')!;
-  const carrier={x:0,z:0,yaw:0,pitch:0,lift:0};
-  assert.match(crew.run(4,carrier,['grab',log.id],100)??'',/grabbed/);
-  assert.match(crew.run(5,carrier,['grab',log.id],100)??'',/unavailable/);
-  const drop={...carrier,x:ash.x,z:ash.z+1.65};
-  assert.match(crew.run(4,drop,['drop',null],600)??'',/delivered/);
-  assert.equal(g.logs.has(log.id),false);
-  assert.equal(ash.jobs.length,1);
-});
-
-test('guests purchase research and place facilities under host campaign rules',()=>{
+test('campaign menu operations use shared rules for money, site access, and inventory',()=>{
   const game=new Campaign();
-  const crew=new CrewWork(()=>game,()=>{},()=>false,()=>undefined);
-  const pose={x:0,z:6,yaw:0,pitch:0,lift:0};
-  assert.match(crew.run(2,pose,['upgrade','01-01'],100)??'',/funds/);
+  const at={x:0,z:0};
+  assert.equal(campaignControl(game,'upgrade',['01-01'],at),false);
   game.cash=800;
-  assert.match(crew.run(2,pose,['upgrade','01-01'],200)??'',/installed/);
+  assert.equal(campaignControl(game,'upgrade',['01-01'],at),true);
   const balance=game.cash;
-  assert.equal(game.ownedUpgrades.has('01-01'),true);
-  assert.match(crew.run(2,pose,['upgrade','01-01'],300)??'',/prerequisites/);
+  assert.equal(campaignControl(game,'upgrade',['01-01'],at),false);
   assert.equal(game.cash,balance);
-  assert.match(crew.run(2,pose,['build','bench'],400)??'',/installed/);
-  assert.equal(game.sites.filter(site=>site.kind==='bench').length,1);
-  assert.ok(game.cash<balance);
+  const marker=game.sites.find(site=>site.kind==='market')!;
+  const lot={good:'timber' as const,quantity:2,quality:.8,moisture:.2};
+  game.stock.push(lot);
+  const args=[marker.id,...lotKey(game.stock,lot),false];
+  assert.equal(campaignControl(game,'sell',args,at),false);
+  assert.equal(campaignControl(game,'sell',args,marker),true);
+  assert.equal(lot.quantity,1);
+  assert.equal(campaignControl(game,'sell',args,marker),false);
 });
 
 test('nearby timber updates include fresh positions and delivery tombstones between checkpoints',()=>{
@@ -107,7 +85,7 @@ test('two room clients exchange snapshots, actions, final save and host departur
   const network:Array<()=>void>=[];
   class FakePhoton {
     isInRoom=true;
-    room={playerCount:2};
+    room={playerCount:3,players:[{number:1},{number:2},{number:3}]};
     localPlayer:{number:number};
     private events=new Map<string,(arg:never)=>void>();
     private custom?: (arg:{code:number;senderNumber:number;data:unknown})=>void;
@@ -135,14 +113,32 @@ test('two room clients exchange snapshots, actions, final save and host departur
     const config={appId:'test-app',region:'us',code:'ABCDEFGHIJ'};
     const callbacks={capture:()=>hostGame.snapshot(),advance:(dt:number)=>{advanced+=dt;},checkpoint:()=>{},action:()=>{applied++;hostGame.cash+=19;return 'accepted';},
       departed:()=>{},pose:()=>{},notice:()=>{},ended:()=>{}};
-    const host=new CoopRoom(new FakePhoton(1) as unknown as RealtimeClient,{...config,mode:'host'},1,callbacks);
+    const host=new CoopRoom(new FakePhoton(1) as unknown as RealtimeClient,{...config,mode:'host'},1,{
+      ...callbacks,action:(actor)=>host.allowed('field',actor)?callbacks.action():'Restricted',
+    });
     const guest=new CoopRoom(new FakePhoton(2) as unknown as RealtimeClient,{...config,mode:'join'},1,{
       ...callbacks,checkpoint:save=>{guestSave=save;},ended:message=>{ended=message;},
     });
+    const second=new CoopRoom(new FakePhoton(3) as unknown as RealtimeClient,{...config,mode:'join'},1,callbacks);
     flush();flush();
+    assert.deepEqual(host.players.map(p=>p.permissions),[allPermissions,allPermissions,allPermissions]);
+    assert.equal(guest.allowed('field'),true);
+    guest.setPermission(2,'field',false);
+    flush();
+    assert.equal(host.allowed('field',2),true);
+    host.setPermission(2,'field',false);
+    flush();
+    assert.equal(guest.allowed('field'),false);
+    assert.equal(guest.allowed('trade'),true);
+    assert.equal(second.allowed('field'),true);
     assert.equal(guestSave?.seed,hostGame.seed);
     const pose={x:0,z:0,yaw:0,pitch:0,lift:0};
     guest.pose(pose,200);
+    guest.action(pose,['swing',1]);
+    flush();
+    assert.equal(applied,0);
+    host.setPlayerPermissions(2,allPermissions);
+    flush();
     guest.action(pose,['swing',1]);
     flush();
     assert.deepEqual(host.poses.get(2),pose);

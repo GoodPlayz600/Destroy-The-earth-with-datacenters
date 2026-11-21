@@ -363,3 +363,10 @@ kbd { display: inline-flex; align-items: center; justify-content: center; min-wi
 @media (max-width:500px) { .coop-slots .row { flex-wrap:wrap; } }
 
 .coop-dialog:not([open]) { display:none; }
+
+.host-player-list { display:grid; gap:1rem; }
+.host-player-list fieldset { display:grid; grid-template-columns:repeat(auto-fit,minmax(12rem,1fr)); gap:.75rem; border:1px solid #b5a27a66; padding:.8rem 1rem 1rem; margin:0; }
+.host-player-list legend { padding:0 .4rem; }
+.host-player-list label { display:flex; align-items:center; gap:.55rem; font-size:.94rem; cursor:pointer; }
+.host-player-list input { accent-color:#eac67d; }
+.host-player-list .button { grid-column:1/-1; justify-self:start; }

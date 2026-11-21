@@ -1,3 +1,5 @@
+import { allPermissions, changePermission, hasPermission } from './room-permissions';
+import type { RoomPermission } from './room-permissions';
 import type { RealtimeClient, RealtimeValue } from '@photonengine/realtime-core';
 import type { Save } from './campaign';
 import { applyPatch, makePatch, packPose, readPose, readWorldPart, serializeWorld } from './coop-wire';
@@ -8,7 +10,7 @@ import type { Log } from './campaign';
 import type { Point } from './land';
 import { startRoomClock } from './room-clock';
 
-const events={hello:1,world:2,ack:3,pose:4,action:5,closing:6,result:7,fall:8,landed:9,logs:10} as const;
+const events={hello:1,world:2,ack:3,pose:4,action:5,closing:6,result:7,fall:8,landed:9,logs:10,permissions:11,players:12} as const;
 const MAX_CHUNKS_PER_PEER=2;
 const roomOptions={isVisible:false,maxPlayers:4,emptyRoomTtlMs:0,playerTtlMs:0};
 type World = ReturnType<typeof serializeWorld>;
@@ -23,6 +25,10 @@ type Callbacks = {
   field?:(packet:FieldPacket)=>void;
   fall?:(id:number,from:Point,wedge:number)=>void;
   landed?:(id:number,clock:number)=>void;
+  roster?:()=>void;
+  permissions?:(actor:number,mask:number)=>void;
+  playerStates?:()=>string;
+  applyPlayerStates?:(value:string)=>void;
   checkpoint:(save:Save)=>void; ended:(message:string)=>void;
   action:(actor:number,pose:Pose,value:unknown)=>string|undefined; departed:(actor:number)=>void; pose:(actor:number,pose:Pose)=>void; notice:(message:string)=>void;
 };
@@ -33,7 +39,7 @@ export async function connectRoom(launch:Launch, callbacks:Callbacks) {
     import('@photonengine/realtime-core'),import('@photonengine/realtime-core/realtimecore.wasm?url'),
   ]);
   const client=await createRealtimeClient({
-    appId:launch.appId,appVersion:'clearcut-coop-2',protocol:'wss',regionSelection:'select',
+    appId:launch.appId,appVersion:'clearcut-coop-3',protocol:'wss',regionSelection:'select',
     useAlternativePorts:true,disconnectTimeoutMs:15000,wasm:{url:wasmUrl},
   });
   let timer=0;
@@ -82,14 +88,20 @@ export class CoopRoom {
   private lastTraffic=Date.now();
   private lastHello=0;
   private ready=false;
+  private masks=new Map<number,number>();
+  private nextPlayers=0;
+  private lastPlayers='';
+  private localPermissions=allPermissions;
 
   constructor(private client:RealtimeClient, readonly launch:Launch, private host:number, private callbacks:Callbacks) {
     this.number=client.localPlayer.number;
     this.isHost=launch.mode==='host';
     this.ready=this.isHost;
-    client.onEventRange(events.hello,events.logs,({code,senderNumber,data})=>this.receive(code,senderNumber,data));
+    client.onEventRange(events.hello,events.players,({code,senderNumber,data})=>this.receive(code,senderNumber,data));
+    client.on('playerJoined',()=>this.callbacks.roster?.());
     client.on('playerLeft',({playerNumber})=>{
-      this.peers.delete(playerNumber);this.poses.delete(playerNumber);this.callbacks.departed(playerNumber);
+      this.masks.delete(playerNumber);
+      this.peers.delete(playerNumber);this.poses.delete(playerNumber);this.callbacks.departed(playerNumber);this.callbacks.roster?.();
       if(playerNumber===this.host)this.ended('The host left. Reopen the last room checkpoint from Saved rooms.');
     });
     client.on('masterClientChanged',({newMasterNumber})=>{
@@ -106,6 +118,27 @@ export class CoopRoom {
   }
 
   get count() {return this.closed||!this.client.isInRoom?0:this.client.room?.playerCount??0;}
+  get actorNumber(){return this.number;}
+  get players(){
+    const players=this.client.isInRoom?this.client.room?.players:undefined;
+    return (players??[]).map(player=>({id:player.number,host:player.number===this.host,
+      permissions:this.masks.get(player.number)??allPermissions}));
+  }
+  allowed(permission:RoomPermission, actor=this.number){
+    return actor===this.host||hasPermission(this.isHost?(this.masks.get(actor)??allPermissions):this.localPermissions,permission);
+  }
+  setPermission(actor:number,key:RoomPermission,enabled:boolean){
+    if(!this.isHost||actor===this.host||!this.players.some(player=>player.id===actor))return;
+    this.setPlayerPermissions(actor,changePermission(this.masks.get(actor)??allPermissions,key,enabled));
+  }
+  setPlayerPermissions(actor:number,mask:number){
+    if(!this.isHost||actor===this.host||!this.players.some(player=>player.id===actor)
+      ||!Number.isInteger(mask)||mask<0||mask>allPermissions)return;
+    this.masks.set(actor,mask);
+    this.callbacks.permissions?.(actor,mask);
+    this.send(events.permissions,mask,actor);
+    this.callbacks.roster?.();
+  }
   private send(code:number,value:RealtimeValue,target?:number) {
     return !this.closed&&this.client.isInRoom&&this.client.sendEvent(code,value,{reliable:code!==events.pose,targetPlayers:target===undefined?undefined:[target]});
   }
@@ -140,6 +173,10 @@ export class CoopRoom {
     }
   }
 
+  tell(actor:number,message:string){
+    if(this.isHost&&message)this.send(events.result,message,actor);
+  }
+
   action(pose:Pose,action:RealtimeValue) {
     if(this.ready&&!this.isHost)this.send(events.action,[packPose(pose),action],this.host);
   }
@@ -154,6 +191,8 @@ export class CoopRoom {
     if(this.isHost) {
       if(code===events.hello&&!this.closing) {
         this.peers.set(sender,{});
+        this.send(events.permissions,this.masks.get(sender)??allPermissions,sender);
+        this.lastPlayers='';
       } else if(code===events.ack) {
         const peer=this.peers.get(sender);
         if(peer?.send&&peer.send.revision===data) {
@@ -169,6 +208,11 @@ export class CoopRoom {
       return;
     }
     if(sender!==this.host)return;
+    if(code===events.permissions&&typeof data==='number'&&Number.isInteger(data)&&data>=0&&data<=allPermissions){
+      this.localPermissions=data;this.callbacks.permissions?.(this.number,data);
+    }
+    if(code===events.players&&this.ready&&typeof data==='string'&&data.length<16000)
+      this.callbacks.applyPlayerStates?.(data);
     if(code===events.logs&&this.ready){
       const packet=readField(data);
       if(packet)this.callbacks.field?.(packet);
@@ -240,6 +284,11 @@ export class CoopRoom {
       if(!this.closing){
         this.callbacks.advance?.(elapsed);
         this.sendField(now);
+        if(now>=this.nextPlayers){
+          const value=this.callbacks.playerStates?.();
+          if(value&&value!==this.lastPlayers&&this.send(events.players,value))this.lastPlayers=value;
+          this.nextPlayers=now+100;
+        }
         this.queueWorld(now);
       }
       for(const [actor,peer] of this.peers) {

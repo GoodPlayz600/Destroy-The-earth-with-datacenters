@@ -17,6 +17,26 @@ const treeAxis = new T.Vector3(0,1,0);
 const buildTint = new T.MeshBasicMaterial({ color:'#ecd49d', wireframe:true, transparent:true, opacity:.68 });
 
 export type Rock=Point&{id:number;size:number};
+function garnishPoint(seed:number,cx:number,cz:number,n:number):Point {
+  return {x:cx+hash(seed+n,cx,cz+1)*CHUNK,z:cz+hash(seed-n,cz,cx-1)*CHUNK};
+}
+function terrainRock(game:Campaign,cx:number,cz:number,n:number,{x,z}:Point):Rock|undefined {
+  if(Math.hypot(x*.8,z)<11||n%3!==0&&(game.soil.get(indexAt(x,z))?.stage??0)<4)return;
+  const id=((cz+SIZE/2)/CHUNK*(SIZE/CHUNK)+(cx+SIZE/2)/CHUNK)*16+n;
+  if(!game.brokenRocks.has(id))return {x,z,id,size:.21+hash(game.seed,n,cx)*.68};
+}
+export function rocksAt(game:Campaign,at:Point,range:number) {
+  const rocks:Rock[]=[];
+  for(let z=Math.floor((at.z-range)/CHUNK)*CHUNK;z<=at.z+range;z+=CHUNK)
+    for(let x=Math.floor((at.x-range)/CHUNK)*CHUNK;x<=at.x+range;x+=CHUNK){
+      if(x<-SIZE/2||z<-SIZE/2||x>=SIZE/2||z>=SIZE/2)continue;
+      for(let n=0;n<16;n++){
+        const rock=terrainRock(game,x,z,n,garnishPoint(game.seed,x,z,n));
+        if(rock)rocks.push(rock);
+      }
+    }
+  return rocks;
+}
 type Chunk = { base:string; rocks:Rock[]; x: number; z: number; ground: T.Mesh<T.BufferGeometry>; cover: T.Group; cells: number[]; signature: string; collider?: R.Collider; trunks: R.Collider[]; near: boolean; };
 type Falling = { tree: Tree; model: T.Group; age: number; dir: T.Vector3; segmented:boolean };
 type SiteView = ReturnType<typeof siteModel> & { stock?: T.Group; batch?: T.Group; signature?: string };
@@ -339,14 +359,14 @@ export class Scene {
     const ferns = new T.InstancedMesh(leafBlade,mat('#7d9c61'),80);
     let rockCount=0,fernCount=0;
     for(let n=0;n<16;n++) {
-      const x=chunk.x+hash(this.game.seed+n,chunk.x,chunk.z+1)*CHUNK,z=chunk.z+hash(this.game.seed-n,chunk.z,chunk.x-1)*CHUNK;
+      const {x,z}=garnishPoint(this.game.seed,chunk.x,chunk.z,n);
       if (Math.hypot(x*.8,z)<11) continue;
       const y=this.game.ground(x,z),stage=this.game.soil.get(indexAt(x,z))?.stage??0;
       if(n%3===0 || stage>=4) {
-        const id=((chunk.z+SIZE/2)/CHUNK*(SIZE/CHUNK)+(chunk.x+SIZE/2)/CHUNK)*16+n;
-        if(this.game.brokenRocks.has(id))continue;
-        const size=.21+hash(this.game.seed,n,chunk.x)*.68;
-        chunk.rocks.push({x,z,size,id});
+        const rock=terrainRock(this.game,chunk.x,chunk.z,n,{x,z});
+        if(!rock)continue;
+        const {size}=rock;
+        chunk.rocks.push(rock);
         this.painter.position.set(x,y+.11,z);
         this.painter.rotation.set(0,n,0);
         this.painter.scale.set(size,size*.56,size*.78);
@@ -519,7 +539,13 @@ export class Scene {
   shove(log: Log, yaw:number) {
     const force=this.game.mods.shove*log.kilograms*2.3;
     const body=this.logViews.get(log.id)?.body;
-    body?.applyImpulse({x:-Math.sin(yaw)*force,y:force*.05,z:-Math.cos(yaw)*force},true);
+    if(body)body.applyImpulse({x:-Math.sin(yaw)*force,y:force*.05,z:-Math.cos(yaw)*force},true);
+    else {
+      const push=Math.min(1.2,.48*this.game.mods.shove);
+      log.x=clamp(log.x-Math.sin(yaw)*push,-SIZE/2+.7,SIZE/2-.7);
+      log.z=clamp(log.z-Math.cos(yaw)*push,-SIZE/2+.7,SIZE/2-.7);
+      log.y=this.game.ground(log.x,log.z)+.44;
+    }
   }
 
   private drag(log:Log, at:Point, yaw:number, mode:'hand'|'rope'|'lift'|'winch') {
