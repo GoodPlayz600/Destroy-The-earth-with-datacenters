@@ -41,6 +41,11 @@ try {
   const fixture=new Campaign(20831);
   fixture.cash=2000;
   fixture.player={x:-1.6,z:-3.4,yaw:0,pitch:-.03};
+  fixture.stock.push({good:'timber',quantity:1,quality:.82,moisture:.25});
+  Object.assign(fixture.sites.find(s=>s.kind==='market'),{x:0,z:-2});
+  assert.ok(fixture.build('bench',{x:2.8,z:-3.4}));
+  fixture.rides.push({id:'v'+fixture.nextId++,kind:'cart',x:2.6,z:-3.4,yaw:0,fuel:100,wear:0});
+  const wallet='$'+fixture.cash.toLocaleString('en-US');
   await lobby(host).locator('input[type=file]').setInputFiles({
     name:'room-test.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(roomBackup(code,'us',fixture.snapshot()))),
   });
@@ -55,60 +60,55 @@ try {
   await lobby(guest).getByLabel('Room code').fill(code);
   await click(guest,'Join room');
   await lobby(guest).waitFor({state:'hidden',timeout:45000});
-  await guest.getByText('$2,000',{exact:true}).waitFor();
+  await guest.getByText(wallet,{exact:true}).waitFor();
   console.log('Guest joined and loaded the host checkpoint.');
 
-  const cover=await host.context().newPage();
-  await cover.bringToFront();
-  await host.evaluate(()=>{window.stopHostRendering=true;});
+  await guest.keyboard.press('Escape');
+  assert.equal(await guest.getByRole('button',{name:'Host menu',exact:true}).count(),0);
+  await escape(guest);
+
+  await guest.keyboard.press('KeyT');
+  await guest.getByRole('heading',{name:'Timber Exchange',exact:true}).waitFor();
+  await click(guest,'Sell one');
+  await guest.getByRole('button',{name:'Sell one',exact:true}).waitFor({state:'hidden'});
+  await escape(guest);
+  console.log('Guest used the full trade menu and sold shared stock.');
+
+  await guest.keyboard.down('KeyD');
+  try {await guest.waitForFunction(()=>document.querySelector('.compass')?.textContent?.includes('3 E'));}
+  finally {await guest.keyboard.up('KeyD');}
+  await guest.keyboard.press('KeyT');
+  await guest.getByRole('heading',{name:'Field Sawbench',exact:true}).waitFor();
+  await click(guest,'Stop');
+  await guest.getByRole('button',{name:'Start',exact:true}).waitFor();
+  console.log('Guest used the full station menu and switched the sawbench off.');
+
+  await click(host,'Close multiplayer');
+  await click(host,'Host menu');
+  const hostMenu=host.getByRole('dialog',{name:'Host menu'});
+  await hostMenu.waitFor();
+  const stations=hostMenu.getByLabel('Stations & logistics');
+  assert.equal(await stations.isChecked(),true);
+  assert.equal(await hostMenu.getByLabel('Vehicles & cargo').isChecked(),true);
+  await stations.uncheck();
+  await guest.waitForFunction(()=>[...document.querySelectorAll('button')].some(b=>b.disabled&&b.textContent==='Start'));
+  await click(host,'Restore full access');
+  await guest.waitForFunction(()=>[...document.querySelectorAll('button')].some(b=>!b.disabled&&b.textContent==='Start'));
+  await click(guest,'Start');
+  await guest.getByRole('button',{name:'Stop',exact:true}).waitFor();
+  console.log('The individual station restriction propagated and full access restored the control.');
+
   await guest.bringToFront();
-
-  await guest.keyboard.press('KeyQ');
-  await guest.getByRole('heading',{name:'Equipment'}).waitFor();
   await escape(guest);
-  await guest.keyboard.press('KeyU');
-  const upgrade=guest.locator('.overlay .row').filter({hasText:'Rubberized Handle'});
-  await upgrade.getByRole('button',{name:'$15',exact:true}).click();
-  await upgrade.getByRole('button',{name:'Installed',exact:true}).waitFor();
-  await escape(guest);
-  console.log('Guest opened gear and bought an upgrade with the host paused and no host animation frames.');
-
-  await guest.keyboard.press('KeyB');
-  await guest.locator('.overlay .row').filter({hasText:'Field Sawbench'}).getByRole('button',{name:'$75',exact:true}).click();
-  await guest.locator('#world').click({position:{x:380,y:250}});
-  await guest.getByText('Field Sawbench installed.',{exact:true}).waitFor();
-  console.log('Guest built a shared sawbench without host animation frames.');
-
-  await guest.mouse.move(380,250);
-  await guest.mouse.down();
-  try {await guest.getByText('Make the first sale',{exact:true}).waitFor({timeout:26000});}
-  finally {await guest.mouse.up();}
-  await guest.keyboard.down('KeyW');
-  try {await guest.getByText('Felled pioneer sapling',{exact:true}).waitFor({timeout:6000});}
-  finally {await guest.keyboard.up('KeyW');}
-  await guest.keyboard.down('KeyE');
-  try {
-    await guest.getByText(/Log grabbed/).waitFor();
-    await guest.keyboard.down('KeyS');
-    await guest.getByText(/Log grabbed/).waitFor({state:'hidden',timeout:8000});
-    await guest.keyboard.up('KeyS');
-  }finally {await guest.keyboard.up('KeyS');await guest.keyboard.up('KeyE');}
-  console.log('Guest harvested and moved the fallen log without resuming the host.');
-
-  await guest.keyboard.press('KeyJ');
-  await guest.getByRole('heading',{name:'Field journal'}).waitFor();
-  await escape(guest);
-  await host.evaluate(()=>{window.stopHostRendering=false;});
-  await click(host,'Save and close room');
-  await lobby(guest).getByText(code,{exact:true}).waitFor({timeout:20000});
-  await lobby(host).getByText(code,{exact:true}).waitFor();
-  await click(host,'Reopen');
-  await lobby(host).waitFor({state:'hidden',timeout:35000});
-  await click(guest,'Join room');
-  await lobby(guest).waitFor({state:'hidden',timeout:45000});
-  await guest.keyboard.press('KeyU');
-  await upgrade.getByRole('button',{name:'Installed',exact:true}).waitFor();
-  console.log('The guest purchase survived closing and reopening the room.');
+  await guest.keyboard.press('KeyF');
+  await guest.getByText('Manual transport',{exact:true}).waitFor();
+  const before=await guest.locator('.compass').textContent();
+  await guest.keyboard.down('KeyS');
+  try {await guest.waitForFunction(old=>document.querySelector('.compass')?.textContent!==old,before);}
+  finally {await guest.keyboard.up('KeyS');}
+  await guest.keyboard.press('KeyF');
+  await guest.getByText('Manual transport',{exact:true}).waitFor({state:'hidden'});
+  console.log('Guest entered, drove, and exited the shared Hand Cart.');
 } catch(error) {
   console.log('Host status:',await status(host).catch(()=>null));
   console.log('Guest status:',await status(guest).catch(()=>null));
