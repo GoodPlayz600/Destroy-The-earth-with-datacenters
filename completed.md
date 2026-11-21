@@ -81,3 +81,5 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 ## [M10 — Photon multiplayer](progress/M10/completed.md)
 
 - Private invite rooms, guest forestry and building, and separate portable campaign checkpoints are implemented. See [multiplayer setup](MULTIPLAYER.md).
+
+## [M11 — Mill economy and Sites](progress/M11/completed.md)

@@ -47,8 +47,10 @@ const flag=(x:unknown)=>typeof x==='boolean';
 const identifier=(x:unknown)=>typeof x==='string'&&/^[sv][1-9]\d*$/.test(x)&&x.length<18;
 const text=(x:unknown)=>typeof x==='string'&&x.length<400;
 const coordinate=(x:Record<string,unknown>)=>numeric(x.x)&&numeric(x.z)&&indexAt(x.x,x.z)>=0;
-const lot=(x:unknown)=>object(x)&&key(x.good,goods)&&integer(x.quantity,1,5000)&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1);
-const job=(x:unknown)=>object(x)&&key(x.good,goods)&&integer(x.quantity,0,260)&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1)&&numeric(x.remaining,-100000,3600)&&(x.payout===undefined||integer(x.payout))&&(x.offcut===undefined||integer(x.offcut,0,8))&&(x.residue===undefined||key(x.residue,goods));
+const valuation=(x:Record<string,unknown>)=>(x.massPerUnit===undefined||numeric(x.massPerUnit,.000001,1e7))
+  &&(x.valuePerUnit===undefined||numeric(x.valuePerUnit,0,1e9));
+const lot=(x:unknown)=>object(x)&&key(x.good,goods)&&integer(x.quantity,1,5000)&&valuation(x)&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1);
+const job=(x:unknown)=>object(x)&&key(x.good,goods)&&integer(x.quantity,0,260)&&valuation(x)&&(x.residueMass===undefined||numeric(x.residueMass,.000001,1e7))&&numeric(x.quality,0,1)&&numeric(x.moisture,0,1)&&numeric(x.remaining,-100000,3600)&&(x.payout===undefined||integer(x.payout))&&(x.offcut===undefined||integer(x.offcut,0,8))&&(x.residue===undefined||key(x.residue,goods));
 const soilFields=['vegetation','moisture','groundwater','fertility','heat','pollution','erosion','substrate'];
 const treeId=(x:unknown)=>integer(x,0,TOTAL*6-1);
 const distinct=(values: unknown[])=>new Set(values).size===values.length;

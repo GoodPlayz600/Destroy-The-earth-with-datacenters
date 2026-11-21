@@ -1,6 +1,6 @@
 import { DISTRICT_CELLS, DISTRICTS, TOTAL, facilities, goods, recipes, tools, vehicles, vehicleTypes } from './catalog';
 import type { Facility, Good, Recipe, Tool, VehicleType } from './catalog';
-import { biomassSites, buyerSite, cargoMass, computeSites, consumes, districtProjects, fields, fuelGood, getQuantity, isOpenContract, projectBond, storageSite, mills, waterSites, waterPumps, waterCapacity } from './campaign';
+import { biomassSites, buyerSite, cargoMass, computeSites, consumes, districtProjects, fields, fuelGood, getQuantity, isOpenContract, projectBond, stackMass, storageSite, mills, waterSites, waterPumps, waterCapacity } from './campaign';
 import type { Campaign, Challenge, Project, Site } from './campaign';
 import { blockers, conversionLabel, coverageLabel, desertRules, desertified, districtAt, districtCenter, districtName, soilColors, stages } from './land';
 import type { Blocker, Point } from './land';
@@ -507,11 +507,11 @@ export class UI {
     if(buyerSite(s.kind)) {
       const activeOrders=g.contracts.filter(deal=>isOpenContract(deal,g.clock));
       const orderHistory=g.contracts.filter(deal=>!isOpenContract(deal,g.clock)).slice(0,4);
-      content.append(section('Price comparison',sub('Typical returns per starter sapling. Buyer payout varies with quality and moisture.'),
+      content.append(section('Price comparison',sub('Typical returns per starter sapling. Buyer payout varies with weight, quality and moisture.'),
         row('Ash Exchange','One green sapling, paid after burning',el('strong','','~$17')),
         row('Timber Exchange','One unit of green timber',el('strong','','~$26')),
-        row('Field Sawbench','Two green boards, sold at the exchange',el('strong','','~$71'))),
-      section('Sell from your bag',...g.stock.filter(lot=>g.buyerAccepts(s,lot)).map(lot=>row(goods[lot.good][0],`${lot.quantity} units`,btn('Sell one',()=>{g.sellInventory(lot.good,1,lot,s);this.site();}),
+        row('Field Sawbench','Two green boards from timber or one plank per stick',el('strong','','~$71 per starter log'))),
+      section('Sell from your bag',...g.stock.filter(lot=>g.buyerAccepts(s,lot)).map(lot=>row(goods[lot.good][0],`${lot.quantity} units · ${stackMass(lot).toFixed(1)} kg`,btn('Sell one',()=>{g.sellInventory(lot.good,1,lot,s);this.site();}),
         btn(`Sell batch · ${cash(g.marketValue(lot,s))}`,()=>{g.sellInventory(lot.good,lot.quantity,lot,s);this.site();})))),
       section('Freight contracts',...activeOrders.map(deal=>{
         const quote=g.deliveryQuote(deal);
@@ -565,7 +565,7 @@ export class UI {
         })):undefined,
         s.kind==='bench'&&g.mods.benchCrank?row('Manual crank',s.manual?'Wait for your crank order':'Start the next batch automatically',
           btn(s.manual?'Use automatic feed':'Use manual feed',()=>{s.manual=!s.manual;this.site();}),
-          btn('Crank saw',()=>{if(g.crankBench(s))this.site();},Boolean(s.jobs.length)||getQuantity(s.input,'timber')===0)):undefined,
+          btn('Crank saw',()=>{if(g.crankBench(s))this.site();},Boolean(s.jobs.length)||getQuantity(s.input,'timber')+getQuantity(s.input,'branches')===0)):undefined,
         g.mods.cutPatterns&&mills.includes(s.kind)?row('Cut pattern',s.layout==='volume'?'Maximize volume':s.layout==='quality'?'Select high-grade cuts':'Standard throughput',
           btn('Cycle',()=>{s.layout=s.layout==='volume'?'quality':s.layout==='quality'?undefined:'volume';this.site();})):undefined,
         (g.mods.sortingCamera||g.mods.roboticSort)?row('Sorting gate',s.sortHigh?'Route high-grade batches only':'Route all compatible stock',
@@ -586,11 +586,12 @@ export class UI {
         s.kind==='fire'&&g.mods.carbon?row('Fire mode',s.mode==='charcoal'?'Charcoal collection':'Cash sale',btn('Switch',()=>{s.mode=s.mode==='charcoal'?'sell':'charcoal';this.site();})):undefined,
         ...s.jobs.map(job=>row(goods[job.good][0],`${Math.ceil(Math.max(0,job.remaining))}s remaining`))),
       section('Output',
+        s.kind==='bench'?sub('Feed one stick or branch to saw a single plank. One unit of timber makes two boards.'):undefined,
         s.output.length?undefined:sub('No batches ready. Resume play to run production.'),
-        ...s.output.map(lot=>row(goods[lot.good][0],`${lot.quantity} units · ${Math.floor(lot.quality*100)}% grade${g.mods.moistureGauge?' · '+Math.round(lot.moisture*100)+'% moisture':''}`,
-          btn('Take one',()=>{g.transfer(s,lot.good,1,true);this.site();}),btn('Take batch',()=>{g.transfer(s,lot.good,lot.quantity,true);this.site();})))),
+        ...s.output.map(lot=>row(goods[lot.good][0],`${lot.quantity} units · ${stackMass(lot).toFixed(1)} kg · ${Math.floor(lot.quality*100)}% grade${g.mods.moistureGauge?' · '+Math.round(lot.moisture*100)+'% moisture':''}`,
+          btn('Take one',()=>{g.transfer(s,lot.good,1,true,lot);this.site();}),btn('Take batch',()=>{g.transfer(s,lot.good,lot.quantity,true,lot);this.site();})))),
       section('Feed from your bag',...g.stock.filter(lot=>storageSite(s.kind)&&(s.kind!=='fuelSilo'||fuelGood(lot.good))||consumes(recipe,lot.good)||biomassSites.includes(s.kind)&&fuelGood(lot.good)).map(lot=>row(goods[lot.good][0],`${lot.quantity} units available`,
-        btn('Feed one',()=>{g.transfer(s,lot.good,1,false);this.site();}),btn('Feed batch',()=>{g.transfer(s,lot.good,lot.quantity,false);this.site();})))),
+        btn('Feed one',()=>{g.transfer(s,lot.good,1,false,lot);this.site();}),btn('Feed batch',()=>{g.transfer(s,lot.good,lot.quantity,false,lot);this.site();})))),
       section('Freight route',
         s.shipment?row(s.shipment.returning?'Returning to the garage':'Shipment on the move',`${s.shipment.returning?0:s.shipment.load.quantity} × ${goods[s.shipment.load.good][0]} · ${Math.max(0,Math.ceil(s.shipment.duration-s.shipment.elapsed))}s`):undefined,
         primary?row('Primary · '+facilities[primary.kind].name,g.routeStatus.get(s.id+':'+primary.id)??'Waiting for the next field tick',

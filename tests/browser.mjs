@@ -138,7 +138,7 @@ try{
   await p.setViewportSize({width:450,height:720});
   await press('Escape');
   await click('Settings');
-  const panel=await p.locator('.panel').boundingBox();
+  const panel=await p.locator('.overlay .panel').boundingBox();
   assert.ok(panel&&panel.x>=0&&panel.x+panel.width<=450);
   await screenshot(p,'narrow');
   const exported=p.waitForEvent('download');
@@ -426,7 +426,7 @@ try{
   assert.ok((await inspect()).won);
   await screenshot(p,'victory');
   await p.setViewportSize({width:1920,height:1080});
-  const large=await p.locator('.panel').boundingBox();
+  const large=await p.locator('.overlay .panel').boundingBox();
   assert.ok(large&&large.x>=0&&large.y>=0&&large.x+large.width<=1920&&large.y+large.height<=1080);
   await p.setViewportSize({width:960,height:660});
   await click('New Game+');

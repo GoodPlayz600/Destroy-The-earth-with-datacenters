@@ -9,7 +9,7 @@ import './style.css';
 import { Vector3 } from 'three';
 import { SIZE, facilities, recipes, species, tools, vehicles, vehicleTypes } from './catalog';
 import type { Facility, Tool, VehicleType } from './catalog';
-import { Campaign, cargoMass, freightVehicles, takesLogs, trailerGap, waterSites } from './campaign';
+import { Campaign, cargoMass, freightVehicles, stackMass, takesLogs, trailerGap, waterSites } from './campaign';
 import type { Challenge, Log, Ride, Save, Site } from './campaign';
 import { clamp, distance, indexAt } from './land';
 import type { Point, Tree } from './land';
@@ -696,7 +696,7 @@ function movement(dt:number) {
   const sideways=Number(inputs.has('right'))-Number(inputs.has('left'));
   if(ride) {
     const def=vehicleTypes[ride.kind], trailer=game.rides.find(v=>v.hitch===ride!.id);
-    const totalMass=(ride.water??0)+(ride.freight?.quantity??0)*11+cargoMass(game.logs.values(),ride.id)+(trailer?85+cargoMass(game.logs.values(),trailer.id):0);
+    const totalMass=(ride.water??0)+(ride.freight?stackMass(ride.freight):0)+cargoMass(game.logs.values(),ride.id)+(trailer?85+cargoMass(game.logs.values(),trailer.id):0);
     const mass=totalMass, terrain=game.soil.get(indexAt(ride.x,ride.z));
     if(def.motor&&(ride.fuel<=0||ride.wear>=100)||trailer&&(trailer.hitchReady??0)>game.clock)return;
     p.yaw-=sideways*dt*(def.motor?1.22:1.88)*(game.mods.articulation&&def.motor?1.22:1);

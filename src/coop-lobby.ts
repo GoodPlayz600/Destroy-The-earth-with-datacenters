@@ -76,6 +76,7 @@ export class CoopLobby {
         const url=new URL(location.href);
         url.searchParams.set('room',live.code);
         url.searchParams.set('region',live.region);
+        if(!navigator.clipboard){this.message(`Share room ${live.code} in region ${live.region}.`);return;}
         void navigator.clipboard.writeText(url.toString()).then(()=>this.message('Invite link copied.')).catch(()=>this.message(`Share room ${live.code} in region ${live.region}.`));
       });
       const controls=create('div','coop-actions');

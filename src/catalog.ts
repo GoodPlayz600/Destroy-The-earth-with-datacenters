@@ -51,11 +51,12 @@ export const goods = {
   compute: ['Compute batches', 345, '#70babc'],
 } as const;
 export type Good = keyof typeof goods;
-export type Stack = { good: Good; quantity: number; quality: number; moisture: number };
+export type Stack = { good: Good; quantity: number; quality: number; moisture: number; massPerUnit?:number; valuePerUnit?:number };
 export type Recipe = {
   name: string; input?: readonly [Good, number]; output: readonly [Good, number];
   time: number; power: number; secondary?: readonly [Good, number]; labor?: number; moisture?: number; minQuality?: number; maxMoisture?: number;
 };
+export const stickBoards:Recipe={name:'Saw sticks into planks',input:['branches',1],output:['boards',1],time:4,power:0};
 export const recipes = {
   bench: { name: 'Rip timber', input: ['timber', 1], output: ['boards', 2], time: 4, power: 0 },
   rack: { name: 'Air dry boards', input: ['boards', 2], output: ['dry', 2], time: 21, power: 0, moisture: .18 },
