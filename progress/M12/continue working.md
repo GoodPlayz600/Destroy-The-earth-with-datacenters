@@ -1,3 +1,3 @@
 # M12 — Continue working
 
-Run the two-browser review for guest hauling, building and research while the host is paused and while its tab is in the background. Publish the reviewed revision.
+The field-sync and guest-menu fixes are live. Refresh each browser before reopening or joining a room so every participant uses the same Photon protocol version. The previous room backups can be reopened by the new build.

@@ -84,4 +84,8 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 
 ## [M11 — Mill economy and Sites](progress/M11/completed.md)
 
+- Verified stick conversion, mass-based sales, and value carried through processing. Published the game update to the existing Site.
+
 ## [M12 — Responsive co-op](progress/M12/completed.md)
+
+- Automated tests and the Chromium and Firefox game reviews passed on the new co-op code. The published build uses a room clock independent of rendering. The live test verified guest research, construction, harvesting, hauling, and reopening the checkpoint.
