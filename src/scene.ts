@@ -29,6 +29,8 @@ export class Scene {
   toolCamera = new T.PerspectiveCamera(55,innerWidth / innerHeight,.03,12);
   physics = new R.World({ x:0,y:-13.8,z:0 });
   replica=false;
+  onFall?:(id:number,from:Point,wedge:number)=>void;
+  onLanded?:(id:number)=>void;
   private roomCrew=new Map<number,ReturnType<typeof helperModel>>();
   remotelyHeld:(id:number)=>boolean=()=>false;
   private chunks = new Map<string, Chunk>();
@@ -440,6 +442,13 @@ export class Scene {
     if(chop) this.world.remove(chop);
     this.chops.delete(tree.id);
     this.streamStamp='';
+    if(!this.replica)this.onFall?.(tree.id,from,wedge);
+  }
+
+  finishReplicaFall(id:number) {
+    const fall=this.fallers.get(id);
+    if(fall){this.world.remove(fall.model);this.fallers.delete(id);}
+    this.streamStamp='';
   }
 
   isFalling(tree: Tree) { return this.fallers.has(tree.id); }
@@ -455,7 +464,7 @@ export class Scene {
     }
   }
 
-  private syncLogs(at:Point) {
+  private syncLogs(at:Point,dt:number) {
     for(const [id,render] of this.logViews) {
       const log=this.game.logs.get(id);
       if(log && log.length===render.length && distance(log,at)<78) continue;
@@ -473,7 +482,12 @@ export class Scene {
           const from=existing.body.translation(), gap=distance(log,from);
           if(gap>.25&&gap<3)existing.body.applyImpulse({x:(log.x-from.x)*log.kilograms*1.2,y:0,z:(log.z-from.z)*log.kilograms*1.2},true);
         } else if(this.replica||this.remotelyHeld(log.id)) {
-          existing.model.position.set(log.x,log.y,log.z);
+          if(this.replica){
+            const alpha=clamp(dt*18);
+            existing.model.position.x+=(log.x-existing.model.position.x)*alpha;
+            existing.model.position.y+=(log.y-existing.model.position.y)*alpha;
+            existing.model.position.z+=(log.z-existing.model.position.z)*alpha;
+          }else existing.model.position.set(log.x,log.y,log.z);
           existing.model.quaternion.set(...log.q);
         }
         continue;
@@ -860,6 +874,11 @@ export class Scene {
     }
   }
 
+  stepShared(dt:number,at:Point,yaw:number,held?:{log:Log;mode:'hand'|'rope'|'lift'|'winch'}) {
+    this.syncLogs(at,dt);
+    this.updateSimulation(dt,at,yaw,held);
+  }
+
   private updateSimulation(dt:number, at:Point, yaw:number, held?:{log:Log; mode:'hand'|'rope'|'lift'|'winch'}) {
     this.physicsTime+=dt;
     this.rope.visible=false;
@@ -886,13 +905,17 @@ export class Scene {
       view.model.position.set(log.x,log.y,log.z);
       view.model.quaternion.set(...log.q);
     }
+    this.animateFalls(dt);
+  }
+
+  private animateFalls(dt:number) {
     for(const [id, fall] of this.fallers) {
       fall.age+=dt;
       const progress=clamp(fall.age/1.22), tilt=progress*progress*Math.PI*.49;
       const axis=new T.Vector3(fall.dir.z,0,-fall.dir.x);
       fall.model.quaternion.setFromAxisAngle(axis,tilt);
       fall.model.rotateY(fall.tree.rotation);
-      if(progress<1) continue;
+      if(progress<1||this.replica) continue;
       const tree=fall.tree, spec=species[tree.kind], length=spec.height*tree.scale*.72;
       const x=clamp(tree.x+fall.dir.x*length*.52,-SIZE/2+.4,SIZE/2-.4);
       const z=clamp(tree.z+fall.dir.z*length*.52,-SIZE/2+.4,SIZE/2-.4);
@@ -915,11 +938,12 @@ export class Scene {
       this.fallers.delete(id);
       this.impact(new T.Vector3(x,y,z),'dust',15);
       this.game.notice(spec.name+' felled');
+      this.onLanded?.(tree.id);
     }
   }
 
   render(args: {
-    dt:number; at:Point; y:number; yaw:number; pitch:number; menu:boolean; active:boolean; swing:number; reverse:boolean;
+    dt:number; at:Point; y:number; shared?:boolean; yaw:number; pitch:number; menu:boolean; active:boolean; swing:number; reverse:boolean;
     reduced:boolean; stride:number; held?:{log:Log;mode:'hand'|'rope'|'lift'|'winch'}; target?:Point; build?:{point:Point;valid:boolean;size:number}; drive?:Ride;
     flyover?:number; waypoint?:Point; survey?:{point:Point;age:number};
   }) {
@@ -965,7 +989,7 @@ export class Scene {
     }
     this.stream({x:this.camera.position.x,z:this.camera.position.z},false,at);
     this.syncRides(at,this.frameAge,active?dt:0,drive);
-    this.syncLogs(at);
+    this.syncLogs(at,dt);
     this.syncSites(this.frameAge,survey?survey.point:at);
     if(this.game.ownedUpgrades.has('24-12')&&!this.trophy){
       const monument=new T.Group();
@@ -983,7 +1007,8 @@ export class Scene {
       (this.game.soil.get(indexAt(at.x,at.z))?.stage??0)>=4){
       this.impact(new T.Vector3(at.x+(Math.random()-.5)*12,this.game.ground(at.x,at.z)+.6,at.z-4),'dust',4);
     }
-    if(active&&!this.replica) this.updateSimulation(dt,at,yaw,held);
+    if(this.replica)this.animateFalls(dt);
+    else if(active&&!args.shared)this.updateSimulation(dt,at,yaw,held);
     this.syncCrew(at,dt,this.frameAge);
     this.syncFreight(at,dt,active);
     this.syncPackets(at);

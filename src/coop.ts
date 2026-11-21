@@ -2,17 +2,28 @@ import type { RealtimeClient, RealtimeValue } from '@photonengine/realtime-core'
 import type { Save } from './campaign';
 import { applyPatch, makePatch, packPose, readPose, readWorldPart, serializeWorld } from './coop-wire';
 import type { Pose } from './coop-wire';
+import { fieldChanges, readField } from './coop-field-wire';
+import type { FieldPacket, FieldTrack } from './coop-field-wire';
+import type { Log } from './campaign';
+import type { Point } from './land';
+import { startRoomClock } from './room-clock';
 
-const events={hello:1,world:2,ack:3,pose:4,action:5,closing:6,result:7} as const;
+const events={hello:1,world:2,ack:3,pose:4,action:5,closing:6,result:7,fall:8,landed:9,logs:10} as const;
 const MAX_CHUNKS_PER_PEER=2;
 const roomOptions={isVisible:false,maxPlayers:4,emptyRoomTtlMs:0,playerTtlMs:0};
 type World = ReturnType<typeof serializeWorld>;
 type WorldVersion = { revision:number; blocks:World };
 type Send = WorldVersion & { chunks:Uint8Array[]; sent:number; at:number };
-type Peer = { confirmed?:WorldVersion; send?:Send };
+type Peer = { confirmed?:WorldVersion; send?:Send; field?:FieldTrack };
 type Receive = { revision:number; total:number; parts:Uint8Array[] };
 type Callbacks = {
-  capture:()=>Save; checkpoint:(save:Save)=>void; ended:(message:string)=>void;
+  capture:()=>Save;
+  advance?:(dt:number)=>void;
+  fieldSource?:()=>{logs:ReadonlyMap<number,Log>; clock:number; origin:Point};
+  field?:(packet:FieldPacket)=>void;
+  fall?:(id:number,from:Point,wedge:number)=>void;
+  landed?:(id:number,clock:number)=>void;
+  checkpoint:(save:Save)=>void; ended:(message:string)=>void;
   action:(actor:number,pose:Pose,value:unknown)=>string|undefined; departed:(actor:number)=>void; pose:(actor:number,pose:Pose)=>void; notice:(message:string)=>void;
 };
 export type Launch = { mode:'host'|'join'; appId:string; region:string; code:string };
@@ -22,7 +33,7 @@ export async function connectRoom(launch:Launch, callbacks:Callbacks) {
     import('@photonengine/realtime-core'),import('@photonengine/realtime-core/realtimecore.wasm?url'),
   ]);
   const client=await createRealtimeClient({
-    appId:launch.appId,appVersion:'clearcut-coop-1',protocol:'wss',regionSelection:'select',
+    appId:launch.appId,appVersion:'clearcut-coop-2',protocol:'wss',regionSelection:'select',
     useAlternativePorts:true,disconnectTimeoutMs:15000,wasm:{url:wasmUrl},
   });
   let timer=0;
@@ -59,7 +70,8 @@ export class CoopRoom {
   readonly isHost:boolean;
   private readonly peers=new Map<number,Peer>();
   private readonly number:number;
-  private readonly timer:number;
+  private readonly stopClock:()=>void;
+  private lastStep=Date.now();
   private revision=0;
   private checkpoint?:WorldVersion;
   private receiving?:Receive;
@@ -75,7 +87,7 @@ export class CoopRoom {
     this.number=client.localPlayer.number;
     this.isHost=launch.mode==='host';
     this.ready=this.isHost;
-    client.onEventRange(events.hello,events.result,({code,senderNumber,data})=>this.receive(code,senderNumber,data));
+    client.onEventRange(events.hello,events.logs,({code,senderNumber,data})=>this.receive(code,senderNumber,data));
     client.on('playerLeft',({playerNumber})=>{
       this.peers.delete(playerNumber);this.poses.delete(playerNumber);this.callbacks.departed(playerNumber);
       if(playerNumber===this.host)this.ended('The host left. Reopen the last room checkpoint from Saved rooms.');
@@ -85,7 +97,12 @@ export class CoopRoom {
     });
     client.on('roomLeft',()=>this.ended('You left the Photon room.'));
     client.on('disconnected',()=>this.ended('Disconnected from Photon. Rejoin or reopen a saved room.'));
-    this.timer=window.setInterval(()=>this.pump(),100);
+    client.pump?.stop();
+    this.stopClock=startRoomClock(()=>{
+      if(this.closed)return;
+      client.service?.();
+      this.pump();
+    });
   }
 
   get count() {return this.closed||!this.client.isInRoom?0:this.client.room?.playerCount??0;}
@@ -97,6 +114,29 @@ export class CoopRoom {
     if(this.ready&&now-this.lastPose>=125&&this.count>1) {
       this.lastPose=now;
       this.send(events.pose,packPose(pose));
+    }
+  }
+
+  fallen(id:number,from:Point,wedge:number) {
+    if(this.isHost)this.send(events.fall,[id,from.x,from.z,wedge]);
+  }
+
+  landed(id:number,clock:number) {
+    if(this.isHost)this.send(events.landed,[id,clock]);
+  }
+
+  private sendField(now:number) {
+    const field=this.callbacks.fieldSource?.();
+    if(!field)return;
+    for(const [actor,peer] of this.peers){
+      if(!peer.confirmed)continue;
+      const tracking=peer.field??={known:new Map(),next:0};
+      if(now<tracking.next)continue;
+      tracking.next=now+125;
+      const packet=fieldChanges(field.logs,this.poses.get(actor)??field.origin,field.clock,tracking);
+      if(packet.logs.length||packet.gone.length){
+        if(!this.send(events.logs,JSON.stringify(packet),actor))tracking.known.clear();
+      }
     }
   }
 
@@ -129,6 +169,17 @@ export class CoopRoom {
       return;
     }
     if(sender!==this.host)return;
+    if(code===events.logs&&this.ready){
+      const packet=readField(data);
+      if(packet)this.callbacks.field?.(packet);
+    }
+    if(code===events.fall&&this.ready&&Array.isArray(data)&&data.length===4&&data.every(Number.isFinite)){
+      const [id,x,z,wedge]=data as number[];
+      this.callbacks.fall?.(id,{x,z},wedge);
+    }
+    if(code===events.landed&&this.ready&&Array.isArray(data)&&data.length===2&&data.every(Number.isFinite)){
+      this.callbacks.landed?.(data[0] as number,data[1] as number);
+    }
     if(code===events.result&&typeof data==='string'&&data.length<200)this.callbacks.notice(data);
     if(code===events.closing)this.ended('The host closed the room. Your latest synced checkpoint is in Saved rooms.');
     if(code!==events.world)return;
@@ -158,7 +209,7 @@ export class CoopRoom {
     for(const peer of this.peers.values()) {
       if(peer.send&&now-peer.send.at>90000){peer.send=undefined;peer.confirmed=undefined;}
     }
-    const waiting=[...this.peers.values()].filter(peer=>!peer.send&&(force||!peer.confirmed||now-this.lastWorld>=4000));
+    const waiting=[...this.peers.values()].filter(peer=>!peer.send&&(force||!peer.confirmed||now-this.lastWorld>=1800));
     if(!waiting.length)return;
     const blocks=serializeWorld(this.callbacks.capture());
     const revision=++this.revision;
@@ -184,7 +235,13 @@ export class CoopRoom {
       return;
     }
     try {
-      if(!this.closing)this.queueWorld(now);
+      const elapsed=Math.min(2,Math.max(0,(now-this.lastStep)/1000));
+      this.lastStep=now;
+      if(!this.closing){
+        this.callbacks.advance?.(elapsed);
+        this.sendField(now);
+        this.queueWorld(now);
+      }
       for(const [actor,peer] of this.peers) {
         let remaining=MAX_CHUNKS_PER_PEER;
         const transfer=peer.send;
@@ -208,7 +265,7 @@ export class CoopRoom {
   private dispose() {
     if(this.closed)return;
     this.closed=true;
-    window.clearInterval(this.timer);
+    this.stopClock();
     queueMicrotask(()=>this.client.dispose());
   }
 

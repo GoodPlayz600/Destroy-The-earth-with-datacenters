@@ -83,3 +83,5 @@ Build and verification evidence is listed by milestone. The coverage below is cu
 - Private invite rooms, guest forestry and building, and separate portable campaign checkpoints are implemented. See [multiplayer setup](MULTIPLAYER.md).
 
 ## [M11 — Mill economy and Sites](progress/M11/completed.md)
+
+## [M12 — Responsive co-op](progress/M12/completed.md)

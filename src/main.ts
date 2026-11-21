@@ -7,11 +7,11 @@ import '@fontsource/dm-sans/latin-700.css';
 import '@fontsource/ibm-plex-mono/latin-500.css';
 import './style.css';
 import { Vector3 } from 'three';
-import { SIZE, facilities, recipes, species, tools, vehicles, vehicleTypes } from './catalog';
+import { SIZE, TOTAL, facilities, recipes, species, tools, vehicles, vehicleTypes } from './catalog';
 import type { Facility, Tool, VehicleType } from './catalog';
 import { Campaign, cargoMass, freightVehicles, stackMass, takesLogs, trailerGap, waterSites } from './campaign';
 import type { Challenge, Log, Ride, Save, Site } from './campaign';
-import { clamp, distance, indexAt } from './land';
+import { clamp, distance, indexAt, treesIn, treesPerCell } from './land';
 import type { Point, Tree } from './land';
 import { Scene, initializePhysics } from './scene';
 import type { Rock } from './scene';
@@ -25,6 +25,8 @@ import type { CoopRoom, Launch } from './coop';
 import { CrewWork, placementAt, treeAim } from './coop-field';
 import { CoopLobby } from './coop-lobby';
 import { coopSlot, roomBackup } from './coop-wire';
+import type { FieldPacket } from './coop-field-wire';
+import type { RealtimeValue } from '@photonengine/realtime-core';
 
 const canvas=document.querySelector<HTMLCanvasElement>('#world')!;
 const root=document.querySelector<HTMLDivElement>('#ui')!;
@@ -39,9 +41,12 @@ let scene:Scene;
 let room:CoopRoom|undefined;
 let solo:Campaign|undefined;
 let roomCheckpoint:Save|undefined;
+const liveLogs=new Map<number,{at:number;log?:Log}>();
+const liveFelled=new Map<number,number>();
+let hostSaveAge=0;
 let joining: {resolve:()=>void; reject:(error:Error)=>void}|undefined;
 let leaving=false;
-let guestGrab=false;
+let guestGrab:false|'grab'|'rope'|'lift'=false;
 const guest=()=>Boolean(room&&!room.isHost);
 const crew=new CrewWork(()=>game,(tree,pose)=>scene.startFall(tree,pose),tree=>scene.isFalling(tree),()=>held?.log);
 const sound=new Sound();
@@ -79,7 +84,7 @@ const pose=()=>({...game.player,lift:airborne});
 const show=(message:string)=>ui.notice(message);
 
 const ui=new UI(root,{
-  game:()=>game,prefs,open,begin,resume,menu:mainMenu,multiplayer:()=>showLobby(),inRoom:()=>Boolean(room),guest,refresh:()=>{if(page)ui.show(page);void persist();},
+  game:()=>game,prefs,open,begin,resume,menu:mainMenu,multiplayer:()=>showLobby(),inRoom:()=>Boolean(room),guest,crewCommand,refresh:()=>{if(page)ui.show(page);void persist();},
   save:()=>{void persist(true);},download:()=>{if(room){exportRoom();return;}downloadSave(game.snapshot());show('Campaign exported');},restore:(file)=>{void importFile(file);},
   archives:()=>archives, restoreArchive:(slot)=>{void restoreArchive(slot);},
   applySettings, binding:(id)=>{recording=id;ui.recording(id);},
@@ -120,6 +125,7 @@ function endRoom(message:string) {
   crew.clear();
   room=undefined;
   roomCheckpoint=undefined;
+  liveFelled.clear();liveLogs.clear();
   guestGrab=false;
   leaving=false;
   scene.replica=false;
@@ -141,6 +147,38 @@ async function leaveRoom() {
   await session.leave();
   if(room===session)endRoom('Your room checkpoint is available under Saved rooms.');
 }
+function crewCommand(action:string,target:string|null) {
+  room?.action(pose(),[action,target]);
+}
+function applyField(packet:FieldPacket) {
+  if(!guest()||packet.clock<(roomCheckpoint?.clock??0))return;
+  for(const id of packet.gone){liveLogs.set(id,{at:packet.clock});game.logs.delete(id);}
+  for(const log of packet.logs){liveLogs.set(log.id,{at:packet.clock,log});game.logs.set(log.id,log);}
+}
+function advanceRoom(seconds:number) {
+  if(!room?.isHost||atMenu||leaving||seconds<=0)return;
+  const p=game.player;
+  crew.tick(performance.now());
+  for(let remaining=seconds;remaining>0;){
+    const dt=Math.min(remaining,.12);
+    remaining-=dt;
+    const sprinting=active()&&inputs.has('sprint')&&['forward','back','left','right'].some(input=>inputs.has(input));
+    game.tick(dt,!sprinting,held?.log.id);
+    scene.stepShared(dt,p,p.yaw,held);
+  }
+  if(!held&&dropTime===0)deliverLooseLogs(p);
+  hostSaveAge+=seconds;
+  if(hostSaveAge>=8){hostSaveAge=0;void persist();}
+}
+function deliverLooseLogs(p:Point) {
+  for(const log of game.logs.values()){
+    if(log.cargo||log.carrier||crew.isHeld(log.id)||distance(log,p)>16)continue;
+    if(game.sites.some(site=>site.kind==='fire'&&distance(log,site)<1.15&&game.acceptLog(site,log))){
+      void persist();
+      break;
+    }
+  }
+}
 function receiveRoomSave(save:Save) {
   if(!room||room.isHost)return;
   const first=Boolean(joining);
@@ -160,7 +198,22 @@ function receiveRoomSave(save:Save) {
     next.player=game.player;
     next.landRevision=game.landRevision+1;
     next.terrainRevision=game.terrainRevision+1;
+    for(const [id,update] of liveLogs){
+      if(update.at<save.clock){liveLogs.delete(id);continue;}
+      if(update.log)next.logs.set(id,update.log);
+      else next.logs.delete(id);
+    }
+    for(const [id,clock] of liveFelled){
+      if(clock<save.clock){liveFelled.delete(id);continue;}
+      next.removed.add(id);
+    }
+    for(const id of next.removed)if(!game.removed.has(id))scene.finishReplicaFall(id);
+    const changed=game.cash!==next.cash||game.ownedUpgrades.size!==next.ownedUpgrades.size
+      ||game.prototypes.size!==next.prototypes.size||game.tool!==next.tool;
+    const siteId=selectedSite?.id;
     game=next;scene.game=next;
+    if(siteId)selectedSite=next.sites.find(site=>site.id===siteId);
+    if(page&&(page==='site'||page==='journal'||changed&&['upgrades','build','inventory'].includes(page)))ui.refreshLive(page);
   }
   if(first)void persist();
 }
@@ -173,7 +226,20 @@ async function launchRoom(config:Launch,source:'new'|'solo'|'saved') {
   solo=game;
   try {
     room=await connectRoom(config,{
-      capture:()=>game.snapshot(),checkpoint:receiveRoomSave,
+      capture:()=>game.snapshot(),checkpoint:receiveRoomSave,advance:advanceRoom,
+      fieldSource:()=>({clock:game.clock,logs:game.logs,origin:game.player}),field:applyField,
+      fall:(id,from,wedge)=>{
+        if(!Number.isInteger(id)||id<0||id>=treesPerCell*TOTAL||game.removed.has(id))return;
+        const tree=treesIn(game.seed,Math.floor(id/treesPerCell)).find(tree=>tree.id===id);
+        if(tree&&distance(tree,game.player)<75)scene.startFall(tree,from,wedge);
+      },
+      landed:(id,clock)=>{
+        if(!Number.isInteger(id)||id<0||id>=treesPerCell*TOTAL)return;
+        liveFelled.set(id,clock);
+        game.removed.add(id);
+        game.treeDamage.delete(id);
+        scene.finishReplicaFall(id);
+      },
       ended:message=>{if(!leaving)endRoom(message);},
       action:(actor,at,data)=>crew.run(actor,at,data,performance.now()),
       departed:actor=>crew.leave(actor),pose:(actor,at)=>{if(room?.isHost)crew.observe(actor,at,performance.now());},notice:message=>{
@@ -182,7 +248,7 @@ async function launchRoom(config:Launch,source:'new'|'solo'|'saved') {
       },
     });
   } catch(error) {solo=undefined;throw error;}
-  saveAge=0;
+  saveAge=0;hostSaveAge=0;
   scene.replica=guest();
   if(hosted) {
     resetSession(hosted);
@@ -198,14 +264,10 @@ async function launchRoom(config:Launch,source:'new'|'solo'|'saved') {
 function collapseControls() {
   inputs.clear();using=false;buttonAlt=false;dragging=false;
   if(held?.mode==='hand'&&!prefs.sticky) release();
-  if(guestGrab&&!prefs.sticky)guestDrop();
+  if(guestGrab==='grab'&&!prefs.sticky)guestDrop();
 }
 function open(target:Page) {
   if(!scene) return;
-  if(guest()&&['inventory','upgrades','journal','site','victory'].includes(target)){
-    show('The host manages equipment, upgrades and industrial operations.');
-    return;
-  }
   if(active()) collapseControls();
   page=target;
   if(hasLock()) document.exitPointerLock();
@@ -540,19 +602,24 @@ function guestDrop() {
   room?.action(pose(),['drop',null]);
 }
 function guestAction(action:string) {
-  if(action==='interact'){
+  if(action==='interact'||action==='rope'||action==='lift'){
     if(guestGrab){guestDrop();return;}
-    const log=nearLog();
-    if(log){guestGrab=true;room?.action(pose(),['grab',log.id]);}
+    const mode=action==='interact'?'grab':action;
+    const log=nearLog(mode==='rope'?game.mods.ropeRange:mode==='lift'?1.8:3);
+    if(log){guestGrab=mode;room?.action(pose(),[mode,log.id]);return;}
+    if(mode!=='grab')return;
+    const site=nearSite();
+    if(site){selectedSite=site;open('site');}
   } else if(action==='drop')guestDrop();
   else if(action==='jump'){if(airborne===0)vY=5.2;}
-  else if(action==='map'||action==='build')open(action);
-  else if(!['forward','back','left','right','sprint'].includes(action))show('The host manages vehicles, tools and industrial operations.');
+  else if(action==='tool')open('inventory');
+  else if(action==='map'||action==='build'||action==='inventory'||action==='upgrades'||action==='journal')open(action);
+  else if(!['forward','back','left','right','sprint'].includes(action))show('Vehicle operation and industrial controls are managed by the host.');
 }
 function onAction(a:string,pressed:boolean) {
   if(!pressed){
     inputs.delete(a);
-    if(guest()&&a==='interact'&&guestGrab&&!prefs.sticky)guestDrop();
+    if(guest()&&a==='interact'&&guestGrab==='grab'&&!prefs.sticky)guestDrop();
     if(a==='interact'&&held?.mode==='hand'&&!prefs.sticky)release();
     return;
   }
@@ -635,9 +702,10 @@ function swingTool() {
   if(ride)return;
   if(!active()||swing>0||survey)return;
   if(guest()){
-    if(selectedBuild){
-      room?.action(pose(),['build',selectedBuild]);
-      selectedBuild=undefined;using=false;
+    if(selectedBuild||selectedVehicle){
+      const command:RealtimeValue=selectedBuild?['build',selectedBuild]:['vehicle',selectedVehicle!];
+      room?.action(pose(),command);
+      selectedBuild=undefined;selectedVehicle=undefined;using=false;
     } else {
       swingPeriod=game.swingTime;swing=swingPeriod;reverse=!reverse;
       const tree=treeTarget();
@@ -856,14 +924,9 @@ let before=performance.now();
 function frame(now:number) {
   const dt=clamp((now-before)/1000,0,.14);before=now;
   const playing=active(), p=game.player;
-  const simulating=Boolean(room?.isHost&&!atMenu&&!leaving);
   if(room&&!atMenu){
     room.pose(pose(),now);
-    if(room.isHost&&!leaving){
-      crew.tick(now);
-      if(!playing&&!game.won)game.tick(dt);
-    }
-    if(!playing){saveAge+=dt;if(saveAge>=8){saveAge=0;void persist();}}
+    if(guest()&&!playing){saveAge+=dt;if(saveAge>=8){saveAge=0;void persist();}}
   }
   scene.syncPlayers(room?.poses,dt);
   if(playing&&victoryAge<0){
@@ -876,16 +939,10 @@ function frame(now:number) {
       movement(dt);
       if(using)swingTool();
     }
-    if(!guest())game.tick(dt,!inputs.has('sprint')||(!inputs.has('forward')&&!inputs.has('right')&&!inputs.has('left')&&!inputs.has('back')),held?.log.id);
+    if(!room)game.tick(dt,!inputs.has('sprint')||(!inputs.has('forward')&&!inputs.has('right')&&!inputs.has('left')&&!inputs.has('back')),held?.log.id);
     if(held&&(!game.logs.has(held.log.id)||distance(held.log,p)>Math.max(held.mode==='winch'?17:8,held.log.length+4)))letGo();
-    if(!guest()&&!held&&dropTime===0) {
-      for(const l of game.logs.values()) {
-        if(l.cargo||l.carrier||crew.isHeld(l.id)||distance(l,p)>16)continue;
-        if(game.sites.some(s=>s.kind==='fire'&&distance(l,s)<1.15&&game.acceptLog(s,l))) { void persist();break; }
-      }
-    }
-    saveAge+=dt;
-    if(saveAge>=8){saveAge=0;void persist();}
+    if(!room&&!held&&dropTime===0)deliverLooseLogs(p);
+    if(!room||guest()){saveAge+=dt;if(saveAge>=8){saveAge=0;void persist();}}
     if(waypoint&&distance(p,waypoint)<2.4){waypoint=undefined;show('Survey marker reached');}
   }
   if(playing&&!guest()&&game.won&&game.completionTime>game.clock-1&&victoryAge===-1){victoryAge=0;sound.finish();void persist();}
@@ -907,7 +964,7 @@ function frame(now:number) {
     hint:targeting.hint,running:playing,direction:`${orientation[scale]}  /  ${Math.round(p.x)} E  ${Math.round(-p.z)} N`,elapsed:game.clock,waypoint,aimedBuild:aimed,
     buildIssue:problem,saved:room?`${room.isHost?'HOST':'CO-OP'} · ${room.count}/4 · ${saveLabel||'SYNCING'}`:saveLabel,touch:onTouch});
   sound.ambient(game.clock,game.rain,(land?.stage??0)<3,Boolean(ride&&vehicles[ride.kind].motor),playing);
-  scene.render({dt,at:p,y:height(p.x,p.z)+(ride?1.89:1.64)+airborne,yaw:p.yaw,pitch:p.pitch,menu:atMenu,active:simulating||playing&&victoryAge<0&&!survey,survey,
+  scene.render({dt,at:p,y:height(p.x,p.z)+(ride?1.89:1.64)+airborne,yaw:p.yaw,pitch:p.pitch,menu:atMenu,active:playing&&victoryAge<0&&!survey,shared:Boolean(room?.isHost),survey,
     swing:swing>0?1-swing/swingPeriod:0,reverse,reduced:prefs.reduced,stride,held,target:targeting.point,drive:ride,
     build:point?{point,valid:!problem,size:selectedBuild?facilities[selectedBuild].size:1.9}:undefined,
     waypoint,flyover:victoryAge>=0?victoryAge:undefined});
@@ -932,6 +989,8 @@ async function boot() {
     await initializePhysics();
     scene=new Scene(canvas,game);
     scene.remotelyHeld=id=>crew.isHeld(id);
+    scene.onFall=(id,from,wedge)=>room?.fallen(id,from,wedge);
+    scene.onLanded=id=>room?.landed(id,game.clock);
     applySettings();
     ui.showMenu(hasSave,saveError);
     if(new URLSearchParams(location.search).has('room'))showLobby();

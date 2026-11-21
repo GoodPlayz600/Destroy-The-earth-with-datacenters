@@ -1,10 +1,17 @@
 import type { Campaign, Log } from './campaign';
 import { takesLogs } from './campaign';
-import { SIZE, TOTAL, facilities, species, tools } from './catalog';
-import type { Facility } from './catalog';
+import { SIZE, TOTAL, facilities, species, tools, vehicles } from './catalog';
+import type { Facility, Tool, VehicleType } from './catalog';
 import type { Pose } from './coop-wire';
 import { clamp, distance, treesIn, treesPerCell } from './land';
 import type { Point, Tree } from './land';
+import { upgradesById } from './upgrades';
+
+function nearTrunk(log:Log,pose:Pose,reach:number) {
+  const [x,y,z,w]=log.q, dx=2*(x*y-z*w),dz=2*(y*z+x*w);
+  const offset=clamp((pose.x-log.x)*dx+(pose.z-log.z)*dz,-log.length*.44,log.length*.44);
+  return distance({x:log.x+dx*offset,z:log.z+dz*offset},pose)<=reach;
+}
 
 export function placementAt(p:Pick<Pose,'x'|'z'|'yaw'|'pitch'>, facility?:Facility) {
   const range=clamp(4.7-Math.max(0,-p.pitch)*.7,3.7,5.4)+(facility?facilities[facility].size*.53:0);
@@ -24,7 +31,7 @@ export function treeAim(game:Campaign,p:Pose,tree:Tree,reach:number) {
 }
 
 export class CrewWork {
-  private held=new Map<number,{id:number;pose:Pose;at:number}>();
+  private held=new Map<number,{id:number;pose:Pose;at:number;mode:'hand'|'rope'|'lift'}>();
   private actors=new Map<number,{pose:Pose;at:number;lastAction:number;lastSwing:number;reverse:boolean}>();
   constructor(private game:()=>Campaign,private fall:(tree:Tree,pose:Pose)=>void,
     private falling:(tree:Tree)=>boolean,private hostHeld:()=>Log|undefined) {}
@@ -50,9 +57,10 @@ export class CrewWork {
       const log=game.logs.get(held.id);
       if(!log||log.cargo||log.carrier||now-held.at>3500){this.held.delete(actor);continue;}
       const {x,z,yaw}=held.pose;
-      log.x=clamp(x-Math.sin(yaw)*1.65,-SIZE/2+.6,SIZE/2-.6);
-      log.z=clamp(z-Math.cos(yaw)*1.65,-SIZE/2+.6,SIZE/2-.6);
-      log.y=game.ground(log.x,log.z)+.44;
+      const reach=held.mode==='rope'?3.3:held.mode==='lift'?1.25:1.65;
+      log.x=clamp(x-Math.sin(yaw)*reach,-SIZE/2+.6,SIZE/2-.6);
+      log.z=clamp(z-Math.cos(yaw)*reach,-SIZE/2+.6,SIZE/2-.6);
+      log.y=game.ground(log.x,log.z)+(held.mode==='lift'?.89:.44);
     }
   }
 
@@ -68,7 +76,6 @@ export class CrewWork {
     const [action,target]=data;
     const player=this.actors.get(actor)!;
     const game=this.game();
-    if(game.won)return 'This campaign is already complete.';
     if(now-player.lastAction<45&&action!=='drop')return;
     player.lastAction=now;
     if(action==='swing'&&Number.isSafeInteger(target)&&target>=0&&now-player.lastSwing>=game.swingTime*1000-35) {
@@ -80,19 +87,34 @@ export class CrewWork {
       player.reverse=!player.reverse;
       const result=game.hit(tree,player.reverse);
       if(result.felled)this.fall(tree,pose);
-    } else if(action==='grab'&&Number.isSafeInteger(target)&&!this.held.has(actor)) {
-      const log=game.logs.get(target);
+    } else if((action==='grab'||action==='rope'||action==='lift')&&Number.isSafeInteger(target)&&!this.held.has(actor)) {
+      const log=game.logs.get(target), mode=action==='grab'?'hand':action;
+      const reach=mode==='rope'?game.mods.ropeRange:mode==='lift'?1.8:3.3;
+      const limit=mode==='rope'?(game.mods.rope?game.mods.ropeMass:0)
+        :mode==='lift'?(game.mods.liftLogs?game.mods.liftMass*game.mods.carrySlots:0):game.mods.dragMass;
       if(!log||log.cargo||log.carrier||this.isHeld(log.id)||this.hostHeld()?.id===log.id||
-        distance(log,pose)>Math.min(6,3+.44*log.length))return 'That log is unavailable.';
-      if(log.kilograms>game.mods.dragMass)return 'That log is too heavy for hand hauling.';
-      this.held.set(actor,{id:log.id,pose,at:now});
-      return 'Log grabbed. Release Interact or press Drop to deliver.';
+        !nearTrunk(log,pose,reach))return 'That log is unavailable.';
+      if(!limit)return 'That log needs unlocked hauling equipment.';
+      if(log.kilograms>limit)return 'That log is too heavy for this hauling equipment.';
+      this.held.set(actor,{id:log.id,pose,at:now,mode});
+      return mode==='hand'?'Log grabbed. Release Interact or press Drop to deliver.':'Log attached. Press Drop to deliver.';
     } else if(action==='drop') {
       this.tick(now);
       const carry=this.held.get(actor);
       this.held.delete(actor);
       const log=carry&&game.logs.get(carry.id);
       if(log&&game.sites.some(site=>takesLogs(site.kind)&&game.acceptLog(site,log)))return 'Timber delivered.';
+    } else if(action==='upgrade'&&typeof target==='string'&&upgradesById.has(target)) {
+      const item=upgradesById.get(target)!;
+      return game.buyUpgrade(target)?item.name+' installed.':'Research prerequisites or funds are missing.';
+    } else if(action==='prototype'&&(target==='edge'||target==='motor')) {
+      return game.develop(target)?'Prototype research completed.':'Prototype prerequisites or research points are missing.';
+    } else if(action==='equip'&&typeof target==='string'&&Object.hasOwn(tools,target)) {
+      return game.acquireTool(target as Tool)?tools[target as Tool].name+' equipped for the crew.':'Tool prerequisites or funds are missing.';
+    } else if(action==='service') {
+      return game.retool()?'Crew tool serviced.':'Tool service needs more funds.';
+    } else if(action==='vehicle'&&typeof target==='string'&&Object.hasOwn(vehicles,target)) {
+      return game.acquireRide(target as VehicleType,placementAt(pose))?vehicles[target as VehicleType].name+' delivered.':'Vehicle prerequisites, placement or funds are missing.';
     } else if(action==='build'&&typeof target==='string'&&Object.hasOwn(facilities,target)) {
       const kind=target as Facility, point:Point=placementAt(pose,kind);
       const issue=game.siteIssue(kind,point);

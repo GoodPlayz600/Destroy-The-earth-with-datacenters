@@ -56,3 +56,5 @@ The M0–M9 milestone review covers the build, simulation, browser playthroughs 
 Run the two-browser Photon Cloud acceptance check once a Realtime App ID is configured.
 
 ## [M11 — Mill economy and Sites](progress/M11/continue%20working.md)
+
+## [M12 — Responsive co-op](progress/M12/continue%20working.md)

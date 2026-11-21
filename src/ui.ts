@@ -42,7 +42,7 @@ type Hud={
   elapsed:number; waypoint?:Point; aimedBuild?:string; buildIssue?:string; saved:string; touch:boolean;
 };
 type Controller={
-  game:()=>Campaign; prefs:Preferences; multiplayer:()=>void; inRoom:()=>boolean; guest:()=>boolean; open:(page:Page)=>void; begin:(kind:'resume'|'new'|'plus',challenge?:Challenge)=>void;
+  game:()=>Campaign; prefs:Preferences; multiplayer:()=>void; inRoom:()=>boolean; guest:()=>boolean; crewCommand:(action:string,target:string|null)=>void; open:(page:Page)=>void; begin:(kind:'resume'|'new'|'plus',challenge?:Challenge)=>void;
   resume:()=>void; menu:()=>void; refresh:()=>void; save:()=>void; download:()=>void; restore:(file:File)=>void;
   archives:()=>Archive[]; restoreArchive:(slot:string)=>void; applySettings:()=>void; binding:(key:Binding)=>void; build:(f:Facility)=>void; ride:(v:VehicleType)=>void;
   survey:(p:Point)=>void; waypoint:(p:Point)=>void; site:()=>Site|undefined; touch:(key:string,pressed:boolean)=>void; fullscreen:()=>void;
@@ -312,17 +312,27 @@ export class UI {
     ));
   }
 
+  refreshLive(page:Page) {
+    const content=this.overlay.querySelector<HTMLElement>('.panel-content');
+    const tabs=this.overlay.querySelector<HTMLElement>('.branch-tabs');
+    const top=content?.scrollTop??0, left=tabs?.scrollLeft??0;
+    this.show(page);
+    this.overlay.querySelector<HTMLElement>('.panel-content')?.scrollTo({top});
+    this.overlay.querySelector<HTMLElement>('.branch-tabs')?.scrollTo({left});
+  }
+
   private inventory() {
     const g=this.c.game();
-    this.panel('Equipment','Tools, personal stock, and the current fleet.',el('div','panel-content',
+    this.panel('Equipment',this.c.guest()?'The equipped tool and supplies are shared by the crew.':'Tools, personal stock, and the current fleet.',el('div','panel-content',
       section('Hand tools',...Object.entries(tools).map(([k,item])=>{
         const id=k as Tool,owned=g.ownedTools.has(id);
         const node=id==='knife'?undefined:upgrades.find(upgrade=>upgrade.id===forestryUnlocks[id]);
         const locked=Boolean(node?.previous&&!g.ownedUpgrades.has(node.previous));
         return row(item.name,`Cut power ${item.power} · Range ${item.range} m`,btn(g.tool===id?'Equipped':owned?'Equip':locked?'Requires research':cash(item.cost),()=>{
-          if(g.acquireTool(id))this.c.refresh();
+          if(this.c.guest())this.c.crewCommand('equip',id);
+          else if(g.acquireTool(id))this.c.refresh();
         },g.tool===id||(!owned&&(locked||g.cash<item.cost))));
-      }),btn('Service equipped tool',()=>{if(g.retool())this.c.refresh();})),
+      }),btn('Service equipped tool',()=>{if(this.c.guest())this.c.crewCommand('service',null);else if(g.retool())this.c.refresh();})),
       section('Inventory',g.stock.length?undefined:sub('The tool bag has no saleable stock.'),
         ...Object.keys(goods).filter(k=>getQuantity(g.stock,k as Good)>0).map(k=>row(goods[k as Good][0],`${getQuantity(g.stock,k as Good)} units`))),
       section('Fleet',g.rides.length?undefined:sub('No vehicles in service.'),
@@ -335,7 +345,7 @@ export class UI {
             btn('Mark',()=>this.c.waypoint(v)),btn(tow||towing?'Recover rig · $18':'Recover · $18',()=>{
               if(!g.recoverRide(v))this.notice('Recovery needs an available vehicle and a clear yard');
               this.c.refresh();
-            },g.cash<18));
+            },this.c.guest()||g.cash<18));
         }))));
   }
 
@@ -350,7 +360,7 @@ export class UI {
         const parts=[recipe?.name,item.supply?`${item.supply} kW grid output`:undefined,(recipe?.power??item.power)?`${recipe?.power??item.power} kW draw`:undefined,missing?`Requires ${facilities[item.requires!].name}`:unresearched?'Requires facility research':undefined].filter(Boolean);
         return row(item.name,parts.join(' · '),btn(cash(item.price),()=>this.c.build(kind),g.cash<item.price||Boolean(locked)));
       })),
-      this.c.guest()?undefined:section('Transport',...Object.entries(vehicleTypes).map(([k,item])=>{
+      section('Transport',...Object.entries(vehicleTypes).map(([k,item])=>{
         const missing=item.research&&!g.ownedUpgrades.has(item.research)?upgradesById.get(item.research):undefined;
         const requirement=missing?` · Requires ${missing.name}`:'';
         return row(item.name,`${item.capacity} kg payload · ${item.motor?'Motorized':'Manual'}${requirement}`,
@@ -366,16 +376,19 @@ export class UI {
     const available=upgrades.filter(u=>u.implemented).length;
     const research=g.mods.researchDesk?section('Research desk',sub(`${g.science} research points from production and survey milestones`),
       g.mods.prototypes?row('Prototype cutting edge','More cutting force on mature trunks',btn(g.prototypes.has('edge')?'Installed':'12 points',()=>{
-        if(g.develop('edge'))this.c.refresh();
+        if(this.c.guest())this.c.crewCommand('prototype','edge');
+        else if(g.develop('edge'))this.c.refresh();
       },g.prototypes.has('edge')||g.science<12)):undefined,
       g.mods.prototypes?row('Efficient motor assembly','Reduces the charge drawn by powered tools',btn(g.prototypes.has('motor')?'Installed':'20 points',()=>{
-        if(g.develop('motor'))this.c.refresh();
+        if(this.c.guest())this.c.crewCommand('prototype','motor');
+        else if(g.develop('motor'))this.c.refresh();
       },g.prototypes.has('motor')||g.science<20)):undefined):undefined;
     this.panel('Upgrades',`${g.ownedUpgrades.size} installed · ${available} available designs · ${cash(g.cash)} in the wallet`,el('div','panel-content',
       tabs,research,section(branches[this.branch],...displayed.map(item=>{
         const owned=g.ownedUpgrades.has(item.id),prereq=item.previous&&!g.ownedUpgrades.has(item.previous);
         const unavailable=!item.implemented||(item.id==='24-12'&&!g.won);
         return row(item.name,item.id==='24-12'&&!g.won?'Requires completed campaign':unavailable?'In development':item.description,btn(owned?'Installed':unavailable?'Unavailable':prereq?'Requires previous':cash(item.price),()=>{
+          if(this.c.guest()){this.c.crewCommand('upgrade',item.id);return;}
           if(!g.buyUpgrade(item.id))this.notice('Required facility or funds unavailable');
           this.c.refresh();
         },owned||unavailable||Boolean(prereq)||g.cash<item.price));
@@ -478,10 +491,10 @@ export class UI {
         return row(objective.title,`${objective.detail} · ${value(progress)} / ${value(objective.target)}`,
           btn(accomplished?'Recorded':objective.reward?`Claim ${cash(objective.reward)}`:'Record',()=>{
             if(g.claimQuest(id))this.c.refresh();
-          },accomplished||progress<objective.target));
+          },this.c.guest()||accomplished||progress<objective.target));
       })),
       g.mods.opsPolicy?section('Operations policy',row('Dispatch modes',g.policy,...(['manual','revenue','land'] as const).map(mode=>
-        btn(mode,()=>{g.policy=mode;this.c.refresh();},g.policy===mode)))):undefined,
+        btn(mode,()=>{g.policy=mode;this.c.refresh();},this.c.guest()||g.policy===mode)))):undefined,
       section('Operations',
         row('Field bulletin',g.eventAt()),
         row('Earnings per field minute',g.clock>2?cash(g.stats.earned/(g.clock/60)):'Begin field work'),
@@ -500,6 +513,14 @@ export class UI {
     const s=this.c.site(),g=this.c.game();
     if(!s) return this.c.resume();
     const def=facilities[s.kind];
+    if(this.c.guest()){
+      this.panel(def.name,'Live crew operations',el('div','panel-content',
+        cards(tc(s.status,'Facility status'),tc(String(getQuantity(s.input)),'Input stock'),tc(String(getQuantity(s.output)),'Output stock')),
+        section('Input',...s.input.map(lot=>row(goods[lot.good][0],`${lot.quantity} units · ${stackMass(lot).toFixed(1)} kg`))),
+        section('Output',...s.output.map(lot=>row(goods[lot.good][0],`${lot.quantity} units · ${stackMass(lot).toFixed(1)} kg`))),
+        section('In production',...s.jobs.map(job=>row(goods[job.good][0],`${Math.ceil(Math.max(0,job.remaining))} seconds remaining`)))));
+      return;
+    }
     const recipe:Recipe|undefined=Object.hasOwn(recipes,s.kind)?recipes[s.kind as keyof typeof recipes]:undefined;
     const primary=g.sites.find(target=>target.id===s.link);
     const secondary=g.sites.find(target=>target.id===s.secondary&&target!==primary);

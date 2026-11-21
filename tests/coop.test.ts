@@ -3,6 +3,7 @@ import test from 'node:test';
 import { Campaign } from '../src/campaign';
 import { applyPatch, makePatch, newCode, packPose, readPose, readRoomBackup, readWorldPart, roomBackup, serializeWorld, validCode } from '../src/coop-wire';
 import { CrewWork } from '../src/coop-field';
+import { fieldChanges, readField } from '../src/coop-field-wire';
 import { CoopRoom } from '../src/coop';
 import { indexAt, treesIn } from '../src/land';
 import type { RealtimeClient } from '@photonengine/realtime-core';
@@ -66,6 +67,35 @@ test('guest field actions use campaign rules, update the room and reject distant
   assert.equal(ash.jobs.length,1);
 });
 
+test('guests purchase research and place facilities under host campaign rules',()=>{
+  const game=new Campaign();
+  const crew=new CrewWork(()=>game,()=>{},()=>false,()=>undefined);
+  const pose={x:0,z:6,yaw:0,pitch:0,lift:0};
+  assert.match(crew.run(2,pose,['upgrade','01-01'],100)??'',/funds/);
+  game.cash=800;
+  assert.match(crew.run(2,pose,['upgrade','01-01'],200)??'',/installed/);
+  const balance=game.cash;
+  assert.equal(game.ownedUpgrades.has('01-01'),true);
+  assert.match(crew.run(2,pose,['upgrade','01-01'],300)??'',/prerequisites/);
+  assert.equal(game.cash,balance);
+  assert.match(crew.run(2,pose,['build','bench'],400)??'',/installed/);
+  assert.equal(game.sites.filter(site=>site.kind==='bench').length,1);
+  assert.ok(game.cash<balance);
+});
+
+test('nearby timber updates include fresh positions and delivery tombstones between checkpoints',()=>{
+  const game=new Campaign();
+  const log={id:game.nextId++,x:0,z:2,y:1,q:[0,0,0,1] as [number,number,number,number],kind:0,length:1,kilograms:3,units:1,moisture:.5,quality:.8};
+  game.logs.set(log.id,log);
+  const track={known:new Map<number,string>(),next:0}, at={x:0,z:0};
+  assert.deepEqual(readField(JSON.stringify(fieldChanges(game.logs,at,1,track)))?.logs,[log]);
+  assert.deepEqual(fieldChanges(game.logs,at,2,track).logs,[]);
+  log.z=2.567;
+  assert.equal(fieldChanges(game.logs,at,3,track).logs[0].z,2.57);
+  game.logs.delete(log.id);
+  assert.deepEqual(fieldChanges(game.logs,at,4,track).gone,[log.id]);
+});
+
 test('two room clients exchange snapshots, actions, final save and host departure',async()=>{
   const timers=new Set<()=>void>();
   const original=globalThis.window;
@@ -101,9 +131,9 @@ test('two room clients exchange snapshots, actions, final save and host departur
   try {
     const hostGame=new Campaign();
     let guestSave:ReturnType<Campaign['snapshot']>|undefined;
-    let applied=0, ended='';
+    let applied=0, advanced=0, ended='';
     const config={appId:'test-app',region:'us',code:'ABCDEFGHIJ'};
-    const callbacks={capture:()=>hostGame.snapshot(),checkpoint:()=>{},action:()=>{applied++;hostGame.cash+=19;return 'accepted';},
+    const callbacks={capture:()=>hostGame.snapshot(),advance:(dt:number)=>{advanced+=dt;},checkpoint:()=>{},action:()=>{applied++;hostGame.cash+=19;return 'accepted';},
       departed:()=>{},pose:()=>{},notice:()=>{},ended:()=>{}};
     const host=new CoopRoom(new FakePhoton(1) as unknown as RealtimeClient,{...config,mode:'host'},1,callbacks);
     const guest=new CoopRoom(new FakePhoton(2) as unknown as RealtimeClient,{...config,mode:'join'},1,{
@@ -117,6 +147,7 @@ test('two room clients exchange snapshots, actions, final save and host departur
     flush();
     assert.deepEqual(host.poses.get(2),pose);
     assert.equal(applied,1);
+    assert.ok(advanced>=0);
     const exit=host.leave();
     flush();
     await new Promise(resolve=>setTimeout(resolve,105));

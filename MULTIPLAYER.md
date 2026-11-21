@@ -1,6 +1,6 @@
 # Photon multiplayer
 
-Project Clearcut supports private invite rooms for up to four players. The host runs the shared campaign simulation. Guests can explore, cut trees with the equipped forestry tool, hand-haul logs to facilities, survey the world and place unlocked buildings using the shared budget. The host handles equipment changes, vehicle operation, research, contracts, and industrial controls.
+Project Clearcut supports private invite rooms for up to four players. The host runs the shared campaign simulation. Guests can explore, cut trees, haul timber with unlocked equipment, inspect operations, and spend the shared budget on research, tools, vehicles and buildings. The host operates vehicles, contracts and detailed industrial controls. Pausing the host’s controls or moving its tab into the background leaves the room simulation running while the browser keeps the page active.
 
 ## Enable Photon
 
