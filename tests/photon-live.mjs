@@ -6,8 +6,10 @@ import { newCode,roomBackup } from '../src/coop-wire.ts';
 const origin='https://destroy-the-earth-with-datacenters.steepyak8.chatgpt.site/';
 const browser=await chromium.launch({headless:false,args:['--enable-unsafe-swiftshader','--use-gl=angle','--use-angle=swiftshader']});
 const viewport={width:760,height:500};
-const host=await browser.newPage({viewport});
-const guest=await browser.newPage({viewport});
+const hostContext=await browser.newContext({viewport});
+const host=await hostContext.newPage();
+const guestContext=await browser.newContext({viewport});
+const guest=await guestContext.newPage();
 for(const p of [host,guest]){
   p.setDefaultTimeout(30000);
   await p.addInitScript(()=>localStorage.setItem('clearcut.preferences',JSON.stringify({quality:'low',look:'drag'})));
@@ -46,6 +48,7 @@ try {
   await lobby(guest).getByLabel('Room code').fill(code);
   await click(guest,'Join room');
   await lobby(guest).waitFor({state:'hidden',timeout:45000});
+  await guest.getByText('$2,000',{exact:true}).waitFor();
   console.log('Guest joined and loaded the host checkpoint.');
 
   const cover=await host.context().newPage();
