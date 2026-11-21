@@ -1,6 +1,6 @@
 # Photon multiplayer
 
-Project Clearcut supports private invite rooms for up to four players. The host runs the shared campaign simulation. Guests can explore, cut trees, haul timber with unlocked equipment, inspect operations, and spend the shared budget on research, tools, vehicles and buildings. The host operates vehicles, contracts and detailed industrial controls. Pausing the host’s controls or moving its tab into the background leaves the room simulation running while the browser keeps the page active.
+Project Clearcut supports private invite rooms for up to four players. The host runs the shared campaign simulation. All players can explore, harvest, drive and operate vehicles, use industrial controls, manage contracts, and spend the shared budget on research and construction. Pausing the host’s controls or moving its tab into the background leaves the room simulation running while the browser keeps the page active.
 
 ## Enable Photon
 
@@ -20,3 +20,9 @@ The App ID identifies the frontend application to Photon. It is included in the 
 ## Acceptance check with your App ID
 
 Use two independent browser profiles. Host a new room, join by invite, confirm both crew avatars appear, and have the guest fell and deliver a sapling. Check that the host and guest see the same money after the burn. Close the room, reopen the saved checkpoint, rejoin, and check the harvest and balance after reload. Repeat with **Download room backup** and **Import room backup** on a fresh profile.
+
+## Host menu
+
+Use **Pause → Host menu** to change a player's gameplay permissions while the room is open. New players start with full access to field work, vehicles, construction, research, stations, and trade. The host can switch each category on or off for each connected player, or restore full access in one click. The host processes the shared campaign actions and applies those choices to the player who requested each action.
+
+Room Details shows the invite and checkpoint controls. Reopening a checkpoint starts a fresh room, so its players start with full access again.

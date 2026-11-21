@@ -7,13 +7,13 @@ import '@fontsource/dm-sans/latin-700.css';
 import '@fontsource/ibm-plex-mono/latin-500.css';
 import './style.css';
 import { Vector3 } from 'three';
-import { SIZE, TOTAL, facilities, recipes, species, tools, vehicles, vehicleTypes } from './catalog';
+import { CELL, SIZE, TOTAL, facilities, recipes, species, tools, vehicles, vehicleTypes } from './catalog';
 import type { Facility, Tool, VehicleType } from './catalog';
 import { Campaign, cargoMass, freightVehicles, stackMass, takesLogs, trailerGap, waterSites } from './campaign';
 import type { Challenge, Log, Ride, Save, Site } from './campaign';
 import { clamp, distance, indexAt, treesIn, treesPerCell } from './land';
 import type { Point, Tree } from './land';
-import { Scene, initializePhysics } from './scene';
+import { Scene, initializePhysics, rocksAt } from './scene';
 import type { Rock } from './scene';
 import { Sound } from './sound';
 import { downloadSave, listArchives, loadCampaign, readPreferences, saveCampaign, validateSave, writePreferences, saveRoomCheckpoint, downloadJson } from './storage';
@@ -22,9 +22,15 @@ import { UI } from './ui';
 import type { Hint, Page } from './ui';
 import { connectRoom } from './coop';
 import type { CoopRoom, Launch } from './coop';
-import { CrewWork, placementAt, treeAim } from './coop-field';
+import { placementAt, treeAim } from './coop-field';
 import { CoopLobby } from './coop-lobby';
 import { coopSlot, roomBackup } from './coop-wire';
+import type { Pose } from './coop-wire';
+import { campaignControl, campaignPermissions } from './campaign-controls';
+import type { CampaignCommand, CommandArgs } from './campaign-controls';
+import type { RoomPermission } from './room-permissions';
+import { roomPermissions } from './room-permissions';
+import { HostMenu } from './host-menu';
 import type { FieldPacket } from './coop-field-wire';
 import type { RealtimeValue } from '@photonengine/realtime-core';
 
@@ -46,9 +52,19 @@ const liveFelled=new Map<number,number>();
 let hostSaveAge=0;
 let joining: {resolve:()=>void; reject:(error:Error)=>void}|undefined;
 let leaving=false;
-let guestGrab:false|'grab'|'rope'|'lift'=false;
 const guest=()=>Boolean(room&&!room.isHost);
-const crew=new CrewWork(()=>game,(tree,pose)=>scene.startFall(tree,pose),tree=>scene.isFalling(tree),()=>held?.log);
+type Held = {log:Log;mode:'hand'|'rope'|'lift'|'winch'};
+type Operator = {
+  pose:Pose; seen:number; lastAction:number; lastActionKey:string; ride?:Ride; held?:Held; alt:boolean;
+  steering:number; lastSteering:number; lastSwing:number; reverse:boolean;
+  blade:number; cutter:number; earth:number;
+};
+const operators=new Map<number,Operator>();
+let currentOperator:number|undefined;
+let hostRide:Ride|undefined,hostHeld:Held|undefined;
+let guestRideId:string|undefined;
+let pendingSteering=0,lastSteeringSent=0;
+const liveRides=new Map<string,{at:number;ride:Ride}>();
 const sound=new Sound();
 let page:Page|undefined;
 let started=false;
@@ -63,7 +79,7 @@ let selectedBuild:Facility|undefined;
 let waypoint:Point|undefined;
 let survey:{point:Point;age:number}|undefined;
 let selectedVehicle:VehicleType|undefined;
-let held: {log:Log;mode:'hand'|'rope'|'lift'|'winch'}|undefined;
+let held:Held|undefined;
 let recording:Binding|undefined;
 let dragging=false;
 let using=false;
@@ -74,17 +90,22 @@ let toastDelay=0,bladeCycle=0,cutterCycle=0,earthCycle=0;
 let lastHarvest=0;
 let archives:Archive[]=[];
 let latestSave:Promise<unknown>=Promise.resolve();
-const inputs=new Set<string>();
+let inputs=new Set<string>();
 const hasLock=()=>document.pointerLockElement===canvas;
-const active=()=>started&&!atMenu&&!page&&!leaving&&!lobby.open;
+const active=()=>started&&!atMenu&&!page&&!leaving&&!lobby.open&&!hostMenu.dialog.open;
 const touchLabels:Partial<Record<Binding,string>>={interact:'Grab',drop:'Drop',jump:'Jump',ride:'Drive',load:'Cargo',rope:'Rope'};
 const key=(binding:Binding)=>onTouch&&touchLabels[binding]?touchLabels[binding]!:
   prefs.bindings[binding].replace(/^Key|^Digit/g,'');
 const pose=()=>({...game.player,lift:airborne});
-const show=(message:string)=>ui.notice(message);
+const show=(message:string)=>{
+  if(currentOperator!==undefined)room?.tell(currentOperator,message);
+  else ui.notice(message);
+};
+const can=(action:RoomPermission)=>room?.allowed(action,currentOperator)??true;
+const reject=(action:RoomPermission)=>show(roomPermissions[action]+' is disabled by the host.');
 
 const ui=new UI(root,{
-  game:()=>game,prefs,open,begin,resume,menu:mainMenu,multiplayer:()=>showLobby(),inRoom:()=>Boolean(room),guest,crewCommand,refresh:()=>{if(page)ui.show(page);void persist();},
+  game:()=>game,prefs,open,begin,resume,menu:mainMenu,multiplayer:()=>showLobby(),inRoom:()=>Boolean(room),can,command:runCampaignCommand,hosting:()=>Boolean(room?.isHost),hostMenu:()=>{if(room?.isHost)hostMenu.show(room);},refresh:()=>{if(page)ui.show(page);void persist();},
   save:()=>{void persist(true);},download:()=>{if(room){exportRoom();return;}downloadSave(game.snapshot());show('Campaign exported');},restore:(file)=>{void importFile(file);},
   archives:()=>archives, restoreArchive:(slot)=>{void restoreArchive(slot);},
   applySettings, binding:(id)=>{recording=id;ui.recording(id);},
@@ -98,6 +119,7 @@ const ui=new UI(root,{
   },
 });
 const lobby=new CoopLobby(root);
+const hostMenu=new HostMenu(root);
 
 function showLobby(message='') {
   if(!scene)return;
@@ -122,11 +144,11 @@ function endRoom(message:string) {
   const pending=joining;
   joining=undefined;
   void persist();
-  crew.clear();
+  operators.clear();hostMenu.dialog.close();
   room=undefined;
   roomCheckpoint=undefined;
   liveFelled.clear();liveLogs.clear();
-  guestGrab=false;
+  guestRideId=undefined;liveRides.clear();pendingSteering=0;
   leaving=false;
   scene.replica=false;
   scene.syncPlayers(undefined,0);
@@ -147,8 +169,174 @@ async function leaveRoom() {
   await session.leave();
   if(room===session)endRoom('Your room checkpoint is available under Saved rooms.');
 }
-function crewCommand(action:string,target:string|null) {
-  room?.action(pose(),[action,target]);
+function runCampaignCommand(command:CampaignCommand,args:CommandArgs) {
+  if(!can(campaignPermissions[command])){reject(campaignPermissions[command]);return;}
+  if(guest())room?.action(pose(),['menu',command,...args]);
+  else {
+    if(!campaignControl(game,command,args,game.player,id=>vehicleOccupied(id,command==='recover'?(room?.actorNumber??0):undefined),logHeld))show('Action unavailable. Check requirements and try again.');
+    if(page)ui.refreshLive(page);
+    void persist();
+  }
+}
+
+function vehicleOccupied(id:string,except?:number) {
+  const occupiedByHost=currentOperator===undefined?ride:hostRide;
+  return (room?.actorNumber??0)!==except&&occupiedByHost?.id===id
+    ||[...operators].some(([actor,state])=>actor!==except&&state.ride?.id===id);
+}
+
+function logHeld(id:number) {
+  const heldByHost=currentOperator===undefined?held:hostHeld;
+  return heldByHost?.log.id===id||[...operators].some(([actor,state])=>actor!==currentOperator&&state.held?.log.id===id);
+}
+
+const driveKeys=['forward','back','left','right'] as const;
+function observeOperator(actor:number,at:Pose) {
+  const now=performance.now();
+  let state=operators.get(actor);
+  if(state){
+    if(!state.ride&&distance(at,state.pose)>3+Math.min(3,(now-state.seen)/1000)*24)return;
+    if(!state.ride)state.pose=at;
+    state.seen=now;
+  }else {
+    state={pose:at,seen:now,lastAction:-Infinity,lastActionKey:'',alt:false,steering:0,lastSteering:0,lastSwing:-Infinity,reverse:false,blade:0,cutter:0,earth:0};
+    operators.set(actor,state);
+  }
+  return state;
+}
+
+// Execute field controls on the host with the requesting player's equipment,
+// position, and input. Restore the host controls before the next event or frame.
+function asOperator(actor:number,state:Operator,work:()=>void) {
+  const saved={player:game.player,ride,held,inputs,using,buttonAlt,airborne,reverse,swing,swingPeriod,dropTime,bladeCycle,cutterCycle,earthCycle};
+  currentOperator=actor;hostRide=ride;hostHeld=held;
+  game.player=state.pose;ride=state.ride;held=state.held;
+  if(held&&!game.logs.has(held.log.id))held=undefined;
+  inputs=new Set(driveKeys.filter((_,i)=>state.steering&(1<<i)));
+  using=Boolean(state.steering&16);buttonAlt=state.alt;
+  airborne=state.pose.lift;reverse=state.reverse;swing=0;
+  bladeCycle=state.blade;cutterCycle=state.cutter;earthCycle=state.earth;
+  try{work();}
+  finally{
+    state.ride=ride;state.held=held;state.reverse=reverse;state.pose.lift=airborne;
+    state.blade=bladeCycle;state.cutter=cutterCycle;state.earth=earthCycle;
+    ({ride,held,inputs,using,buttonAlt,airborne,reverse,swing,swingPeriod,dropTime,bladeCycle,cutterCycle,earthCycle}=saved);
+    game.player=saved.player;currentOperator=undefined;hostRide=undefined;hostHeld=undefined;
+  }
+}
+
+function handleOperator(actor:number,at:Pose,data:unknown):string|undefined {
+  if(!Array.isArray(data)||typeof data[0]!=='string'||data.length>18)return;
+  const state=observeOperator(actor,at);
+  if(!state)return;
+  const [type,a,b]=data;
+  const now=performance.now();
+  if(type==='steer'){
+    if(!Number.isInteger(a)||a<0||a>31||!canFor('vehicles',actor))return;
+    state.steering=a;state.lastSteering=now;return;
+  }
+  const actionKey=type+':'+(typeof a==='string'?a:'');
+  if(!(type==='field'&&a==='release')&&actionKey===state.lastActionKey&&now-state.lastAction<45)return;
+  state.lastAction=now;state.lastActionKey=actionKey;
+  if(type==='menu'){
+    if(typeof a!=='string'||!Object.hasOwn(campaignPermissions,a))return;
+    const command=a as CampaignCommand,permission=campaignPermissions[command];
+    if(!canFor(permission,actor))return roomPermissions[permission]+' is disabled by the host.';
+    const values=data.slice(2);
+    if(!values.every(v=>typeof v==='string'&&v.length<=1400||typeof v==='number'&&Number.isFinite(v)||typeof v==='boolean'||v===null))return;
+    const ok=campaignControl(game,command,values,state.pose,id=>vehicleOccupied(id,command==='recover'?actor:undefined),logHeld);
+    return ok?'Campaign updated.':'Action unavailable. Check requirements and try again.';
+  }
+  if(type==='build'||type==='vehicle'){
+    if(!canFor('build',actor))return roomPermissions.build+' is disabled by the host.';
+    if(typeof a!=='string'||!Object.hasOwn(type==='build'?facilities:vehicles,a)||state.ride)return;
+    let result:string|undefined;
+    asOperator(actor,state,()=>{
+      if(type==='build'){
+        const kind=a as Facility;
+        const point=placementAt(game.player,kind);
+        result=game.siteIssue(kind,point)||undefined;
+        if(!result&&game.build(kind,point))result=facilities[kind].name+' installed.';
+      }else {
+        const kind=a as VehicleType;
+        result=game.acquireRide(kind,placementAt(game.player))?vehicles[kind].name+' delivered.':'Vehicle requirements or funds are missing.';
+      }
+    });
+    return result;
+  }
+  if(type!=='field'||typeof a!=='string'||typeof b!=='boolean')return;
+  const permission=fieldPermission(a,state.ride);
+  if(a!=='release'&&permission&&!canFor(permission,actor))return roomPermissions[permission]+' is disabled by the host.';
+  state.alt=b;
+  if(a==='swing'){
+    if(state.ride||now-state.lastSwing<game.swingTime*1000-35)return;
+    state.lastSwing=now;
+    asOperator(actor,state,()=>swingTool());
+  }else if(['interact','rope','lift','drop','ride','load','probe','hitch','release'].includes(a)){
+    asOperator(actor,state,()=>{
+      if(a==='release'){if(held?.mode==='hand')release();}
+      else if(a==='interact'&&held?.mode==='hand')release();
+      else {
+        const wasHolding=Boolean(held);
+        useFieldAction(a);
+        if(held&&!wasHolding)show(held.mode==='hand'?'Log grabbed. Release Interact or press Drop to deliver.':'Log attached. Press Drop to deliver.');
+      }
+    });
+
+  }
+}
+const canFor=(key:RoomPermission,actor:number)=>room?.allowed(key,actor)??true;
+
+function tickOperators(now:number,dt:number){
+  for(const [actor,state] of operators){
+    if(now-state.seen>4000||state.ride&&!game.rides.includes(state.ride)){
+      state.ride=undefined;state.held=undefined;state.steering=0;continue;
+    }
+    if(state.ride){
+      if(now-state.lastSteering>450)state.steering=0;
+      asOperator(actor,state,()=>movement(dt));
+    }
+    if(state.held){
+      const {log,mode}=state.held;
+      if(!game.logs.has(log.id)||log.cargo||log.carrier){state.held=undefined;continue;}
+      const {x,z,yaw}=state.pose;
+      const reach=mode==='winch'?-3:mode==='rope'?3.3:mode==='lift'?1.25:1.65;
+      const blend=Math.min(1,dt*9);
+      log.x+=(clamp(x-Math.sin(yaw)*reach,-SIZE/2+.7,SIZE/2-.7)-log.x)*blend;
+      log.z+=(clamp(z-Math.cos(yaw)*reach,-SIZE/2+.7,SIZE/2-.7)-log.z)*blend;
+      log.y=height(log.x,log.z)+(mode==='lift'?.89:.44);
+    }
+  }
+}
+function captureOperators(){
+  const states=[{id:room!.actorNumber,pose:pose(),ride,held:undefined as Held|undefined},
+    ...[...operators].map(([id,state])=>({id,pose:state.pose,ride:state.ride,held:state.held}))];
+  return JSON.stringify({clock:game.clock,states:states.map(state=>({
+    id:state.id,pose:state.pose,ride:state.ride,held:state.held&&{id:state.held.log.id,mode:state.held.mode}
+  }))});
+}
+function applyOperators(value:string){
+  if(!guest()||!room)return;
+  try{
+    const data=JSON.parse(value) as {clock:number;states:{id:number;pose:Pose;ride?:Ride;held?:{id:number;mode:Held['mode']}}[]};
+    if(!Number.isFinite(data.clock)||!Array.isArray(data.states)||data.states.length>4)return;
+    for(const state of data.states){
+      if(!Number.isInteger(state.id)||!state.pose||![state.pose.x,state.pose.z,state.pose.yaw].every(Number.isFinite))continue;
+      if(state.ride&&Object.hasOwn(vehicles,state.ride.kind)&&[state.ride.x,state.ride.z,state.ride.yaw].every(Number.isFinite)){
+        liveRides.set(state.ride.id,{at:data.clock,ride:state.ride});
+        const index=game.rides.findIndex(r=>r.id===state.ride!.id);
+        if(index>=0)game.rides[index]=state.ride;
+      }
+      if(state.id!==room.actorNumber){if(state.ride)room.poses.set(state.id,state.pose);continue;}
+      const wasDriving=Boolean(guestRideId);
+      guestRideId=state.ride?.id;
+      ride=state.ride;
+      if(ride)Object.assign(game.player,{x:ride.x,z:ride.z,yaw:ride.yaw});
+      else if(wasDriving)Object.assign(game.player,state.pose);
+      const log=state.held&&game.logs.get(state.held.id);
+      held=log&&state.held?{log,mode:state.held.mode}:undefined;
+    }
+  }catch { /* A malformed or stale player update does not replace the checkpoint. */ }
 }
 function applyField(packet:FieldPacket) {
   if(!guest()||packet.clock<(roomCheckpoint?.clock??0))return;
@@ -158,7 +346,7 @@ function applyField(packet:FieldPacket) {
 function advanceRoom(seconds:number) {
   if(!room?.isHost||atMenu||leaving||seconds<=0)return;
   const p=game.player;
-  crew.tick(performance.now());
+  tickOperators(performance.now(),seconds);
   for(let remaining=seconds;remaining>0;){
     const dt=Math.min(remaining,.12);
     remaining-=dt;
@@ -172,7 +360,7 @@ function advanceRoom(seconds:number) {
 }
 function deliverLooseLogs(p:Point) {
   for(const log of game.logs.values()){
-    if(log.cargo||log.carrier||crew.isHeld(log.id)||distance(log,p)>16)continue;
+    if(log.cargo||log.carrier||logHeld(log.id)||distance(log,p)>16)continue;
     if(game.sites.some(site=>site.kind==='fire'&&distance(log,site)<1.15&&game.acceptLog(site,log))){
       void persist();
       break;
@@ -211,9 +399,19 @@ function receiveRoomSave(save:Save) {
     const changed=game.cash!==next.cash||game.ownedUpgrades.size!==next.ownedUpgrades.size
       ||game.prototypes.size!==next.prototypes.size||game.tool!==next.tool;
     const siteId=selectedSite?.id;
+    for(const [id,current] of liveRides){
+      if(current.at<save.clock){liveRides.delete(id);continue;}
+      const index=next.rides.findIndex(r=>r.id===id);
+      if(index>=0)next.rides[index]=current.ride;
+    }
+    if(guestRideId)ride=next.rides.find(r=>r.id===guestRideId);
+    if(held){
+      const log=next.logs.get(held.log.id);
+      held=log?{log,mode:held.mode}:undefined;
+    }
     game=next;scene.game=next;
     if(siteId)selectedSite=next.sites.find(site=>site.id===siteId);
-    if(page&&(page==='site'||page==='journal'||changed&&['upgrades','build','inventory'].includes(page)))ui.refreshLive(page);
+    if(page&&(page==='site'||page==='journal'||changed&&['map','upgrades','build','inventory'].includes(page)))ui.refreshLive(page);
   }
   if(first)void persist();
 }
@@ -241,11 +439,22 @@ async function launchRoom(config:Launch,source:'new'|'solo'|'saved') {
         scene.finishReplicaFall(id);
       },
       ended:message=>{if(!leaving)endRoom(message);},
-      action:(actor,at,data)=>crew.run(actor,at,data,performance.now()),
-      departed:actor=>crew.leave(actor),pose:(actor,at)=>{if(room?.isHost)crew.observe(actor,at,performance.now());},notice:message=>{
-        if(message.startsWith('That log'))guestGrab=false;
-        show(message);
+      action:handleOperator,
+      departed:actor=>operators.delete(actor),
+      pose:(actor,at)=>{if(room?.isHost)observeOperator(actor,at);},
+      roster:()=>{if(hostMenu.dialog.open)hostMenu.refresh();},
+      playerStates:captureOperators,applyPlayerStates:applyOperators,
+      permissions:(actor,mask)=>{
+        if(room?.isHost){
+          const state=operators.get(actor);
+          if(state&&!canFor('vehicles',actor)){state.ride=undefined;state.steering=0;}
+          if(state&&!canFor('field',actor))state.held=undefined;
+        }else if(room&&mask>=0){
+          if(page)ui.refreshLive(page);
+          show('The host updated your gameplay permissions.');
+        }
       },
+      notice:message=>{if(message)show(message);},
     });
   } catch(error) {solo=undefined;throw error;}
   saveAge=0;hostSaveAge=0;
@@ -263,8 +472,10 @@ async function launchRoom(config:Launch,source:'new'|'solo'|'saved') {
 }
 function collapseControls() {
   inputs.clear();using=false;buttonAlt=false;dragging=false;
-  if(held?.mode==='hand'&&!prefs.sticky) release();
-  if(guestGrab==='grab'&&!prefs.sticky)guestDrop();
+  if(guest()){
+    room?.action(pose(),['steer',0]);lastSteeringSent=0;pendingSteering=0;
+    if(!prefs.sticky)room?.action(pose(),['field','release',false]);
+  }else if(held?.mode==='hand'&&!prefs.sticky)release();
 }
 function open(target:Page) {
   if(!scene) return;
@@ -331,6 +542,7 @@ function begin(kind:'resume'|'new'|'plus',challenge:Challenge='standard') {
   void persist();
 }
 function persist(announce=false) {
+  if(currentOperator!==undefined)return Promise.resolve();
   const session=room;
   if(!session&&!startedBefore) return Promise.resolve();
   const source=session&&!session.isHost?roomCheckpoint:game.snapshot();
@@ -427,7 +639,7 @@ window.addEventListener('resize',()=>scene?.resize());
 function nearLog(range=3,cargoBed?:Point) {
   let closest:Log|undefined,best=range;
   for(const log of game.logs.values()) {
-    if(log.cargo||log.carrier||crew.isHeld(log.id))continue;
+    if(log.cargo||log.carrier||logHeld(log.id))continue;
     const p=scene.logPosition(log,game.player,range);
     if(!p)continue;
     const d=distance(game.player,p);
@@ -452,10 +664,24 @@ function nearRide(towVehicle=false) {
   }
   return closest;
 }
+function fieldTrees(){
+  if(currentOperator===undefined)return scene.visibleTrees;
+  const {x,z}=game.player, trees:Tree[]=[];
+  for(let row=Math.floor((z-20)/CELL)*CELL;row<=z+20;row+=CELL)
+    for(let col=Math.floor((x-20)/CELL)*CELL;col<=x+20;col+=CELL){
+      const cell=indexAt(col,row);
+      if(cell>=0)trees.push(...treesIn(game.seed,cell));
+    }
+  return trees;
+}
+function fieldRocks(){
+  return currentOperator===undefined?scene.visibleRocks:rocksAt(game,game.player,tools.breaker.range);
+}
+
 function treeTarget(reach=tools[game.tool].range) {
   const p=pose();
   let chosen:Tree|undefined, closest=reach;
-  for(const tree of scene.visibleTrees) {
+  for(const tree of fieldTrees()) {
     if(!game.isStanding(tree)||scene.isFalling(tree))continue;
     const depth=treeAim(game,p,tree,closest);
     if(depth!==undefined){closest=depth;chosen=tree;}
@@ -465,7 +691,7 @@ function treeTarget(reach=tools[game.tool].range) {
 
 function stumpTarget() {
   const p=game.player;
-  return scene.visibleTrees.filter(t=>game.removed.has(t.id)&&!game.groundStumps.has(t.id)&&distance(t,p)<3.7)
+  return fieldTrees().filter(t=>game.removed.has(t.id)&&!game.groundStumps.has(t.id)&&distance(t,p)<3.7)
     .sort((a,b)=>distance(a,p)-distance(b,p))[0];
 }
 
@@ -473,7 +699,7 @@ function rockTarget() {
   const p=game.player, origin=height(p.x,p.z)+1.64+airborne;
   const x=-Math.sin(p.yaw),z=-Math.cos(p.yaw);
   let pick:Rock|undefined,closest=tools.breaker.range;
-  for(const rock of scene.visibleRocks){
+  for(const rock of fieldRocks()){
     const dx=rock.x-p.x,dz=rock.z-p.z,along=dx*x+dz*z;
     if(along<.2||along>closest||Math.hypot(dx-along*x,dz-along*z)>rock.size+.23)continue;
     const actual=origin+Math.tan(p.pitch)*along;
@@ -509,7 +735,7 @@ function interact() {
     return;
   }
   const site=nearSite();
-  if(site){ selectedSite=site;open('site'); }
+  if(site&&currentOperator===undefined){ selectedSite=site;open('site'); }
 }
 function attach(mode:'rope'|'lift') {
   if(held){release();return;}
@@ -533,6 +759,7 @@ function toggleRide() {
     return;
   }
   const nearest=nearRide();
+  if(nearest&&vehicleOccupied(nearest.id)){show('That vehicle already has a driver');return;}
   if(!nearest){show('Move closer to a vehicle');return;}
   if(game.sites.some(s=>s.dedicatedRide===nearest.id)){show('This vehicle is assigned to autonomous dispatch');return;}
   if(vehicleTypes[nearest.kind].trailer){show('Couple the trailer from a nearby tow vehicle');return;}
@@ -597,35 +824,39 @@ function pushOrCut() {
     if(game.cutLog(log.id,{x:log.x+Math.cos(p.yaw)*1.3,z:log.z-Math.sin(p.yaw)*1.3},game.mods.crosscut?(p.pitch<-.32?.33:.67):.5))show('Trunk cut into two usable sections');
   } else scene.shove(log,p.yaw);
 }
-function guestDrop() {
-  guestGrab=false;
-  room?.action(pose(),['drop',null]);
-}
-function guestAction(action:string) {
-  if(action==='interact'||action==='rope'||action==='lift'){
-    if(guestGrab){guestDrop();return;}
-    const mode=action==='interact'?'grab':action;
-    const log=nearLog(mode==='rope'?game.mods.ropeRange:mode==='lift'?1.8:3);
-    if(log){guestGrab=mode;room?.action(pose(),[mode,log.id]);return;}
-    if(mode!=='grab')return;
-    const site=nearSite();
-    if(site){selectedSite=site;open('site');}
-  } else if(action==='drop')guestDrop();
-  else if(action==='jump'){if(airborne===0)vY=5.2;}
-  else if(action==='tool')open('inventory');
-  else if(action==='map'||action==='build'||action==='inventory'||action==='upgrades'||action==='journal')open(action);
-  else if(!['forward','back','left','right','sprint'].includes(action))show('Vehicle operation and industrial controls are managed by the host.');
+function fieldPermission(action:string,currentRide?:Ride):RoomPermission|undefined {
+  if(['ride','load','hitch'].includes(action)||currentRide&&['rope','drop','swing'].includes(action))return 'vehicles';
+  if(action==='probe')return 'research';
+  if(['interact','rope','lift','drop','swing'].includes(action))return 'field';
 }
 function onAction(a:string,pressed:boolean) {
   if(!pressed){
     inputs.delete(a);
-    if(guest()&&a==='interact'&&guestGrab==='grab'&&!prefs.sticky)guestDrop();
-    if(a==='interact'&&held?.mode==='hand'&&!prefs.sticky)release();
+    if(a==='interact'&&!prefs.sticky){
+      if(guest())room?.action(pose(),['field','release',false]);
+      else if(held?.mode==='hand')release();
+    }
     return;
   }
   if(!active()||inputs.has(a))return;
   inputs.add(a);
-  if(guest()){guestAction(a);return;}
+  if(guest()){
+    if(a==='interact'&&!ride&&!held&&(!can('field')||!nearLog())){
+      const site=nearSite();
+      if(site){selectedSite=site;open('site');}
+      return;
+    }
+    const permission=fieldPermission(a,ride);
+    if(permission){
+      if(!can(permission)){reject(permission);return;}
+      if(a==='probe')useFieldAction(a);
+      else room?.action(pose(),['field',a,buttonAlt]);
+      return;
+    }
+  }
+  useFieldAction(a);
+}
+function useFieldAction(a:string) {
   switch(a) {
     case 'interact':interact();break;
     case 'drop':
@@ -668,7 +899,7 @@ function handleTouch(k:string,pressed:boolean) {
 }
 function findBinding(code:string) { return (Object.keys(prefs.bindings) as Binding[]).find(k=>prefs.bindings[k]===code); }
 window.addEventListener('keydown',e=>{
-  if(lobby.open)return;
+  if(lobby.open||hostMenu.dialog.open)return;
   if(recording){
     e.preventDefault();
     if(e.code!=='Escape'){
@@ -700,21 +931,22 @@ window.addEventListener('keyup',e=>{const bind=findBinding(e.code);if(bind)onAct
 function placement() {return placementAt(game.player,selectedBuild);}
 function swingTool() {
   if(ride)return;
-  if(!active()||swing>0||survey)return;
+  if(currentOperator===undefined&&(!active()||swing>0||survey))return;
   if(guest()){
+    const permission=selectedBuild||selectedVehicle?'build':'field';
+    if(!can(permission)){using=false;reject(permission);return;}
     if(selectedBuild||selectedVehicle){
       const command:RealtimeValue=selectedBuild?['build',selectedBuild]:['vehicle',selectedVehicle!];
       room?.action(pose(),command);
       selectedBuild=undefined;selectedVehicle=undefined;using=false;
-    } else {
+    }else{
       swingPeriod=game.swingTime;swing=swingPeriod;reverse=!reverse;
-      const tree=treeTarget();
-      if(tree)room?.action(pose(),['swing',tree.id]);
-      sound.swing(game.tool==='knife',Boolean(tree));
+      room?.action(pose(),['field','swing',buttonAlt]);
+      sound.swing(game.tool==='knife',Boolean(treeTarget()));
     }
     return;
   }
-  if(selectedBuild||selectedVehicle){
+  if(currentOperator===undefined&&(selectedBuild||selectedVehicle)){
     using=false;
     const point=placement();
     const built=selectedBuild?game.build(selectedBuild,point):game.acquireRide(selectedVehicle!,point);
@@ -780,9 +1012,9 @@ function movement(dt:number) {
       x:trailer.x+(nx+Math.sin(p.yaw)*gap-trailer.x)*Math.min(1,dt*4),
       z:trailer.z+(nz+Math.cos(p.yaw)*gap-trailer.z)*Math.min(1,dt*4),
     }:undefined;
-    const obstacle=scene.visibleTrees.find(t=>game.isStanding(t)&&distance(t,next)<species[t.kind].radius*t.scale+.69);
+    const obstacle=fieldTrees().find(t=>game.isStanding(t)&&distance(t,next)<species[t.kind].radius*t.scale+.69);
     const blockedTrailer=behind&&trailer&&(Math.max(Math.abs(behind.x),Math.abs(behind.z))>SIZE/2-.7
-      ||scene.visibleTrees.some(t=>game.isStanding(t)&&distance(t,behind)<species[t.kind].radius*t.scale+1.1
+      ||fieldTrees().some(t=>game.isStanding(t)&&distance(t,behind)<species[t.kind].radius*t.scale+1.1
         &&distance(t,behind)<distance(t,trailer)));
     const canMove=!obstacle&&!blockedTrailer;
     if(canMove){
@@ -802,7 +1034,7 @@ function movement(dt:number) {
       if(cutterCycle>=.62){
         const radius=ride.kind==='giantRig'?8:game.mods.harvesterHead?6.7:5.4;
         const aimed={x:ride.x-Math.sin(p.yaw)*2.6,z:ride.z-Math.cos(p.yaw)*2.6};
-        const eligible=scene.visibleTrees.filter(t=>game.isStanding(t)&&!scene.isFalling(t)&&distance(t,aimed)<radius)
+        const eligible=fieldTrees().filter(t=>game.isStanding(t)&&!scene.isFalling(t)&&distance(t,aimed)<radius)
           .sort((a,b)=>distance(a,aimed)-distance(b,aimed)).slice(0,ride.kind==='giantRig'?4:1);
         for(const tree of eligible){
           const hit=game.harvesterHit(tree,ride);
@@ -829,7 +1061,7 @@ function movement(dt:number) {
         if(ride.kind==='excavator'||ride.kind==='scoopLoader'){
           if(game.excavate(work,ride))scene.impact(new Vector3(work.x,height(work.x,work.z)+.3,work.z),'dust',15);
         }else if(ride.kind==='shear'){
-          const tree=scene.visibleTrees.find(t=>t.kind<=1&&game.isStanding(t)&&!scene.isFalling(t)&&distance(t,work)<2.8);
+          const tree=fieldTrees().find(t=>t.kind<=1&&game.isStanding(t)&&!scene.isFalling(t)&&distance(t,work)<2.8);
           if(tree&&ride.fuel>=2){ride.fuel-=2;scene.startFall(tree,p,0,true);sound.swing(false,true);}
         }else{
           const ruin=game.sites.find(s=>s.kind==='ruin'&&distance(s,work)<3.4);
@@ -863,7 +1095,7 @@ function movement(dt:number) {
   if(!ahead&&!sideways){stride+=(Math.round(stride/Math.PI)*Math.PI-stride)*dt*5;return;}
   const sprint=inputs.has('sprint')&&!held&&game.stamina>12;
   const base=(sprint?7.3*game.mods.sprint:4.65*game.mods.walk)*game.mods.athlete;
-  const load=guestGrab?.67:held ? (held.mode==='rope'?.82:.67)*Math.max(.52,1-held.log.kilograms/210) : 1;
+  const load=held ? (held.mode==='rope'?.82:.67)*Math.max(.52,1-held.log.kilograms/210) : 1;
   const soil=game.soil.get(indexAt(p.x,p.z)), mud=soil&&soil.moisture>.79 ? 1-.24*game.mods.mud : 1;
   if(sprint)game.stamina=Math.max(0,game.stamina-dt*14);
   const speed=dt*base*load*mud/Math.max(1,Math.hypot(ahead,sideways));
@@ -871,7 +1103,7 @@ function movement(dt:number) {
     x:clamp(p.x+(-Math.sin(p.yaw)*ahead+Math.cos(p.yaw)*sideways)*speed,-SIZE/2+.62,SIZE/2-.62),
     z:clamp(p.z+(-Math.cos(p.yaw)*ahead-Math.sin(p.yaw)*sideways)*speed,-SIZE/2+.62,SIZE/2-.62),
   };
-  for(const t of scene.visibleTrees){
+  for(const t of fieldTrees()){
     const minimum=species[t.kind].radius*t.scale+.27,d=distance(t,next);
     if(d>=minimum||!game.isStanding(t)||d<.0001)continue;
     next.x=t.x+(next.x-t.x)*minimum/d;next.z=t.z+(next.z-t.z)*minimum/d;
@@ -926,6 +1158,13 @@ function frame(now:number) {
   const playing=active(), p=game.player;
   if(room&&!atMenu){
     room.pose(pose(),now);
+    if(guest()&&ride&&can('vehicles')&&now-lastSteeringSent>=80){
+      const steering=playing?driveKeys.reduce((bits,key,i)=>inputs.has(key)?bits|(1<<i):bits,using?16:0):0;
+      if(steering||steering!==pendingSteering){
+        room.action(pose(),['steer',steering]);
+        pendingSteering=steering;lastSteeringSent=now;
+      }
+    }
     if(guest()&&!playing){saveAge+=dt;if(saveAge>=8){saveAge=0;void persist();}}
   }
   scene.syncPlayers(room?.poses,dt);
@@ -936,8 +1175,8 @@ function frame(now:number) {
       survey.age+=dt;
       if(survey.age>=7){survey=undefined;show('Survey drone returned');}
     }else{
-      movement(dt);
-      if(using)swingTool();
+      if(!guest()||!ride)movement(dt);
+      if(using&&!ride)swingTool();
     }
     if(!room)game.tick(dt,!inputs.has('sprint')||(!inputs.has('forward')&&!inputs.has('right')&&!inputs.has('left')&&!inputs.has('back')),held?.log.id);
     if(held&&(!game.logs.has(held.log.id)||distance(held.log,p)>Math.max(held.mode==='winch'?17:8,held.log.length+4)))letGo();
@@ -945,7 +1184,7 @@ function frame(now:number) {
     if(!room||guest()){saveAge+=dt;if(saveAge>=8){saveAge=0;void persist();}}
     if(waypoint&&distance(p,waypoint)<2.4){waypoint=undefined;show('Survey marker reached');}
   }
-  if(playing&&!guest()&&game.won&&game.completionTime>game.clock-1&&victoryAge===-1){victoryAge=0;sound.finish();void persist();}
+  if(playing&&game.won&&game.completionTime>game.clock-3&&victoryAge===-1){victoryAge=0;sound.finish();void persist();}
   if(victoryAge>=0){
     victoryAge+=dt;
     if(victoryAge>=11){victoryAge=-2;open('victory');}
@@ -962,7 +1201,7 @@ function frame(now:number) {
   if(!atMenu)ui.update({x:p.x,z:p.z,stage:land?.stage??0,held:held?species[held.log.kind].name:undefined,ride:ride?vehicles[ride.kind].name:undefined,
     rideDetail:ride?(vehicles[ride.kind].motor?`${Math.round(ride.fuel)}% fuel · ${Math.round(ride.wear)}% wear`:'Manual transport'):undefined,
     hint:targeting.hint,running:playing,direction:`${orientation[scale]}  /  ${Math.round(p.x)} E  ${Math.round(-p.z)} N`,elapsed:game.clock,waypoint,aimedBuild:aimed,
-    buildIssue:problem,saved:room?`${room.isHost?'HOST':'CO-OP'} · ${room.count}/4 · ${saveLabel||'SYNCING'}`:saveLabel,touch:onTouch});
+    buildIssue:problem,saved:room?`${room.isHost?'HOST':'PLAYER '+room.actorNumber} · ${room.count}/4 · ${saveLabel||'SYNCING'}`:saveLabel,touch:onTouch});
   sound.ambient(game.clock,game.rain,(land?.stage??0)<3,Boolean(ride&&vehicles[ride.kind].motor),playing);
   scene.render({dt,at:p,y:height(p.x,p.z)+(ride?1.89:1.64)+airborne,yaw:p.yaw,pitch:p.pitch,menu:atMenu,active:playing&&victoryAge<0&&!survey,shared:Boolean(room?.isHost),survey,
     swing:swing>0?1-swing/swingPeriod:0,reverse,reduced:prefs.reduced,stride,held,target:targeting.point,drive:ride,
@@ -988,7 +1227,7 @@ async function boot() {
   try {
     await initializePhysics();
     scene=new Scene(canvas,game);
-    scene.remotelyHeld=id=>crew.isHeld(id);
+    scene.remotelyHeld=id=>[...operators.values()].some(state=>state.held?.log.id===id);
     scene.onFall=(id,from,wedge)=>room?.fallen(id,from,wedge);
     scene.onLanded=id=>room?.landed(id,game.clock);
     applySettings();
