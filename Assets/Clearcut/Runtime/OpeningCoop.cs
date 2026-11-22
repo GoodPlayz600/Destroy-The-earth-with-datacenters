@@ -21,6 +21,7 @@ namespace Clearcut
         const int PoseCode = 40, StateCode = 41, HelloCode = 42, ActionCode = 43, GripCode = 44;
         readonly Dictionary<int, Ghost> avatars = new();
         CampaignSession game;
+        GameObject avatarPrefab;
         int actor, master;
         float nextPose, nextState;
         string lastState;
@@ -33,7 +34,11 @@ namespace Clearcut
         [DllImport("__Internal")] static extern void ClearcutPhotonClose();
 #endif
 
-        void Awake() => game = GetComponent<CampaignSession>();
+        void Awake()
+        {
+            game = GetComponent<CampaignSession>();
+            avatarPrefab = Resources.Load<GameObject>("FieldOperatorAvatar");
+        }
 
 #if UNITY_EDITOR
         internal void StartHostForSmokeTest()
@@ -119,7 +124,7 @@ namespace Clearcut
                     Close();
                     break;
                 case "left":
-                    if (avatars.Remove(message.actor, out var entry))
+                    if (avatars.Remove(message.actor, out var entry) && entry.Display)
                         Destroy(entry.Display);
                     break;
                 case "event":
@@ -172,8 +177,10 @@ namespace Clearcut
         {
             if (!avatars.TryGetValue(number, out var ghost))
             {
-                ghost = new Ghost(CreateAvatar());
-                ghost.Display.transform.position = pose.position;
+                var display = avatarPrefab
+                    ? Instantiate(avatarPrefab, pose.position, Quaternion.Euler(0, pose.yaw, 0))
+                    : null;
+                ghost = new Ghost(display);
                 avatars.Add(number, ghost);
             }
             ghost.Pose = pose;
@@ -267,30 +274,11 @@ namespace Clearcut
             float weight = 1 - Mathf.Exp(-14 * Time.unscaledDeltaTime);
             foreach (var ghost in avatars.Values)
             {
+                if (!ghost.Display)
+                    continue;
                 var display = ghost.Display.transform;
                 display.position = Vector3.Lerp(display.position, ghost.Pose.position, weight);
                 display.rotation = Quaternion.Euler(0, Mathf.LerpAngle(display.eulerAngles.y, ghost.Pose.yaw, weight), 0);
-            }
-        }
-
-        GameObject CreateAvatar()
-        {
-            var root = new GameObject("Co-op field operator");
-            Part(PrimitiveType.Capsule, new Vector3(0, 0.79f, 0), new Vector3(0.53f, 0.61f, 0.42f));
-            Part(PrimitiveType.Sphere, new Vector3(0, 1.58f, 0), new Vector3(0.32f, 0.30f, 0.33f));
-            Part(PrimitiveType.Sphere, new Vector3(0, 1.68f, 0.02f), new Vector3(0.43f, 0.14f, 0.41f));
-            return root;
-
-            void Part(PrimitiveType shape, Vector3 point, Vector3 scale)
-            {
-                var item = GameObject.CreatePrimitive(shape);
-                var collider = item.GetComponent<Collider>();
-                collider.enabled = false;
-                Destroy(collider);
-                item.transform.SetParent(root.transform, false);
-                item.transform.localPosition = point;
-                item.transform.localScale = scale;
-                item.GetComponent<MeshRenderer>().sharedMaterial = game.chipMaterial;
             }
         }
 

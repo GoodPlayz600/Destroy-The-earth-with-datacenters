@@ -80,6 +80,10 @@ namespace Clearcut
                 "Fresh campaign starts at $0 with the modeled knife.");
             Check(game.trees.Length >= 200 && game.trees[0].standing.GetComponent<MeshFilter>().sharedMesh,
                 "The saved scene instantiates a modeled jungle.");
+            var avatar = Resources.Load<GameObject>("FieldOperatorAvatar");
+            Check(avatar && avatar.GetComponentsInChildren<MeshFilter>().Length > 8 &&
+                avatar.GetComponentsInChildren<Collider>().Length == 0,
+                "The remote operator is a build-included visual prefab with no physics components.");
             game.enabled = false;
             Vector3 spawn = game.transform.position;
             for (int frame = 0; frame < 25; frame++)

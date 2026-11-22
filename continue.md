@@ -28,4 +28,8 @@ The GitHub branch `codex/unity-clearcut` includes README, the exact root prompt,
 
 ### Timber-yard checkpoint
 
-The expanded opening and timber yard passed `Builds/Evidence/opening-smoke.txt`. The editable yard kit is `Assets/Models/Source~/TimberYard.blend`. The three-platform production batch `batch-17e2ac591a` is running under `Builds/TimberYard`. Latest browser room protocol is opening version 3, because it includes the timber production state and work commands. Recheck the new Web build in two clients before counting full live yard co-op. Primitive sled and cart hauling, the rest of the upgrade effects, the full traversable world, and later campaign systems are outstanding.
+The expanded opening and timber yard passed `Builds/Evidence/opening-smoke.txt` and were pushed as `d5f92c1`. The editable yard kit is `Assets/Models/Source~/TimberYard.blend`. Web, Windows x64, and Linux x64 builds completed under `Builds/TimberYard` after running each desktop target individually. Linux initialized with a graphics window. The Windows build reached engine startup through headless Wine.
+
+Two Web clients joined the same Photon room and the guest received the host wallet. Guest actions exposed a Web-only error when Unity tried to create a stripped collider on an avatar. The replacement is a saved, collider-free `FieldOperatorAvatar` prefab. The corrected Web build is rebuilding. After it ships, verify an actual guest purchase and record whether the host and guest both see the new wallet balance. Live guest hauling through the timber yard still needs dedicated coverage.
+
+Primitive tether, sled, and cart hauling, the rest of the upgrade effects, the full traversable world, and later campaign systems are outstanding. At the last observed usage check, the five-hour window had 29% remaining and the weekly window had 63%.

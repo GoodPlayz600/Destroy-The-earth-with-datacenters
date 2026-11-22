@@ -25,3 +25,5 @@
 - Added and saved five functional yard stations with seven editable Blender/FBX assets. The Unity opening now supports selling raw logs, manually milling boards, drying, assembling crates, and delivering the processed cargo to a buyer.
 - Passed the Unity opening and yard smoke test. It verified $18 for a burned sapling, $22 for a raw sale, and $80 for a crafted crate. It also verified a saved drying cycle, the fire ring's rejection of boards, and the $75 Pocket Saw's purchase, model swap, and small-tree damage.
 - Generated and checked all 1,696 upgrade descriptions and prices from `prompt.md`. Unity loads the exact registry and uses it for the seven implemented upgrades.
+- Built the timber yard for Web, Windows x64, and Linux x64. The Linux player opened its graphics window. The Windows executable initialized the game engine and input in a headless Wine startup test.
+- Pushed the timber-yard checkpoint to GitHub with the root specification, README, editable Blender yard, and the seven new FBX exports.
