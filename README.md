@@ -32,7 +32,7 @@ The Web build connects to Photon Realtime. In **Field desk → Multiplayer**, en
 
 - [Master specification](prompt.md) and [feature matrix](FEATURE_MATRIX.md)
 - [Editable Blender project](Assets/Models/Source~/OpeningKitArtPass.blend) and [editable timber-yard models](Assets/Models/Source~/TimberYard.blend). Unity imports the [FBX exports](Assets/Models/Clearcut)
-- [Editable sled model](Assets/Models/Source~/PrimitiveSled.blend) and its [FBX export](Assets/Models/Clearcut/PrimitiveSled.fbx)
+- [Editable sled model](Assets/Models/Source~/PrimitiveSled.blend), its [FBX export](Assets/Models/Clearcut/PrimitiveSled.fbx), and [Blender regeneration script](Tools/generate-primitive-sled.py)
 - [Completed work](completed.md) and [continuation notes](continue.md)
 
 The playable Unity scope covers the forestry opening and the first timber-processing routes. The larger campaign, industrial systems, full map, and eight victory objectives are tracked in the feature matrix.

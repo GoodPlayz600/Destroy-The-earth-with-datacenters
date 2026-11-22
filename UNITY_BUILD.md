@@ -54,3 +54,12 @@ project's Web module for Photon co-op.
 Run `python3 Tools/generate-upgrade-catalog.py --check` to verify the runtime
 catalog against the master prompt. The generated data keeps all 1,696 entries.
 The field desk sells the entries with wired gameplay effects.
+
+## Regenerate the sled model
+
+Run Blender in a separate background process from the project root. The generator
+writes the editable `.blend`, a Unity-oriented FBX, and a PNG preview to `Builds/Art`.
+
+```sh
+blender --background --factory-startup --python Tools/generate-primitive-sled.py
+```

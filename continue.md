@@ -18,7 +18,7 @@ Commit `78d2571` replaces collider-dependent avatar creation with the saved `Fie
 
 ## Rope-hauling checkpoint
 
-The Unity opening now sells ten upgrades with gameplay effects. The three rope upgrades passed the opening smoke test in `Builds/Evidence/opening-smoke.txt`. Use T to attach and G or T to release. The host-side smoke verifies guest attachment and release. The expanded Web build uses opening protocol version 4 so rope players use matching builds. Live browser coverage for guest rope hauling remains open.
+The Unity opening now sells ten upgrades with gameplay effects. The three rope upgrades passed the opening smoke test in `Builds/Evidence/opening-smoke.txt`. The Web player built successfully under `Builds/Towline/WebGL`. Both a solo player and a Photon guest attached the log with T and released it with G in Brave. The guest also moved with the rope attached. The latest build uses opening protocol version 4 so rope players use matching builds.
 
 The next sled is modeled in `Assets/Models/Source~/PrimitiveSled.blend` and imports into Unity as `Assets/Models/Clearcut/PrimitiveSled.fbx`. The model includes the raised runners, cargo deck, bridle, and pulling eye. The $285 purchase, two-log cargo loading, and physical sled tow still need implementation.
 
