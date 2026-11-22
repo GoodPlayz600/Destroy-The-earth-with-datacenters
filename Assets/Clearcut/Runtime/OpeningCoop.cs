@@ -15,6 +15,8 @@ namespace Clearcut
         public string RoomCode { get; private set; }
         public int PlayerCount => avatars.Count + 1;
         public bool GuestHauling { get; private set; }
+        public bool GuestTethered { get; private set; }
+        public int GuestTetherId => gripRequestedFor;
         public bool Ready { get; private set; }
         public int LocalActor => actor;
 
@@ -26,6 +28,7 @@ namespace Clearcut
         float nextPose, nextState;
         string lastState;
         int gripRequestedFor;
+        bool towlineRequested;
         float nextWork;
 
 #if UNITY_WEBGL && !UNITY_EDITOR
@@ -153,9 +156,16 @@ namespace Clearcut
             }
             if (message.code == GripCode && Guest && message.actor == master)
             {
-                GuestHauling = message.payload == "held" && gripRequestedFor != 0;
-                if (!GuestHauling && message.payload != "released")
-                    game.Show(message.payload);
+                GuestTethered = message.payload == "tethered" && gripRequestedFor != 0;
+                GuestHauling = GuestTethered || message.payload == "held" && gripRequestedFor != 0;
+                if (!GuestHauling)
+                {
+                    if (towlineRequested)
+                        gripRequestedFor = 0;
+                    towlineRequested = false;
+                    if (message.payload != "released")
+                        game.Show(message.payload);
+                }
                 return;
             }
 
@@ -196,15 +206,23 @@ namespace Clearcut
                     ghost.NextChop = Time.unscaledTime + 0.62f;
                     game.CutFromPeer(ghost.Pose.Ray, action.saw);
                     break;
+                case "tether":
                 case "grab":
+                    bool twine = action.kind == "tether";
                     if (ghost.Holding != null || !game.TryRemoteGrip(action.treeId, ghost.Pose.Ray, out var timber, out var localGrip))
                     {
                         Send(GripCode, "That log is out of reach or already held.", number);
                         break;
                     }
+                    if (twine && !game.CanTether(timber))
+                    {
+                        Send(GripCode, "Unlock twine and aim at light cargo.", number);
+                        break;
+                    }
                     ghost.Holding = timber;
+                    ghost.Tether = twine;
                     ghost.LocalGrip = localGrip;
-                    Send(GripCode, "held", number);
+                    Send(GripCode, twine ? "tethered" : "held", number);
                     break;
                 case "release":
                     ReleaseGrip(number, ghost, "released");
@@ -245,8 +263,15 @@ namespace Clearcut
                 var ghost = pair.Value;
                 if (ghost.Holding == null)
                     continue;
-                if (Time.unscaledTime - ghost.LastSeen > 1.6f ||
-                    !game.PullTimber(ghost.Holding, ghost.LocalGrip, ghost.Pose.position, ghost.Pose.Ray.direction))
+                if (Time.unscaledTime - ghost.LastSeen > 1.6f)
+                {
+                    ReleaseGrip(pair.Key, ghost, "released");
+                    continue;
+                }
+                bool held = ghost.Tether
+                    ? game.PullTowline(ghost.Holding, ghost.LocalGrip, ghost.Pose.position, Quaternion.Euler(0, ghost.Pose.yaw, 0) * Vector3.forward)
+                    : game.PullTimber(ghost.Holding, ghost.LocalGrip, ghost.Pose.position, ghost.Pose.Ray.direction);
+                if (!held)
                     ReleaseGrip(pair.Key, ghost, "released");
             }
         }
@@ -299,19 +324,45 @@ namespace Clearcut
 
         public void RequestPurchase(string id) => Request("buy", upgradeId: id);
 
+        public void ToggleGuestTowline(TimberTree target)
+        {
+            if (towlineRequested)
+            {
+                ReleaseGuestGrip();
+                return;
+            }
+            if (!Ready || gripRequestedFor != 0)
+                return;
+            if (!game.CanTether(target))
+            {
+                game.Show(game.Save.Owns("03-01") ? "Aim at light, loose cargo to attach twine." : "Buy Twine Bundle in the field desk.");
+                return;
+            }
+            gripRequestedFor = target.id;
+            towlineRequested = true;
+            Request("tether", target.id);
+        }
+
         public void UpdateGuestGrip(bool pressed, TimberTree target)
         {
+            if (towlineRequested)
+                return;
             if (pressed && Ready && gripRequestedFor == 0 && target)
             {
                 gripRequestedFor = target.id;
                 Request("grab", target.id);
             }
-            else if (!pressed && gripRequestedFor != 0)
-            {
-                gripRequestedFor = 0;
-                GuestHauling = false;
-                Request("release");
-            }
+            else if (!pressed)
+                ReleaseGuestGrip();
+        }
+
+        public void ReleaseGuestGrip()
+        {
+            if (gripRequestedFor == 0)
+                return;
+            gripRequestedFor = 0;
+            GuestHauling = GuestTethered = towlineRequested = false;
+            Request("release");
         }
 
         void Request(string kind, int treeId = 0, string upgradeId = null, bool saw = false)
@@ -382,6 +433,7 @@ namespace Clearcut
             public readonly GameObject Display;
             public OperatorPose Pose;
             public TimberTree Holding;
+            public bool Tether;
             public Vector3 LocalGrip;
             public float LastSeen, NextChop;
             public Ghost(GameObject display) => Display = display;

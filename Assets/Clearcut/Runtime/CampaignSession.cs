@@ -24,6 +24,9 @@ namespace Clearcut
             UpgradeCatalog.Playable("01-02", "Deal 35% more damage to saplings."),
             UpgradeCatalog.Playable("02-01", "Apply 15% more force while dragging."),
             UpgradeCatalog.Playable("02-02", "Walk and run 8% faster."),
+            UpgradeCatalog.Playable("03-01", "Press T near light cargo to attach or release twine."),
+            UpgradeCatalog.Playable("03-02", "The tether is 50% longer."),
+            UpgradeCatalog.Playable("03-03", "The hitch holds heavier cargo and resists more tension."),
             UpgradeCatalog.Playable("04-01", "Accept logs up to 30% heavier."),
             UpgradeCatalog.Playable("04-02", "Burn wood 25% faster."),
             UpgradeCatalog.Playable("05-01", "Equip with 2. Cuts small trees more than twice as fast.")
@@ -36,6 +39,7 @@ namespace Clearcut
         internal TimberTree Held { get; private set; }
         internal TimberYard WorkTarget { get; private set; }
         internal bool UsingSaw { get; private set; }
+        internal bool Tethered { get; private set; }
         internal float Stamina { get; private set; } = 1;
         internal string Notice { get; private set; }
         internal float NoticeUntil { get; private set; }
@@ -54,6 +58,8 @@ namespace Clearcut
         CharacterController controller;
         OpeningAudio audio;
         OpeningHud hud;
+        TowlineView towline;
+        internal float RopeLength => Has("03-02") ? 3.15f : 2.1f;
         Vector3 spawn;
         Vector3 knifeOrigin;
         Quaternion knifeRotation;
@@ -168,11 +174,25 @@ namespace Clearcut
                 EquipSaw(false);
             if (keyboard.digit2Key.wasPressedThisFrame && !EquipSaw(true))
                 Show("Unlock Pocket Saw at the field desk.");
-            if (Coop.Guest)
+            if (keyboard.gKey.wasPressedThisFrame)
+            {
+                if (Coop.Guest)
+                    Coop.ReleaseGuestGrip();
+                else
+                    Release();
+            }
+            else if (keyboard.tKey.wasPressedThisFrame)
+            {
+                if (Coop.Guest)
+                    Coop.ToggleGuestTowline(TargetLog);
+                else
+                    ToggleTowline(ray);
+            }
+            else if (Coop.Guest)
                 Coop.UpdateGuestGrip(keyboard.eKey.isPressed, TargetLog);
-            else if (keyboard.eKey.isPressed && !Held)
+            else if (!Tethered && keyboard.eKey.isPressed && !Held)
                 TryGrab(ray);
-            else if (!keyboard.eKey.isPressed && Held)
+            else if (!Tethered && !keyboard.eKey.isPressed && Held)
                 Release();
             if (mouse.leftButton.isPressed && !Hauling)
             {
@@ -195,7 +215,10 @@ namespace Clearcut
             if (sprint)
                 Stamina = Mathf.Max(0, Stamina - dt * 0.13f);
             Vector3 direction = transform.TransformDirection(new Vector3(motion.x, 0, motion.y).normalized);
-            float speed = WalkSpeed * (Hauling ? 0.56f : sprint ? 1.57f : 1);
+            float speedMultiplier = sprint ? 1.57f : 1;
+            if (Hauling)
+                speedMultiplier = Tethered || Coop.GuestTethered ? 0.8f : 0.56f;
+            float speed = WalkSpeed * speedMultiplier;
             if (controller.isGrounded)
                 gravity = jump && !Hauling ? 5.9f : -1.4f;
             gravity -= dt * 18;
@@ -225,8 +248,99 @@ namespace Clearcut
 
         internal void PullHeldTimber()
         {
-            if (Held && !MenuOpen && !PullTimber(Held, localGrip, transform.position, view.transform.forward))
+            if (!Held || MenuOpen)
+                return;
+            bool connected = Tethered
+                ? PullTowline(Held, localGrip, transform.position, transform.forward)
+                : PullTimber(Held, localGrip, transform.position, view.transform.forward);
+            if (!connected)
+            {
+                if (Tethered)
+                    Show("The tether slipped loose.");
                 Release();
+            }
+        }
+
+        internal bool CanTether(TimberTree tree) =>
+            Has("03-01") && tree && tree.Log && !tree.ReservedBy && tree.Log.mass <= (Has("03-03") ? 62 : 24);
+
+        internal Rigidbody TetherBody(int id)
+        {
+            foreach (var tree in trees)
+                if (tree.id == id)
+                    return tree.Log;
+            return null;
+        }
+
+        internal void ToggleTowline(Ray ray)
+        {
+            if (Tethered)
+            {
+                Release();
+                return;
+            }
+            if (!Held)
+                FindTargets(ray);
+            var target = Held ? Held : TargetLog;
+            if (!CanTether(target))
+            {
+                Show(Has("03-01") ? "Aim at light, loose cargo to attach twine." : "Buy Twine Bundle in the field desk.");
+                return;
+            }
+
+            Held = target;
+            Vector3 end = target.CargoCollider.ClosestPoint(transform.position + Vector3.up * 0.55f);
+            localGrip = target.Log.transform.InverseTransformPoint(end);
+            Tethered = true;
+            target.Log.WakeUp();
+            Show("Twine attached. Press G or T to release.");
+        }
+
+        internal bool PullTowline(TimberTree tree, Vector3 gripPoint, Vector3 position, Vector3 facing)
+        {
+            if (!CanTether(tree))
+                return false;
+            var body = tree.Log;
+            Vector3 start = position + Vector3.up * 0.62f - facing * 0.24f;
+            Vector3 end = body.transform.TransformPoint(gripPoint);
+            Vector3 separation = start - end;
+            float length = separation.magnitude;
+            bool hitch = Has("03-03");
+            if (length > RopeLength + (hitch ? 2.85f : 1.8f))
+                return false;
+            if (length <= RopeLength)
+                return true;
+            Vector3 axis = separation / length;
+            float force = (length - RopeLength) * 410f - Vector3.Dot(body.GetPointVelocity(end), axis) * 42f;
+            body.AddForceAtPosition(axis * Mathf.Clamp(force, 0, hitch ? 880 : 505), end);
+            return true;
+        }
+
+        void LateUpdate()
+        {
+            Rigidbody body = null;
+            if (Tethered && Held)
+                body = Held.Log;
+            else if (Coop.GuestTethered)
+                body = TetherBody(Coop.GuestTetherId);
+            if (!body)
+            {
+                if (towline)
+                    towline.gameObject.SetActive(false);
+                return;
+            }
+            if (!towline)
+            {
+                var visual = new GameObject("Twine between operator and cargo");
+                visual.transform.SetParent(transform, false);
+                towline = visual.AddComponent<TowlineView>();
+                towline.Initialize(chipMaterial);
+            }
+
+            Vector3 start = transform.position + Vector3.up * 0.62f - transform.forward * 0.24f;
+            Vector3 end = Tethered ? body.transform.TransformPoint(localGrip) : body.worldCenterOfMass;
+            towline.gameObject.SetActive(true);
+            towline.Draw(start, end, Mathf.Clamp((RopeLength - Vector3.Distance(start, end)) * 0.25f, 0.025f, 0.25f));
         }
 
         internal bool PullTimber(TimberTree tree, Vector3 gripPoint, Vector3 operatorPosition, Vector3 lookDirection)
@@ -329,6 +443,7 @@ namespace Clearcut
                 return;
             Held.Snapshot();
             Held = null;
+            Tethered = false;
         }
 
         internal bool Swing(Ray ray)
@@ -476,7 +591,7 @@ namespace Clearcut
             Time.timeScale = open && !Coop.InRoom ? 0 : 1;
             if (open)
             {
-                Coop.UpdateGuestGrip(false, null);
+                Coop.ReleaseGuestGrip();
                 Release();
                 Unlock();
                 Persist();
@@ -651,7 +766,7 @@ namespace Clearcut
         {
             if (!focused && Save != null && HasStarted)
             {
-                Coop.UpdateGuestGrip(false, null);
+                Coop.ReleaseGuestGrip();
                 Release();
                 Persist();
             }

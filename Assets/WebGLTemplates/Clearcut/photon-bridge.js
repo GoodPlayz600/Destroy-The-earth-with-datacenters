@@ -21,7 +21,7 @@
       const { createRealtimeClient } = await import("./PhotonVendor/dist/index.js");
       if (attempt !== generation) return;
       const client = await createRealtimeClient({
-        appId, appVersion: "clearcut-unity-opening-3", protocol: "wss", regionSelection: "select",
+        appId, appVersion: "clearcut-unity-opening-4", protocol: "wss", regionSelection: "select",
         useAlternativePorts: true, disconnectTimeoutMs: 15000,
         wasm: { url: new URL("./PhotonVendor/dist/native/realtimecore.wasm", window.location.href).href }
       });

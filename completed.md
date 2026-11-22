@@ -27,3 +27,9 @@
 - Generated and checked all 1,696 upgrade descriptions and prices from `prompt.md`. Unity loads the exact registry and uses it for the seven implemented upgrades.
 - Built the timber yard for Web, Windows x64, and Linux x64. The Linux player opened its graphics window. The Windows executable initialized the game engine and input in a headless Wine startup test.
 - Pushed the timber-yard checkpoint to GitHub with the root specification, README, editable Blender yard, and the seven new FBX exports.
+- Replaced collider-dependent co-op avatar creation with a saved field-operator prefab. After rebuilding Web, verified that a guest's $75 Pocket Saw purchase changed the shared wallet from $90 to $15 and appeared installed on both clients.
+
+## Rope-hauling checkpoint
+
+- Added Twine Bundle, Long Rope, and Knotted Hitch. The Unity smoke test verified the 3D tether, physical log pull, release on excess stretch, 50% longer rope, heavier hitch limits, and exclusive guest attachment and release on the host.
+- Saved the editable Crude Sled model in Blender. Reimported the FBX and verified that Unity imported 25 mesh parts including its tow bridle.

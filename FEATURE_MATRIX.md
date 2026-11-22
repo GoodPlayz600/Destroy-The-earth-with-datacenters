@@ -12,7 +12,7 @@ This index covers the source brief in `Assets/PROMPT.md`. Each row starts as **P
 | 4 | OPENING SEQUENCE — THE PLASTIC BUTTER KNIFE | [§](Assets/PROMPT.md#L278) | Partial | [`Assets/Clearcut`](Assets/Clearcut); opening coverage only |
 | 5 | THE CORE LOOP AND ITS ALTERNATIVES | [§](Assets/PROMPT.md#L310) | Partial | [`Assets/Clearcut`](Assets/Clearcut); opening coverage only |
 | 6 | THE TREE SYSTEM | [§](Assets/PROMPT.md#L354) | Partial | [`Assets/Clearcut`](Assets/Clearcut); opening coverage only |
-| 7 | DRAGGING, CARRYING, AND LOG TRANSPORT | [§](Assets/PROMPT.md#L421) | Partial | [`Assets/Clearcut`](Assets/Clearcut); opening coverage only |
+| 7 | DRAGGING, CARRYING, AND LOG TRANSPORT | [§](Assets/PROMPT.md#L421) | Partial | Hand hauling and a finite 3D tether pass the [opening smoke test](Assets/Clearcut/Runtime/ClearcutOpeningSmoke.cs). Sled model imported. |
 | 8 | WOOD PROCESSING, REFINING, AND SELLING | [§](Assets/PROMPT.md#L482) | Partial | [`Assets/Clearcut`](Assets/Clearcut); opening coverage only |
 | 9 | MANY PATHS TO DESERTIFICATION | [§](Assets/PROMPT.md#L582) | Pending | — |
 | 10 | PROGRESSION PHASES | [§](Assets/PROMPT.md#L629) | Pending | — |
@@ -155,7 +155,7 @@ This index covers the source brief in `Assets/PROMPT.md`. Each row starts as **P
 | 24.26 | The physical log can be transferred onto a cart or truck bed. | [§](Assets/PROMPT.md#L1902) | Pending | — |
 | 24.27 | Heavy loads slow or affect a vehicle according to tuned handling rules. | [§](Assets/PROMPT.md#L1903) | Pending | — |
 | 24.28 | Wrong cargo or excess mass is rejected with a clear explanation. | [§](Assets/PROMPT.md#L1904) | Pending | — |
-| 24.29 | Winches/ropes operate at finite range with real attachment points. | [§](Assets/PROMPT.md#L1905) | Pending | — |
+| 24.29 | Winches/ropes operate at finite range with real attachment points. | [§](Assets/PROMPT.md#L1905) | Partial | The operator tether moves physical cargo from attachment points and detaches beyond its limit. Winches are pending. |
 | 24.30 | Roads, rail and conveyor routes are visible 3D geometry. | [§](Assets/PROMPT.md#L1906) | Pending | — |
 | 24.31 | Forklift or crane arms visibly move while loading. | [§](Assets/PROMPT.md#L1907) | Pending | — |
 | 24.32 | A hired hauler can pick up and move eligible logs to a chosen station. | [§](Assets/PROMPT.md#L1908) | Pending | — |
@@ -416,11 +416,11 @@ This index covers the source brief in `Assets/PROMPT.md`. Each row starts as **P
 | 02-10 | Manual Labor Expert | $12,750 | Reduce all nonpowered tool stamina cost by 25%. | [§](Assets/PROMPT.md#L1073) | Pending | — |
 | 02-11 | Herculean Shift | $26,250 | Add a second hand-carry slot for small segments. | [§](Assets/PROMPT.md#L1074) | Pending | — |
 | 02-12 | Industrial Athlete | $54,000 | Improve running, hauling, and recovery by 20% while carrying tools. | [§](Assets/PROMPT.md#L1075) | Pending | — |
-| 03-01 | Twine Bundle | $15 | Unlock tethering one small log to the player. | [§](Assets/PROMPT.md#L1084) | Pending | — |
-| 03-02 | Long Rope | $32 | Extend tether length from starter range by 50%. | [§](Assets/PROMPT.md#L1085) | Pending | — |
-| 03-03 | Knotted Hitch | $66 | Reduce chance of a heavy log slipping off the tether. | [§](Assets/PROMPT.md#L1086) | Pending | — |
+| 03-01 | Twine Bundle | $15 | Unlock tethering one small log to the player. | [§](Assets/PROMPT.md#L1084) | Verified | $15 purchase, attachment, physical pull, release, and host exclusivity passed the Unity smoke test. |
+| 03-02 | Long Rope | $32 | Extend tether length from starter range by 50%. | [§](Assets/PROMPT.md#L1085) | Verified | The purchase and exactly 50% additional reach passed the Unity smoke test. |
+| 03-03 | Knotted Hitch | $66 | Reduce chance of a heavy log slipping off the tether. | [§](Assets/PROMPT.md#L1086) | Verified | The Unity smoke test verified heavier accepted cargo and a higher stretch limit. |
 | 03-04 | Wooden Lever | $135 | Improve log rolling force by 30%. | [§](Assets/PROMPT.md#L1087) | Pending | — |
-| 03-05 | Crude Sled | $285 | Unlock manually pulling two small logs on one sled. | [§](Assets/PROMPT.md#L1088) | Pending | — |
+| 03-05 | Crude Sled | $285 | Unlock manually pulling two small logs on one sled. | [§](Assets/PROMPT.md#L1088) | Partial | Editable Blender source and [25-part Unity model](Assets/Models/Clearcut/PrimitiveSled.fbx) saved. Purchase and cargo physics are pending. |
 | 03-06 | Waxed Runners | $600 | Reduce sled friction by 25%. | [§](Assets/PROMPT.md#L1089) | Pending | — |
 | 03-07 | Hand Cart | $1,275 | Unlock a two-wheeled cart with a physical cargo bed. | [§](Assets/PROMPT.md#L1090) | Pending | — |
 | 03-08 | Padded Cart Rails | $2,775 | Secure unstable loads and reduce cargo loss. | [§](Assets/PROMPT.md#L1091) | Pending | — |

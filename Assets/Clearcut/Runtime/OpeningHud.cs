@@ -138,7 +138,9 @@ namespace Clearcut
             Ink(new Rect(mid.x, mid.y - 6, 1, 13), Paper);
             string target = null;
             float progress = 0;
-            if (game.Held)
+            if (game.Tethered || game.Coop.GuestTethered)
+                target = "Twine attached  ·  G or T releases cargo";
+            else if (game.Held)
                 target = "Release E at intake  ·  " + game.Held.Log.mass.ToString("0") + " kg";
             else if (game.Coop.GuestHauling)
                 target = "Release E at intake";
@@ -153,7 +155,8 @@ namespace Clearcut
                 progress = game.TargetTree.Progress;
             }
             else if (game.TargetLog)
-                target = TimberYard.ProductName(game.TargetLog.Record.product) + "  ·  Hold E to drag";
+                target = TimberYard.ProductName(game.TargetLog.Record.product) +
+                    (game.CanTether(game.TargetLog) ? "  ·  E drag  /  T tether" : "  ·  Hold E to drag");
             else if (game.exchange.Burning)
             {
                 target = "Wood burning";

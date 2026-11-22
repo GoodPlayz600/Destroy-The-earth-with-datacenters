@@ -74,7 +74,7 @@ namespace Clearcut
             Check(catalog.Count == 1696 && catalog["112-16"].price > int.MaxValue &&
                 catalog["73-01"].previousInBranch == "" && catalog["73-16"].previousInBranch == "73-15",
                 "The runtime catalog loads all 1,696 entries with wide prices and branch ordering.");
-            Check(CampaignSession.Upgrades.Length == 7 && CampaignSession.Upgrades[1].Requires == "01-01",
+            Check(CampaignSession.Upgrades.Length == 10 && CampaignSession.Upgrades[1].Requires == "01-01",
                 "Only wired effects are sold, and their purchase data comes from the catalog.");
             Check(game.Save.cash == 0 && game.Save.receipts.Count == 0 && game.knife.GetComponent<MeshFilter>().sharedMesh,
                 "Fresh campaign starts at $0 with the modeled knife.");
@@ -248,6 +248,65 @@ namespace Clearcut
             var largeTree = Array.Find(game.trees, t => t.height > 3f && !t.Record.felled);
             Check(game.DamageFor(game.trees[3], true) > 2 && game.DamageFor(largeTree, true) < 1,
                 "The Pocket Saw is faster on saplings and loses effectiveness on larger trees.");
+
+            var lightLog = Array.Find(game.trees, item => !item.Record.felled && item.mass < 24);
+            var heavyLog = Array.Find(game.trees, item => !item.Record.felled && item.mass > 24 && item.mass <= 62);
+            FellForYardTest(lightLog);
+            FellForYardTest(heavyLog);
+            PlaceCargo(lightLog, game.transform);
+            lightLog.Log.position += Vector3.forward * 1.75f;
+            Physics.SyncTransforms();
+            var tetherRay = new Ray(game.view.transform.position, lightLog.Log.worldCenterOfMass - game.view.transform.position);
+            game.ToggleTowline(tetherRay);
+            Check(!game.Tethered, "Starter cargo cannot be tethered before buying twine.");
+            var twine = Array.Find(CampaignSession.Upgrades, item => item.Id == "03-01");
+            Check(game.Buy(twine) && game.Save.cash == 15 && game.CanTether(lightLog) && !game.CanTether(heavyLog),
+                "The $15 Twine Bundle unlocks tethering a small log.");
+            game.ToggleTowline(tetherRay);
+            Check(game.Tethered && game.Held == lightLog, "The attach action reserves the physical log without holding E.");
+            yield return null;
+            var line = game.GetComponentInChildren<TowlineView>();
+            Check(line && line.GetComponent<MeshFilter>().sharedMesh.vertexCount > 12,
+                "Attached twine renders as a tube mesh.");
+
+            Vector3 beforeTow = lightLog.Log.position;
+            for (int frame = 0; frame < 58 && game.Tethered; frame++)
+            {
+                game.Walk(Vector2.down, false, false, Time.fixedDeltaTime);
+                yield return new WaitForFixedUpdate();
+            }
+            Check(game.Tethered && (lightLog.Log.position - beforeTow).sqrMagnitude > 0.16f,
+                "Walking with the rope moves the log under finite spring tension.");
+            game.ToggleTowline(tetherRay);
+            Check(!game.Tethered && !game.IsHeld(lightLog), "Releasing the tether frees the log.");
+
+            float starterLength = game.RopeLength;
+            Vector3 overreach = lightLog.Log.position + Vector3.back * (starterLength + 2.4f);
+            Check(!game.PullTowline(lightLog, Vector3.zero, overreach, Vector3.forward),
+                "A starter tether detaches beyond its tension limit.");
+            var longRope = Array.Find(CampaignSession.Upgrades, item => item.Id == "03-02");
+            var hitch = Array.Find(CampaignSession.Upgrades, item => item.Id == "03-03");
+            game.Save.cash += 100;
+            Check(!game.Buy(hitch) && game.Buy(longRope) && Mathf.Approximately(game.RopeLength, starterLength * 1.5f),
+                "Long Rope costs $32 and extends the tether by exactly 50%.");
+            Check(game.Buy(hitch) && game.Save.cash == 17 && game.CanTether(heavyLog) &&
+                game.PullTowline(lightLog, Vector3.zero, overreach + Vector3.back, Vector3.forward),
+                "The $66 Knotted Hitch supports heavier cargo and holds through more strain.");
+
+            lightLog.Log.transform.SetPositionAndRotation(new Vector3(0, 3.5f, -1f), Quaternion.Euler(0, 0, 90));
+            lightLog.Log.linearVelocity = Vector3.zero;
+            lightLog.Log.angularVelocity = Vector3.zero;
+            Physics.SyncTransforms();
+            yield return new WaitForFixedUpdate();
+            var peerOrigin = lightLog.Log.worldCenterOfMass + new Vector3(0, 0.85f, -1.4f);
+            tetherRay = new Ray(peerOrigin, lightLog.Log.worldCenterOfMass - peerOrigin);
+            Check(game.TryRemoteGrip(lightLog.id, tetherRay, out _, out _), "The guest tether fixture has clear line of sight.");
+            game.Coop.StartHostForSmokeTest();
+            SendGuest(game.Coop, 2, "tether", tetherRay, lightLog.id);
+            Check(game.Coop.IsHeldByGuest(lightLog) && !game.TryGrab(tetherRay),
+                "The host grants a guest tether and blocks a conflicting hand grip.");
+            SendGuest(game.Coop, 2, "release", tetherRay);
+            Check(!game.IsHeld(lightLog), "The host releases cargo on a guest detach.");
         }
 
         static void FellForYardTest(TimberTree tree)
