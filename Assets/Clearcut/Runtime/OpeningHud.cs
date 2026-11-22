@@ -19,6 +19,7 @@ namespace Clearcut
         float width, height;
         string saveText = "";
         bool showSave;
+        internal bool EditingText { get; private set; }
         string photonId = "", photonRegion = "us", photonRoom = "";
 
         void Awake() => game = GetComponent<CampaignSession>();
@@ -38,6 +39,7 @@ namespace Clearcut
                 DrawMenu();
             else
                 DrawHud();
+            EditingText = game.MenuOpen && GUI.GetNameOfFocusedControl().StartsWith("Field desk ");
             GUI.matrix = previous;
         }
 
@@ -120,9 +122,9 @@ namespace Clearcut
             GUI.Label(new Rect(39, y + 10, 310, 21), "ASH EXCHANGE  /  FORESTRY", subtitle);
             string objective = game.Save.receipts.Count == 0
                 ? game.trees[0].Record.felled ? "Drag the timber into the stone fire ring" : "Cut the young tree beside the clearing"
-                : game.Save.upgrades.Count == 0 ? "Buy a starter upgrade at the field desk" : "Harvest more timber to expand your kit";
+                : game.Save.upgrades.Count == 0 ? "Buy a starter upgrade or try the sawmill" : "Bring timber to the mill or buyers";
             GUI.Label(new Rect(39, y + 36, 318, 31), objective, body);
-            GUI.Label(new Rect(39, y + 67, 310, 20), "Plastic butter knife", small);
+            GUI.Label(new Rect(39, y + 67, 310, 20), game.UsingSaw ? "Pocket saw   ·   1 Knife" : "Plastic butter knife   ·   2 Saw", small);
 
             float cashX = width - 206;
             Ink(new Rect(cashX, y, 184, 86), Panel);
@@ -137,14 +139,21 @@ namespace Clearcut
             string target = null;
             float progress = 0;
             if (game.Held)
-                target = "Release E in the fire ring  ·  " + game.Held.mass.ToString("0") + " kg";
+                target = "Release E at intake  ·  " + game.Held.Log.mass.ToString("0") + " kg";
+            else if (game.Coop.GuestHauling)
+                target = "Release E at intake";
+            else if (game.WorkTarget)
+            {
+                target = game.WorkTarget.WorkPrompt;
+                progress = game.WorkTarget.Completion;
+            }
             else if (game.TargetTree)
             {
                 target = game.TargetTree.species + "  ·  Hold LMB to cut";
                 progress = game.TargetTree.Progress;
             }
             else if (game.TargetLog)
-                target = game.exchange.TooHeavy(game.TargetLog) ? "Log exceeds fire intake capacity" : "Hold E to drag  ·  " + game.TargetLog.mass.ToString("0") + " kg";
+                target = TimberYard.ProductName(game.TargetLog.Record.product) + "  ·  Hold E to drag";
             else if (game.exchange.Burning)
             {
                 target = "Wood burning";
@@ -158,11 +167,11 @@ namespace Clearcut
                 if (progress > 0)
                     Ink(new Rect(hint.x, hint.yMax - 3, hint.width * progress, 3), Accent);
             }
-            if (!game.DragLook && Cursor.lockState != CursorLockMode.Locked)
+            if (!game.DragLook && !game.PointerLocked)
             {
                 Ink(new Rect(mid.x - 177, mid.y - 68, 354, 40), Panel);
                 GUI.Label(new Rect(mid.x - 177, mid.y - 68, 354, 40),
-                    "Click the game to look around  ·  Tab for settings", center);
+                    "Click to lock the mouse  ·  Hold right mouse to look", center);
             }
             if (Time.unscaledTime < game.NoticeUntil)
             {
@@ -208,9 +217,10 @@ namespace Clearcut
             if (Action(new Rect(card.xMax - 139, card.y + 17, 115, 37), "Resume", button, true))
                 game.SetMenu(false);
 
-            string[] tabs = { "Upgrades", "Receipts", "Settings", "Multiplayer" };
+            string[] tabs = { "Upgrades", "Receipts", "Settings", "Multiplayer", "Market" };
+            float tabStep = Mathf.Min(114, (card.width - 140) / tabs.Length);
             for (int i = 0; i < tabs.Length; i++)
-                if (Action(new Rect(card.x + 24 + i * 114, card.y + 65, 105, 36), tabs[i], button, screen == i))
+                if (Action(new Rect(card.x + 24 + i * tabStep, card.y + 65, tabStep - 8, 36), tabs[i], button, screen == i))
                 {
                     screen = i;
                     scroll = Vector2.zero;
@@ -225,14 +235,16 @@ namespace Clearcut
                 DrawReceipts(content);
             else if (screen == 2)
                 DrawSettings(content);
-            else
+            else if (screen == 3)
                 DrawCoop(content);
+            else
+                DrawMarket(content);
         }
 
         void DrawUpgrades(Rect content)
         {
             float rowWidth = content.width - 22;
-            scroll = GUI.BeginScrollView(content, scroll, new Rect(0, 0, rowWidth, 6 * 67), false, false);
+            scroll = GUI.BeginScrollView(content, scroll, new Rect(0, 0, rowWidth, CampaignSession.Upgrades.Length * 67), false, false);
             for (int i = 0; i < CampaignSession.Upgrades.Length; i++)
             {
                 var upgrade = CampaignSession.Upgrades[i];
@@ -255,7 +267,7 @@ namespace Clearcut
             int count = game.Save.receipts.Count;
             if (count == 0)
             {
-                GUI.Label(new Rect(content.x, content.y, content.width, 32), "No sales yet. The Ash Exchange pays after the burn completes.", body);
+                GUI.Label(new Rect(content.x, content.y, content.width, 32), "No sales yet. Deliver timber to the exchange or a buyer.", body);
                 return;
             }
             float rowWidth = content.width - 22;
@@ -263,11 +275,26 @@ namespace Clearcut
             for (int i = 0; i < count; i++)
             {
                 var receipt = game.Save.receipts[count - i - 1];
-                GUI.Label(new Rect(6, i * 41, rowWidth - 85, 36), receipt.species + "  ·  Ash Exchange", body);
+                GUI.Label(new Rect(6, i * 41, rowWidth - 85, 36), TimberYard.ProductName(receipt.product) + "  ·  " + (receipt.buyer ?? "Ash Exchange"), body);
                 GUI.Label(new Rect(rowWidth - 70, i * 41, 70, 36), "+$" + receipt.amount, subtitle);
                 Ink(new Rect(0, i * 41 + 39, rowWidth, 1), Line);
             }
             GUI.EndScrollView();
+        }
+
+        void DrawMarket(Rect area)
+        {
+            GUI.Label(new Rect(area.x, area.y, area.width, 31), "Payout from one golden sapling", bold);
+            string[] routes = { "Burn at Ash Exchange", "Sell raw log", "Saw into rough boards",
+                "Saw and dry the boards", "Saw, dry, and assemble a crate" };
+            for (int i = 0; i < routes.Length; i++)
+            {
+                float y = area.y + 40 + i * 39;
+                int value = i == 0 ? 18 : TimberYard.Quote(18, (TimberProduct)(i - 1));
+                GUI.Label(new Rect(area.x, y, area.width - 65, 33), routes[i], body);
+                GUI.Label(new Rect(area.xMax - 59, y, 59, 33), "$" + value, subtitle);
+                Ink(new Rect(area.x, y + 34, area.width, 1), Line);
+            }
         }
 
         void DrawCoop(Rect area)
@@ -278,7 +305,7 @@ namespace Clearcut
             if (coop.InRoom)
             {
                 GUI.Label(new Rect(x, y + 43, area.width, 34), "Room " + coop.RoomCode + "   ·   " + coop.PlayerCount + "/4", bold);
-                GUI.Label(new Rect(x, y + 88, area.width, 30), "Share the room code and region. The host handles timber and sales.", small);
+                GUI.Label(new Rect(x, y + 88, area.width, 30), "Share the room code and region. Wallet and upgrades are shared.", small);
                 if (Action(new Rect(x, y + 134, 135, 37), "Leave room", button))
                     coop.Leave();
                 return;
@@ -291,10 +318,13 @@ namespace Clearcut
             }
 
             GUI.Label(new Rect(x, y + 44, 135, 30), "Realtime App ID", body);
+            GUI.SetNextControlName("Field desk App ID");
             photonId = GUI.TextField(new Rect(x + 145, y + 44, area.width - 157, 30), photonId, 40);
             GUI.Label(new Rect(x, y + 85, 135, 30), "Region", body);
+            GUI.SetNextControlName("Field desk region");
             photonRegion = GUI.TextField(new Rect(x + 145, y + 85, 105, 30), photonRegion, 12);
             GUI.Label(new Rect(x, y + 126, 135, 30), "Room code", body);
+            GUI.SetNextControlName("Field desk room");
             photonRoom = GUI.TextField(new Rect(x + 145, y + 126, 160, 30), photonRoom, 10);
             if (Action(new Rect(x, y + 177, 194, 40), "Host a copy of solo", button, true))
                 coop.Open(photonId, photonRegion, photonRoom, true);
@@ -335,6 +365,7 @@ namespace Clearcut
             if (!showSave)
                 return;
             float fieldHeight = Mathf.Max(38, content.height - 292);
+            GUI.SetNextControlName("Field desk save");
             saveText = GUI.TextArea(new Rect(x, y + 231, w, fieldHeight), saveText, 2_000_000, input);
             if (Action(new Rect(x, y + 241 + fieldHeight, 189, 35), "Restore pasted backup", button)
                 && !game.Import(saveText))

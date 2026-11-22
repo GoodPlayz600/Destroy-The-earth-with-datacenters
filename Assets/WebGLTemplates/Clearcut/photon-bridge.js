@@ -21,7 +21,7 @@
       const { createRealtimeClient } = await import("./PhotonVendor/dist/index.js");
       if (attempt !== generation) return;
       const client = await createRealtimeClient({
-        appId, appVersion: "clearcut-unity-opening-1", protocol: "wss", regionSelection: "select",
+        appId, appVersion: "clearcut-unity-opening-3", protocol: "wss", regionSelection: "select",
         useAlternativePorts: true, disconnectTimeoutMs: 15000,
         wasm: { url: new URL("./PhotonVendor/dist/native/realtimecore.wasm", window.location.href).href }
       });
@@ -47,7 +47,7 @@
         timer = window.setTimeout(() => reject(Error("Photon connection timed out.")), 22000);
       })]);
       if (attempt !== generation) return;
-      client.onEventRange(40, 43, ({code, senderNumber, data}) => {
+      client.onEventRange(40, 44, ({code, senderNumber, data}) => {
         if (typeof data === "string" && data.length <= 55000)
           send({ kind: "event", code, actor: senderNumber, payload: data });
       });

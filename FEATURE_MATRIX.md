@@ -142,14 +142,14 @@ This index covers the source brief in `Assets/PROMPT.md`. Each row starts as **P
 | 24.13 | Saving/reloading preserves removed tree, fallen log positions, money, and upgrades. | [§](Assets/PROMPT.md#L1883) | Partial | [`Assets/Clearcut`](Assets/Clearcut); opening coverage only |
 | 24.14 | Moving out of range deactivates the tree's interaction target. | [§](Assets/PROMPT.md#L1884) | Partial | [`Assets/Clearcut`](Assets/Clearcut); opening coverage only |
 | 24.15 | Massive late-game trees cannot be effortlessly felled by an unupgraded starter knife. | [§](Assets/PROMPT.md#L1885) | Partial | [`Assets/Clearcut`](Assets/Clearcut); opening coverage only |
-| 24.16 | A log accepted into the sawbench cannot simultaneously be sold as raw timber. | [§](Assets/PROMPT.md#L1889) | Pending | — |
-| 24.17 | Plank processing consumes a valid log and produces visible 3D boards. | [§](Assets/PROMPT.md#L1890) | Pending | — |
-| 24.18 | The same material yields different net economic outcomes through fire/woodshop routes. | [§](Assets/PROMPT.md#L1891) | Pending | — |
-| 24.19 | Quality and moisture affect available products and customer payouts. | [§](Assets/PROMPT.md#L1892) | Pending | — |
-| 24.20 | Machines stop when output capacity is full. | [§](Assets/PROMPT.md#L1893) | Pending | — |
+| 24.16 | A log accepted into the sawbench cannot simultaneously be sold as raw timber. | [§](Assets/PROMPT.md#L1889) | Partial | Bench reservation prevents another intake from claiming the cargo. |
+| 24.17 | Plank processing consumes a valid log and produces visible 3D boards. | [§](Assets/PROMPT.md#L1890) | Verified | Yard smoke verified raw input and physical board output. |
+| 24.18 | The same material yields different net economic outcomes through fire/woodshop routes. | [§](Assets/PROMPT.md#L1891) | Verified | Yard smoke verified $18 fire, $22 raw, and $80 crafted routes from starter saplings. |
+| 24.19 | Quality and moisture affect available products and customer payouts. | [§](Assets/PROMPT.md#L1892) | Partial | Dried boards qualify for a different recipe and sale quote. |
+| 24.20 | Machines stop when output capacity is full. | [§](Assets/PROMPT.md#L1893) | Partial | Station intake is limited to one active load. |
 | 24.21 | Machines pause when power or required inputs are unavailable. | [§](Assets/PROMPT.md#L1894) | Pending | — |
-| 24.22 | Product delivery causes one ledger entry and debits appropriate inventory. | [§](Assets/PROMPT.md#L1895) | Pending | — |
-| 24.23 | Selling or refunding cannot duplicate items through rapid repeated interaction. | [§](Assets/PROMPT.md#L1896) | Pending | — |
+| 24.22 | Product delivery causes one ledger entry and debits appropriate inventory. | [§](Assets/PROMPT.md#L1895) | Verified | Yard smoke verified consumed cargo and one buyer-specific receipt. |
+| 24.23 | Selling or refunding cannot duplicate items through rapid repeated interaction. | [§](Assets/PROMPT.md#L1896) | Partial | Duplicate sales are guarded across buyers. |
 | 24.24 | All first 10 product families have recipe data, meshes and valid buyers. | [§](Assets/PROMPT.md#L1897) | Pending | — |
 | 24.25 | Contracts have a real timer, input requirements and completion/failure behavior. | [§](Assets/PROMPT.md#L1898) | Pending | — |
 | 24.26 | The physical log can be transferred onto a cart or truck bed. | [§](Assets/PROMPT.md#L1902) | Pending | — |
@@ -189,7 +189,7 @@ This index covers the source brief in `Assets/PROMPT.md`. Each row starts as **P
 | 24.60 | Optional New Game+ creates a newly finishable finite world with separate save integrity. | [§](Assets/PROMPT.md#L1942) | Pending | — |
 | 24.61 | App works in a current Chromium browser and at least one other modern browser. | [§](Assets/PROMPT.md#L1946) | Pending | — |
 | 24.62 | Canvas resize does not break input targeting or render resolution. | [§](Assets/PROMPT.md#L1947) | Pending | — |
-| 24.63 | Pointer lock failure is handled with a clear user action. | [§](Assets/PROMPT.md#L1948) | Pending | — |
+| 24.63 | Pointer lock failure is handled with a clear user action. | [§](Assets/PROMPT.md#L1948) | Verified | Brave launch retest and three focused pointer-lock tests. |
 | 24.64 | UI remains readable at 1920×1080 and common laptop resolutions. | [§](Assets/PROMPT.md#L1949) | Pending | — |
 | 24.65 | No uncaught console errors during ordinary game flow. | [§](Assets/PROMPT.md#L1950) | Pending | — |
 | 24.66 | Settings and audio preferences survive reload. | [§](Assets/PROMPT.md#L1951) | Partial | [`Assets/Clearcut`](Assets/Clearcut); opening coverage only |
@@ -251,8 +251,8 @@ This index covers the source brief in `Assets/PROMPT.md`. Each row starts as **P
 | X052 | PUE-like ratio is computed from modeled facility and IT electricity. | [§](Assets/PROMPT.md#L3969) | Pending | — |
 | X053 | The same save and seed replay produces reproducible industry/environment output. | [§](Assets/PROMPT.md#L3970) | Partial | [`Assets/Clearcut`](Assets/Clearcut); opening coverage only |
 | X054 | Purchasing an upgrade changes a tested capability or performance variable. | [§](Assets/PROMPT.md#L3971) | Verified | [`Assets/Clearcut`](Assets/Clearcut); [Unity smoke report](Builds/Evidence/opening-smoke.txt) |
-| X055 | Every upgrade ID in 01-01..24-12 and 25-01..72-16 is unique. | [§](Assets/PROMPT.md#L3972) | Pending | — |
-| X056 | The registry has exactly 1,056 authored entries once all original/extension nodes are loaded. | [§](Assets/PROMPT.md#L3973) | Pending | — |
+| X055 | Every upgrade ID in 01-01..24-12 and 25-01..72-16 is unique. | [§](Assets/PROMPT.md#L3972) | Verified | The generator checks uniqueness and the exact ID range. |
+| X056 | The registry has exactly 1,056 authored entries once all original/extension nodes are loaded. | [§](Assets/PROMPT.md#L3973) | Verified | The runtime registry keeps the original 1,056 as the first two sets, plus 640 V2 IDs. |
 | X057 | Locked upgrades explain prerequisites and cannot be purchased early. | [§](Assets/PROMPT.md#L3974) | Partial | [`Assets/Clearcut`](Assets/Clearcut); opening coverage only |
 | X058 | A purchase double-click cannot charge twice or apply a stat twice. | [§](Assets/PROMPT.md#L3975) | Verified | [`Assets/Clearcut`](Assets/Clearcut); [Unity smoke report](Builds/Evidence/opening-smoke.txt) |
 | X059 | Save/load never re-purchases or drops an already applied upgrade. | [§](Assets/PROMPT.md#L3976) | Pending | — |
@@ -297,8 +297,8 @@ This index covers the source brief in `Assets/PROMPT.md`. Each row starts as **P
 | V208 | No 3D world object is an image plane/PNG substitute; visible trees/machines/buildings have actual mesh. | [§](Assets/PROMPT.md#L5760) | Pending | — |
 | V209 | The starter plastic butter knife works with actual hits, tree fall, log drag and fire sale. | [§](Assets/PROMPT.md#L5761) | Verified | [`Assets/Clearcut`](Assets/Clearcut); [Unity smoke report](Builds/Evidence/opening-smoke.txt) |
 | V210 | The original 1,056 upgrade IDs remain valid after V2 save migration. | [§](Assets/PROMPT.md#L5762) | Pending | — |
-| V211 | New upgrade IDs range from 73-01 to 112-16, each with 16 per branch. | [§](Assets/PROMPT.md#L5763) | Pending | — |
-| V212 | Combined upgrade registry contains exactly 1,696 unique IDs. | [§](Assets/PROMPT.md#L5764) | Pending | — |
+| V211 | New upgrade IDs range from 73-01 to 112-16, each with 16 per branch. | [§](Assets/PROMPT.md#L5763) | Verified | The generator checks all 40 V2 branches and 16 IDs per branch. |
+| V212 | Combined upgrade registry contains exactly 1,696 unique IDs. | [§](Assets/PROMPT.md#L5764) | Verified | Generator and Unity smoke validate exactly 1,696 entries. |
 | V213 | Each claimed working new upgrade has an effect-specific test. | [§](Assets/PROMPT.md#L5765) | Pending | — |
 | V214 | All upgrade prerequisites form a valid acyclic graph, with no unreachable required progression. | [§](Assets/PROMPT.md#L5766) | Pending | — |
 | V215 | Purchasing one upgrade cannot apply it twice on double-click. | [§](Assets/PROMPT.md#L5767) | Verified | [`Assets/Clearcut`](Assets/Clearcut); [Unity smoke report](Builds/Evidence/opening-smoke.txt) |
@@ -440,7 +440,7 @@ This index covers the source brief in `Assets/PROMPT.md`. Each row starts as **P
 | 04-10 | Multi-Burner Furnace | $12,750 | Build a second industrial incineration line with separate capacity. | [§](Assets/PROMPT.md#L1113) | Pending | — |
 | 04-11 | Heat Recovery Loop | $26,250 | Send industrial fire heat to a nearby kiln or power system. | [§](Assets/PROMPT.md#L1114) | Pending | — |
 | 04-12 | Ash Futures Desk | $54,000 | Unlock bulk fire-fuel contracts and volume bonuses. | [§](Assets/PROMPT.md#L1115) | Pending | — |
-| 05-01 | Pocket Saw | $75 | Unlock faster real-time sawing on small trunks. | [§](Assets/PROMPT.md#L1124) | Pending | — |
+| 05-01 | Pocket Saw | $75 | Unlock faster real-time sawing on small trunks. | [§](Assets/PROMPT.md#L1124) | Verified | Unity smoke verified payment, actual 3D model swap, and small-tree damage. |
 | 05-02 | Steel Hatchet | $158 | Unlock a faster chopping alternative with a heavy hit cooldown. | [§](Assets/PROMPT.md#L1125) | Pending | — |
 | 05-03 | Sharpening Stone | $330 | Reduce blade wear across manual saws and axes by 20%. | [§](Assets/PROMPT.md#L1126) | Pending | — |
 | 05-04 | Two-Handed Axe | $675 | Deal more cutting damage to medium and hard trees. | [§](Assets/PROMPT.md#L1127) | Pending | — |

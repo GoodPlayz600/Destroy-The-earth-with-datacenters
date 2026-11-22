@@ -14,13 +14,18 @@ namespace Clearcut
         public string Status { get; private set; } = "Private rooms · up to four players";
         public string RoomCode { get; private set; }
         public int PlayerCount => avatars.Count + 1;
+        public bool GuestHauling { get; private set; }
+        public bool Ready { get; private set; }
+        public int LocalActor => actor;
 
-        const int PoseCode = 40, StateCode = 41, HelloCode = 42, ChopCode = 43;
+        const int PoseCode = 40, StateCode = 41, HelloCode = 42, ActionCode = 43, GripCode = 44;
         readonly Dictionary<int, Ghost> avatars = new();
         CampaignSession game;
         int actor, master;
         float nextPose, nextState;
         string lastState;
+        int gripRequestedFor;
+        float nextWork;
 
 #if UNITY_WEBGL && !UNITY_EDITOR
         [DllImport("__Internal")] static extern void ClearcutPhotonOpen(string id, string region, string room, int host);
@@ -29,6 +34,14 @@ namespace Clearcut
 #endif
 
         void Awake() => game = GetComponent<CampaignSession>();
+
+#if UNITY_EDITOR
+        internal void StartHostForSmokeTest()
+        {
+            actor = master = 1;
+            InRoom = Ready = true;
+        }
+#endif
 
         public void Open(string id, string region, string room, bool host)
         {
@@ -80,7 +93,7 @@ namespace Clearcut
         [UnityEngine.Scripting.Preserve]
         public void OnPhotonMessage(string json)
         {
-            var message = JsonUtility.FromJson<Packet>(json);
+            var message = Decode<Packet>(json);
             if (message == null)
                 return;
 
@@ -91,7 +104,8 @@ namespace Clearcut
                     master = message.master;
                     Connecting = false;
                     InRoom = true;
-                    game.BeginRoomSave(Guest ? null : ".room." + RoomCode);
+                    Ready = !Guest;
+                    game.BeginRoomSave(Guest ? null : ".room." + RoomCode, Guest ? LocalActor : 0);
                     Time.timeScale = 1;
                     Status = Guest ? "Waiting for the host's clearing…" : "Hosting private room";
                     if (Guest)
@@ -126,27 +140,107 @@ namespace Clearcut
             if (message.code == StateCode && Guest && message.actor == master)
             {
                 if (game.ApplyRoomState(message.payload))
+                {
+                    Ready = true;
                     Status = "Connected to the host";
+                }
                 return;
             }
-            if (message.code != PoseCode && (message.code != ChopCode || Guest))
+            if (message.code == GripCode && Guest && message.actor == master)
+            {
+                GuestHauling = message.payload == "held" && gripRequestedFor != 0;
+                if (!GuestHauling && message.payload != "released")
+                    game.Show(message.payload);
                 return;
-            var pose = JsonUtility.FromJson<OperatorPose>(message.payload);
-            if (pose == null || !pose.Valid)
-                return;
-            if (!avatars.TryGetValue(message.actor, out var ghost))
+            }
+
+            if (message.code == PoseCode)
+            {
+                var pose = Decode<OperatorPose>(message.payload);
+                if (pose != null && pose.Valid)
+                    UpdateGhost(message.actor, pose);
+            }
+            else if (message.code == ActionCode && !Guest)
+            {
+                var request = Decode<OperatorAction>(message.payload);
+                if (request?.pose != null && request.pose.Valid)
+                    ApplyAction(message.actor, request, UpdateGhost(message.actor, request.pose));
+            }
+        }
+
+        Ghost UpdateGhost(int number, OperatorPose pose)
+        {
+            if (!avatars.TryGetValue(number, out var ghost))
             {
                 ghost = new Ghost(CreateAvatar());
                 ghost.Display.transform.position = pose.position;
-                avatars.Add(message.actor, ghost);
+                avatars.Add(number, ghost);
             }
-            ghost.Target = pose.position;
-            ghost.Yaw = pose.yaw;
-            if (message.code == ChopCode && Time.unscaledTime >= ghost.NextChop)
+            ghost.Pose = pose;
+            ghost.LastSeen = Time.unscaledTime;
+            return ghost;
+        }
+
+        void ApplyAction(int number, OperatorAction action, Ghost ghost)
+        {
+            switch (action.kind)
             {
-                ghost.NextChop = Time.unscaledTime + 0.62f;
-                var direction = Quaternion.Euler(pose.pitch, pose.yaw, 0) * Vector3.forward;
-                game.CutFromPeer(new Ray(pose.position + Vector3.up * 1.62f, direction));
+                case "chop" when ghost.Holding == null && Time.unscaledTime >= ghost.NextChop:
+                    ghost.NextChop = Time.unscaledTime + 0.62f;
+                    game.CutFromPeer(ghost.Pose.Ray, action.saw);
+                    break;
+                case "grab":
+                    if (ghost.Holding != null || !game.TryRemoteGrip(action.treeId, ghost.Pose.Ray, out var timber, out var localGrip))
+                    {
+                        Send(GripCode, "That log is out of reach or already held.", number);
+                        break;
+                    }
+                    ghost.Holding = timber;
+                    ghost.LocalGrip = localGrip;
+                    Send(GripCode, "held", number);
+                    break;
+                case "release":
+                    ReleaseGrip(number, ghost, "released");
+                    break;
+                case "work" when ghost.Holding == null:
+                    var station = game.FindWorkStation(ghost.Pose.Ray);
+                    if (station)
+                        station.Work();
+                    break;
+                case "buy":
+                    game.BuyFromPeer(action.upgradeId);
+                    break;
+            }
+        }
+
+        void ReleaseGrip(int number, Ghost ghost, string reason)
+        {
+            if (ghost.Holding != null)
+                ghost.Holding.Snapshot();
+            ghost.Holding = null;
+            Send(GripCode, reason, number);
+        }
+
+        internal bool IsHeldByGuest(TimberTree tree)
+        {
+            foreach (var ghost in avatars.Values)
+                if (ghost.Holding == tree)
+                    return true;
+            return false;
+        }
+
+        void FixedUpdate()
+        {
+            if (!InRoom || Guest)
+                return;
+            foreach (var pair in avatars)
+            {
+                var ghost = pair.Value;
+                if (ghost.Holding == null)
+                    continue;
+                if (Time.unscaledTime - ghost.LastSeen > 1.6f ||
+                    !game.PullTimber(ghost.Holding, ghost.LocalGrip, ghost.Pose.position, ghost.Pose.Ray.direction))
+                    ReleaseGrip(pair.Key, ghost, "released");
             }
         }
 
@@ -158,7 +252,7 @@ namespace Clearcut
             if (now >= nextPose)
             {
                 nextPose = now + 0.09f;
-                Send(PoseCode, CapturePose());
+                Send(PoseCode, JsonUtility.ToJson(CapturePose()));
             }
             if (!Guest && now >= nextState && PlayerCount > 1)
             {
@@ -174,8 +268,8 @@ namespace Clearcut
             foreach (var ghost in avatars.Values)
             {
                 var display = ghost.Display.transform;
-                display.position = Vector3.Lerp(display.position, ghost.Target, weight);
-                display.rotation = Quaternion.Euler(0, Mathf.LerpAngle(display.eulerAngles.y, ghost.Yaw, weight), 0);
+                display.position = Vector3.Lerp(display.position, ghost.Pose.position, weight);
+                display.rotation = Quaternion.Euler(0, Mathf.LerpAngle(display.eulerAngles.y, ghost.Pose.yaw, weight), 0);
             }
         }
 
@@ -190,7 +284,9 @@ namespace Clearcut
             void Part(PrimitiveType shape, Vector3 point, Vector3 scale)
             {
                 var item = GameObject.CreatePrimitive(shape);
-                Destroy(item.GetComponent<Collider>());
+                var collider = item.GetComponent<Collider>();
+                collider.enabled = false;
+                Destroy(collider);
                 item.transform.SetParent(root.transform, false);
                 item.transform.localPosition = point;
                 item.transform.localScale = scale;
@@ -198,15 +294,57 @@ namespace Clearcut
             }
         }
 
-        string CapturePose() => JsonUtility.ToJson(new OperatorPose
+        OperatorPose CapturePose() => new()
         {
             position = transform.position, yaw = transform.eulerAngles.y, pitch = game.view.transform.localEulerAngles.x
-        });
+        };
 
-        public void RequestCut()
+        public void RequestCut(bool saw) => Request("chop", saw: saw);
+
+        public void RequestWork()
         {
-            if (Guest)
-                Send(ChopCode, CapturePose(), master);
+            if (Time.unscaledTime < nextWork)
+                return;
+            nextWork = Time.unscaledTime + 0.12f;
+            Request("work");
+        }
+
+        public void RequestPurchase(string id) => Request("buy", upgradeId: id);
+
+        public void UpdateGuestGrip(bool pressed, TimberTree target)
+        {
+            if (pressed && Ready && gripRequestedFor == 0 && target)
+            {
+                gripRequestedFor = target.id;
+                Request("grab", target.id);
+            }
+            else if (!pressed && gripRequestedFor != 0)
+            {
+                gripRequestedFor = 0;
+                GuestHauling = false;
+                Request("release");
+            }
+        }
+
+        void Request(string kind, int treeId = 0, string upgradeId = null, bool saw = false)
+        {
+            if (Guest && Ready)
+                Send(ActionCode, JsonUtility.ToJson(new OperatorAction { kind = kind, pose = CapturePose(),
+                    treeId = treeId, upgradeId = upgradeId, saw = saw }), master);
+        }
+
+        static T Decode<T>(string json) where T : class
+        {
+            if (string.IsNullOrEmpty(json) || json.Length > 200000)
+                return null;
+            try
+            {
+                return JsonUtility.FromJson<T>(json);
+            }
+            catch (ArgumentException)
+            {
+                return null;
+            }
         }
 
         static void Send(int code, string payload, int target = 0)
@@ -238,15 +376,26 @@ namespace Clearcut
         {
             public Vector3 position;
             public float yaw, pitch;
+            public Ray Ray => new(position + Vector3.up * 1.62f, Quaternion.Euler(pitch, yaw, 0) * Vector3.forward);
             public bool Valid => Mathf.Abs(position.x) < 70 && Mathf.Abs(position.z) < 70 && Mathf.Abs(position.y) < 12 &&
                 float.IsFinite(yaw) && float.IsFinite(pitch);
+        }
+
+        [Serializable] sealed class OperatorAction
+        {
+            public OperatorPose pose;
+            public string kind, upgradeId;
+            public bool saw;
+            public int treeId;
         }
 
         sealed class Ghost
         {
             public readonly GameObject Display;
-            public Vector3 Target;
-            public float Yaw, NextChop;
+            public OperatorPose Pose;
+            public TimberTree Holding;
+            public Vector3 LocalGrip;
+            public float LastSeen, NextChop;
             public Ghost(GameObject display) => Display = display;
         }
     }

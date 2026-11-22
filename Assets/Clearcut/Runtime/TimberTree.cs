@@ -16,10 +16,16 @@ namespace Clearcut
         public Collider trunk;
         public GameObject stumpPrefab;
         public GameObject logPrefab;
+        public GameObject boardPrefab;
+        public GameObject cratePrefab;
         public Material freshWood;
 
         public TreeRecord Record { get; private set; }
         public Rigidbody Log { get; private set; }
+        public Component ReservedBy { get; private set; }
+        public Collider CargoCollider => Record.product == TimberProduct.Log ? cylinder : package;
+        CapsuleCollider cylinder;
+        BoxCollider package;
         public float Progress => Mathf.Clamp01(Record.damage / toughness);
         Transform notch;
         GameObject logDisplay;
@@ -27,6 +33,9 @@ namespace Clearcut
         float clearCanopyAt;
         Vector3 notchDirection;
         bool hasCutDirection;
+        bool followsHost;
+        Vector3 hostPosition;
+        Quaternion hostRotation;
 
         public void Restore(TreeRecord record)
         {
@@ -45,6 +54,7 @@ namespace Clearcut
         public void ApplyHostRecord(TreeRecord record)
         {
             bool wasFelled = Record.felled;
+            bool changedProduct = Record.product != record.product;
             Record = record;
             if (record.felled)
             {
@@ -63,12 +73,16 @@ namespace Clearcut
                 }
                 if (!Log)
                     MakeLog(record.logPosition, record.logRotation);
+                else if (changedProduct)
+                    ConfigureCargo();
                 Log.isKinematic = true;
-                Log.MovePosition(record.logPosition);
-                Log.MoveRotation(record.logRotation);
+                followsHost = true;
+                hostPosition = record.logPosition;
+                hostRotation = record.logRotation;
                 return;
             }
 
+            followsHost = false;
             if (wasFelled)
             {
                 var stump = GetComponentInChildren<StumpMarker>();
@@ -91,6 +105,15 @@ namespace Clearcut
                 notch.gameObject.SetActive(false);
         }
 
+        void FixedUpdate()
+        {
+            if (!followsHost || !Log)
+                return;
+            float weight = 1 - Mathf.Exp(-15 * Time.fixedDeltaTime);
+            Log.MovePosition(Vector3.Lerp(Log.position, hostPosition, weight));
+            Log.MoveRotation(Quaternion.Slerp(Log.rotation, hostRotation, weight));
+        }
+
         public bool Strike(float damage, Vector3 point, Vector3 away)
         {
             if (Record.felled)
@@ -109,7 +132,7 @@ namespace Clearcut
             Quaternion tilt = Quaternion.FromToRotation(Vector3.up, Vector3.up + direction * 0.17f);
             Vector3 center = transform.position + Vector3.up * (height * 0.5f) + direction * (height * 0.09f);
             MakeLog(center, tilt * transform.rotation);
-            Physics.IgnoreCollision(Log.GetComponent<Collider>(), GetComponentInChildren<StumpMarker>().GetComponent<Collider>());
+            Physics.IgnoreCollision(CargoCollider, GetComponentInChildren<StumpMarker>().GetComponent<Collider>());
             toppledCanopy = standing;
             toppledCanopy.SetParent(Log.transform);
             toppledCanopy.localPosition = -Vector3.up * (height * 0.5f);
@@ -174,23 +197,71 @@ namespace Clearcut
         {
             GameObject body = new GameObject(species + " timber");
             body.transform.SetPositionAndRotation(position, rotation);
-            var collider = body.AddComponent<CapsuleCollider>();
-            collider.radius = radius;
-            collider.height = height * 0.97f;
-            collider.material = new PhysicsMaterial("Timber against dirt")
+            cylinder = body.AddComponent<CapsuleCollider>();
+            cylinder.radius = radius;
+            cylinder.height = height * 0.97f;
+            package = body.AddComponent<BoxCollider>();
+            var friction = new PhysicsMaterial("Timber against dirt")
             {
                 dynamicFriction = 0.65f, staticFriction = 0.8f, bounciness = 0.08f
             };
+            cylinder.sharedMaterial = package.sharedMaterial = friction;
             var part = body.AddComponent<FelledTimber>();
             part.tree = this;
             Log = body.AddComponent<Rigidbody>();
-            Log.mass = mass;
             Log.linearDamping = 0.23f;
             Log.angularDamping = 0.7f;
             Log.interpolation = RigidbodyInterpolation.Interpolate;
             Log.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
-            logDisplay = Instantiate(logPrefab, body.transform);
-            logDisplay.transform.localScale = new Vector3(radius / 0.16f, height / 2.75f, radius / 0.16f);
+            ConfigureCargo();
+        }
+
+        void ConfigureCargo()
+        {
+            bool raw = Record.product == TimberProduct.Log;
+            bool crate = Record.product == TimberProduct.Crate;
+            cylinder.enabled = raw;
+            package.enabled = !raw;
+            float scale = Mathf.Clamp(Mathf.Sqrt(mass / 19f), 0.7f, 2.25f);
+            package.size = (crate ? new Vector3(0.85f, 0.74f, 0.79f) : new Vector3(0.50f, 0.30f, 1.38f)) * scale;
+            Log.mass = raw ? mass : mass * (crate ? 0.67f : 0.80f);
+            if (logDisplay)
+            {
+                logDisplay.SetActive(false);
+                Destroy(logDisplay);
+            }
+            logDisplay = Instantiate(raw ? logPrefab : crate ? cratePrefab : boardPrefab, Log.transform);
+            logDisplay.transform.localScale = raw
+                ? new Vector3(radius / 0.16f, height / 2.75f, radius / 0.16f) : Vector3.one * scale;
+        }
+
+        public bool Reserve(Component owner)
+        {
+            if (ReservedBy || !Log || Record.sold)
+                return false;
+            ReservedBy = owner;
+            Log.isKinematic = true;
+            return true;
+        }
+
+        public void ReleaseReservation(Component owner)
+        {
+            if (ReservedBy != owner)
+                return;
+            ReservedBy = null;
+            if (Log && !followsHost)
+                Log.isKinematic = false;
+        }
+
+        public void SetProduct(TimberProduct product)
+        {
+            Record.product = product;
+            if (toppledCanopy)
+            {
+                Destroy(toppledCanopy.gameObject);
+                toppledCanopy = null;
+            }
+            ConfigureCargo();
         }
 
         public void Snapshot()
@@ -204,6 +275,7 @@ namespace Clearcut
         public void Consume()
         {
             Record.sold = true;
+            ReservedBy = null;
             Destroy(Log.gameObject);
             Log = null;
             toppledCanopy = null;

@@ -1,6 +1,6 @@
 # Project Clearcut · The Last Jungle
 
-A first-person Unity game about starting a forestry operation with a plastic butter knife and no money. In the current playable opening, cut a sapling, drag its timber to the Ash Exchange, collect payment after the burn, and spend the proceeds on tools or hauling upgrades.
+A first-person Unity game about starting a forestry operation with a plastic butter knife and no money. In the current playable opening, cut a sapling, drag its timber to the Ash Exchange, collect payment after the burn, and spend the proceeds on tools or hauling upgrades. The timber yard offers a raw buyer and a processing route through rough boards, dried boards, and finished crates.
 
 ## Run the project
 
@@ -14,7 +14,12 @@ A first-person Unity game about starting a forestry operation with a plastic but
 | Shift and Space | Sprint and jump |
 | Hold left mouse | Swing the butter knife |
 | Hold E | Grab and drag timber |
+| 1 and 2 | Equip the knife or the purchased Pocket Saw |
 | Tab, Escape, or I | Open the field desk |
+
+## Timber yard
+
+Release cargo inside a station intake. Look at a loaded sawmill or crate bench and hold the left mouse button to work. The drying rack runs on elapsed play time. Choose the intake for your cargo. The raw buyer takes logs and the lumber buyer takes processed goods. The **Market** tab compares payouts.
 
 ## Play co-op
 
@@ -23,7 +28,7 @@ The Web build connects to Photon Realtime. In **Field desk → Multiplayer**, en
 ## Project files
 
 - [Master specification](prompt.md) and [feature matrix](FEATURE_MATRIX.md)
-- [Editable Blender project](Assets/Models/Source~/OpeningKitArtPass.blend) and [FBX exports](Assets/Models/Clearcut)
+- [Editable Blender project](Assets/Models/Source~/OpeningKitArtPass.blend) and [editable timber-yard models](Assets/Models/Source~/TimberYard.blend). Unity imports the [FBX exports](Assets/Models/Clearcut)
 - [Completed work](completed.md) and [continuation notes](continue.md)
 
-The playable Unity scope currently covers the forestry opening. The larger campaign, industrial systems, full map, and eight victory objectives are tracked in the feature matrix.
+The playable Unity scope covers the forestry opening and the first timber-processing routes. The larger campaign, industrial systems, full map, and eight victory objectives are tracked in the feature matrix.

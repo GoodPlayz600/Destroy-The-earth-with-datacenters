@@ -1,8 +1,7 @@
 # Project Clearcut Unity opening
 
 Open this project with Unity **6000.6.10f1**. The opening scene is
-`Assets/Scenes/TheLastJungle.unity`. It is already generated and checked into
-the Unity project. Use **Clearcut → Build Opening Scene** to regenerate it from
+`Assets/Scenes/TheLastJungle.unity`. The generated scene is checked into the Unity project. Use **Clearcut → Build Opening Scene** to regenerate it from
 the FBX model sources after an art or layout change.
 
 ## Play
@@ -46,6 +45,12 @@ to install the pinned official Photon Realtime Core SDK into the Web template.
 In each Web client, enter the clearing and open **Field desk → Multiplayer**.
 Paste the Realtime App ID and use the same region in both clients. One player
 clicks **Host a copy of solo**, then shares the displayed code so another can
-choose **Join room**. The host retains its own room checkpoint. The opening
-currently supports guest movement and chopping, with the host handling dragging,
-burns, and purchases. Use the pinned project's Web module for Photon co-op.
+choose **Join room**. The host retains its own room checkpoint. A room shares timber, money, and purchases. The host validates guest actions
+and simulates forestry, hauling, sales, and workbench jobs. Use the pinned
+project's Web module for Photon co-op.
+
+## Upgrade data
+
+Run `python3 Tools/generate-upgrade-catalog.py --check` to verify the runtime
+catalog against the master prompt. The generated data keeps all 1,696 entries.
+The field desk sells the entries with wired gameplay effects.

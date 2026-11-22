@@ -26,7 +26,7 @@ namespace Clearcut
 
         void TryIntake(TimberTree tree)
         {
-            if (Burning || tree.Record.sold || TooHeavy(tree) || !tree.Log)
+            if (Burning || tree.Record.product != TimberProduct.Log || tree.Record.sold || TooHeavy(tree) || !tree.Log)
                 return;
             Vector3 center = tree.Log.worldCenterOfMass - transform.position;
             if (new Vector2(center.x, center.z).sqrMagnitude > 1.35f * 1.35f ||
@@ -34,11 +34,19 @@ namespace Clearcut
                 Mathf.Abs(Vector3.Dot(tree.Log.transform.up, Vector3.up)) > 0.47f)
                 return;
 
+            if (!tree.Reserve(this))
+                return;
             Burning = tree;
             duration = 2.8f / session.BurnThroughput;
             remaining = duration;
-            tree.Log.isKinematic = true;
             session.OnBurnStarted(tree);
+        }
+
+        internal void CancelLocal()
+        {
+            if (Burning)
+                Burning.ReleaseReservation(this);
+            Burning = null;
         }
 
         void Update()

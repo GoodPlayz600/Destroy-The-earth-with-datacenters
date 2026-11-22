@@ -70,6 +70,12 @@ namespace Clearcut
             yield return null;
             var game = FindAnyObjectByType<CampaignSession>();
             var tree = game.trees[0];
+            var catalog = UpgradeCatalog.Entries;
+            Check(catalog.Count == 1696 && catalog["112-16"].price > int.MaxValue &&
+                catalog["73-01"].previousInBranch == "" && catalog["73-16"].previousInBranch == "73-15",
+                "The runtime catalog loads all 1,696 entries with wide prices and branch ordering.");
+            Check(CampaignSession.Upgrades.Length == 7 && CampaignSession.Upgrades[1].Requires == "01-01",
+                "Only wired effects are sold, and their purchase data comes from the catalog.");
             Check(game.Save.cash == 0 && game.Save.receipts.Count == 0 && game.knife.GetComponent<MeshFilter>().sharedMesh,
                 "Fresh campaign starts at $0 with the modeled knife.");
             Check(game.trees.Length >= 200 && game.trees[0].standing.GetComponent<MeshFilter>().sharedMesh,
@@ -116,6 +122,15 @@ namespace Clearcut
             controller.enabled = true;
             Physics.SyncTransforms();
             var grabRay = new Ray(game.view.transform.position, tree.Log.worldCenterOfMass - game.view.transform.position);
+            game.Coop.StartHostForSmokeTest();
+            SendGuest(game.Coop, 2, "grab", new Ray(grabRay.origin - grabRay.direction * 9f, grabRay.direction), tree.id);
+            Check(!game.IsHeld(tree), "Host rejects an out-of-range guest grip.");
+            SendGuest(game.Coop, 2, "grab", grabRay, tree.id);
+            Check(game.IsHeld(tree) && game.Held == null, "Guest commands attach a grip on the host.");
+            SendGuest(game.Coop, 3, "grab", grabRay, tree.id);
+            Check(!game.TryGrab(grabRay), "A guest-held log cannot also be grabbed by the host.");
+            game.Coop.OnPhotonMessage("{\"kind\":\"left\",\"actor\":2}");
+            Check(!game.IsHeld(tree), "A competing guest cannot steal the grip. Departure releases it.");
             Check(game.TryGrab(grabRay), "Grab action attaches to a reachable timber body.");
 
             Vector3 destination = pit - toPit * 1.08f;
@@ -144,9 +159,13 @@ namespace Clearcut
 
             float before = game.SwingCost;
             var upgrade = CampaignSession.Upgrades[0];
-            Check(game.Buy(upgrade) && game.Save.cash == 3 && game.SwingCost < before,
-                "Rubberized Handle deducts $15 and lowers the actual swing stamina cost.");
+            SendGuest(game.Coop, 3, "buy", grabRay, upgradeId: upgrade.Id);
+            Check(game.Save.cash == 3 && game.SwingCost < before,
+                "Guest purchase deducts $15 on the host and lowers actual swing stamina cost.");
+            SendGuest(game.Coop, 3, "buy", grabRay, upgradeId: upgrade.Id);
             Check(!game.Buy(upgrade) && game.Save.cash == 3, "A repeated purchase cannot charge twice.");
+            Check(CampaignSave.TryRead(game.MakeRoomState(), out var room) && room.Owns(upgrade.Id) &&
+                room.cash == 3 && room.receipts.Count == 1, "Shared snapshot carries the host's sale and upgrade.");
             string encoded = game.Export();
             Check(CampaignSave.TryRead(encoded, out _) && !CampaignSave.TryRead("{broken", out _),
                 "Current JSON can be decoded and malformed JSON is rejected.");
@@ -159,6 +178,135 @@ namespace Clearcut
                 game.SwingCost < before && game.trees[0].Record.sold && !game.trees[0].Log &&
                 game.trees[0].GetComponentInChildren<StumpMarker>(),
                 "A real scene reload restores wallet, upgrade effects, sold timber and the stump.");
+
+            Check(game.yard.Length == 5, "The saved scene carries all five usable timber-yard stations.");
+            TimberYard Site(YardService service) => Array.Find(game.yard, station => station.service == service);
+            var raw = game.trees[1];
+            FellForYardTest(raw);
+            PlaceCargo(raw, Site(YardService.RawBuyer).transform);
+            yield return WaitUntilCargo(() => raw.Record.sold, 3);
+            Check(raw.Record.sold && game.Save.cash == 25 && game.Save.receipts[^1].buyer == "Raw Timber Buyer",
+                "The raw timber buyer pays $22 for one sapling and records its own receipt.");
+
+            var crafted = game.trees[2];
+            FellForYardTest(crafted);
+            var sawmill = Site(YardService.Sawmill);
+            PlaceCargo(crafted, sawmill.transform);
+            yield return WaitUntilCargo(() => sawmill.Active == crafted, 2);
+            Check(sawmill.Active == crafted && crafted.ReservedBy == sawmill,
+                "The sawmill reserves an actual delivered log.");
+            yield return new WaitForSeconds(0.35f);
+            Check(crafted.Record.product == TimberProduct.Log && sawmill.Completion < 0.01f,
+                "Idle manual work does not advance the sawmill.");
+            var sawOrigin = sawmill.transform.TransformPoint(new Vector3(0, 1.6f, -1.5f));
+            var sawRay = new Ray(sawOrigin, sawmill.intake.position - sawOrigin);
+            Check(game.FindWorkStation(sawRay) == sawmill, "Walking up to the sawmill gives the manual work action.");
+            yield return RunBench(sawmill, crafted, TimberProduct.Boards);
+            Check(crafted.Record.product == TimberProduct.Boards && crafted.Log && crafted.CargoCollider is BoxCollider &&
+                crafted.Log.mass < crafted.mass && !crafted.ReservedBy,
+                "Manual sawing creates a lighter, physical bundle and releases it for hauling.");
+
+            PlaceCargo(crafted, game.exchange.transform);
+            yield return new WaitForSeconds(0.3f);
+            Check(!game.exchange.Burning && !crafted.Record.sold, "The fire ring rejects a board bundle.");
+            var dryer = Site(YardService.DryingRack);
+            PlaceCargo(crafted, dryer.transform);
+            yield return WaitUntilCargo(() => dryer.Active == crafted, 2);
+            Check(dryer.Active == crafted, "The drying rack takes rough boards.");
+            var dryingSave = game.Export();
+            Check(CampaignSave.TryRead(dryingSave, out var drying) &&
+                drying.ForTree(crafted.id).product == TimberProduct.Boards &&
+                drying.ForTree(crafted.id).processRemaining > 0, "An active drying cycle is written to the save.");
+            yield return WaitUntilCargo(() => crafted.Record.product == TimberProduct.DriedBoards, 11);
+            Check(crafted.Record.product == TimberProduct.DriedBoards, "The rack yields dried boards after elapsed play time.");
+
+            var bench = Site(YardService.CrateBench);
+            PlaceCargo(crafted, bench.transform);
+            yield return WaitUntilCargo(() => bench.Active == crafted, 2);
+            Check(bench.Active == crafted, "The crate bench accepts the dried bundle.");
+            yield return RunBench(bench, crafted, TimberProduct.Crate);
+            Check(crafted.Record.product == TimberProduct.Crate && crafted.Log && !crafted.ReservedBy,
+                "Assembly produces a separate crated cargo mesh on the workbench output.");
+
+            var buyer = Site(YardService.LumberBuyer);
+            PlaceCargo(crafted, buyer.transform);
+            yield return WaitUntilCargo(() => crafted.Record.sold, 3);
+            Check(crafted.Record.sold && game.Save.cash == 105 && game.Save.receipts[^1].product == TimberProduct.Crate &&
+                game.Save.receipts[^1].buyer == "Lumber Buyer", "The finished crate sells once for $80.");
+            game.CompleteSale(crafted);
+            Check(game.Save.cash == 105 && game.Save.receipts.Count == 3, "Sold cargo cannot pay again through the fire route.");
+
+            var saw = Array.Find(CampaignSession.Upgrades, upgrade => upgrade.Id == "05-01");
+            Check(!game.EquipSaw(true), "The Pocket Saw cannot be equipped before purchase.");
+            Check(game.Buy(saw) && game.Save.cash == 30, "The Pocket Saw purchase deducts $75.");
+            Check(game.EquipSaw(true) && game.pocketSaw.gameObject.activeSelf && !game.knife.gameObject.activeSelf,
+                "Equipping the purchased saw swaps to the physical saw model.");
+            var largeTree = Array.Find(game.trees, t => t.height > 3f && !t.Record.felled);
+            Check(game.DamageFor(game.trees[3], true) > 2 && game.DamageFor(largeTree, true) < 1,
+                "The Pocket Saw is faster on saplings and loses effectiveness on larger trees.");
+        }
+
+        static void FellForYardTest(TimberTree tree)
+        {
+            var point = tree.transform.position + Vector3.up;
+            tree.Strike(tree.toughness, point, Vector3.forward);
+        }
+
+        static void PlaceCargo(TimberTree tree, Transform receiver)
+        {
+            tree.Log.position = receiver.TransformPoint(new Vector3(0, 0.31f, -0.16f));
+            tree.Log.rotation = tree.Record.product == TimberProduct.Log ? Quaternion.Euler(0, 0, 90) : Quaternion.identity;
+            tree.Log.linearVelocity = Vector3.zero;
+            tree.Log.angularVelocity = Vector3.zero;
+            tree.Log.WakeUp();
+            Physics.SyncTransforms();
+        }
+
+        static IEnumerator RunBench(TimberYard site, TimberTree timber, TimberProduct product)
+        {
+            float deadline = Time.time + 7;
+            while (timber.Record.product != product && Time.time < deadline)
+            {
+                site.Work();
+                yield return null;
+            }
+        }
+
+        static IEnumerator WaitUntilCargo(Func<bool> predicate, float timeout)
+        {
+            float deadline = Time.time + timeout;
+            while (!predicate() && Time.time < deadline)
+                yield return null;
+        }
+
+        static void SendGuest(OpeningCoop coop, int actor, string kind, Ray ray, int treeId = 0, string upgradeId = null)
+        {
+            Vector3 angles = Quaternion.LookRotation(ray.direction).eulerAngles;
+            var action = new TestAction {
+                kind = kind, treeId = treeId, upgradeId = upgradeId,
+                pose = new TestPose { position = ray.origin - Vector3.up * 1.62f, yaw = angles.y, pitch = angles.x }
+            };
+            coop.OnPhotonMessage(JsonUtility.ToJson(new TestPacket { kind = "event", code = 43,
+                actor = actor, payload = JsonUtility.ToJson(action) }));
+        }
+
+        [Serializable] sealed class TestAction
+        {
+            public TestPose pose;
+            public string kind, upgradeId;
+            public int treeId;
+        }
+
+        [Serializable] sealed class TestPose
+        {
+            public Vector3 position;
+            public float yaw, pitch;
+        }
+
+        [Serializable] sealed class TestPacket
+        {
+            public string kind, payload;
+            public int code, actor;
         }
 
         static void Check(bool condition, string description)

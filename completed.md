@@ -16,3 +16,12 @@
 - Built the Unity Web opening successfully after removing the unused inference dependency that pulled an incompatible native Web plugin. Preserved a copy under `Builds/Web-Opening/`.
 - Verified the supplied Photon Realtime App ID against Photon Cloud in the US region. A host created an unlisted room, a second client joined, and a reliable targeted event reached the host. The App ID is excluded from Git. This verifies the transport independently of Unity gameplay.
 - Added the Unity Web Multiplayer panel, unlisted rooms for four players, interpolated remote movement, guest chopping, and host-owned forestry, receipts and wallet state. Live Unity multiplayer testing is pending.
+- Pushed the Unity branch with `README.md`, the exact root `prompt.md`, both editable Blender files, and the FBX exports. A clean GitHub clone fetched model binaries through Git LFS and matched the prompt SHA-256.
+- Launched the Unity Web player in Brave. The fixed input bridge entered the clearing and opened the field desk without the startup pointer-lock exception. Three focused tests passed for denied, unfocused, and released pointer capture.
+- Connected two real Unity Web clients using a private Photon room. The guest received the host's clearing snapshot. The editor test also verified host checks for guest grab range, exclusive log ownership, release on departure, and exactly-once guest purchases.
+
+## Timber-yard checkpoint
+
+- Added and saved five functional yard stations with seven editable Blender/FBX assets. The Unity opening now supports selling raw logs, manually milling boards, drying, assembling crates, and delivering the processed cargo to a buyer.
+- Passed the Unity opening and yard smoke test. It verified $18 for a burned sapling, $22 for a raw sale, and $80 for a crafted crate. It also verified a saved drying cycle, the fire ring's rejection of boards, and the $75 Pocket Saw's purchase, model swap, and small-tree damage.
+- Generated and checked all 1,696 upgrade descriptions and prices from `prompt.md`. Unity loads the exact registry and uses it for the seven implemented upgrades.

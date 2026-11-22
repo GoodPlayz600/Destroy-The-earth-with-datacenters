@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
@@ -9,19 +10,23 @@ namespace Clearcut
     public sealed class CampaignSession : MonoBehaviour
     {
         public Camera view;
-        public Transform knife;
+        public Transform knife, pocketSaw;
         public AshExchange exchange;
         public TimberTree[] trees;
+        public TimberYard[] yard = Array.Empty<TimberYard>();
         public Material chipMaterial;
 
-        internal static readonly Upgrade[] Upgrades =
+        static Upgrade[] implementedUpgrades;
+
+        internal static Upgrade[] Upgrades => implementedUpgrades ??= new[]
         {
-            new("01-01", "Rubberized Handle", "Knife swings use 15% less stamina.", 15),
-            new("01-02", "Butter Knife Serration", "Deal 35% more damage to saplings.", 32, "01-01"),
-            new("02-01", "Work Gloves", "Apply 15% more force while dragging.", 15),
-            new("02-02", "Longer Stride", "Walk and run 8% faster.", 32, "02-01"),
-            new("04-01", "Bigger Fire Ring", "Accept logs up to 30% heavier.", 15),
-            new("04-02", "Hotter Ember Bed", "Burn wood 25% faster.", 32, "04-01")
+            UpgradeCatalog.Playable("01-01", "Knife swings use 15% less stamina."),
+            UpgradeCatalog.Playable("01-02", "Deal 35% more damage to saplings."),
+            UpgradeCatalog.Playable("02-01", "Apply 15% more force while dragging."),
+            UpgradeCatalog.Playable("02-02", "Walk and run 8% faster."),
+            UpgradeCatalog.Playable("04-01", "Accept logs up to 30% heavier."),
+            UpgradeCatalog.Playable("04-02", "Burn wood 25% faster."),
+            UpgradeCatalog.Playable("05-01", "Equip with 2. Cuts small trees more than twice as fast.")
         };
 
         internal OpeningCoop Coop { get; private set; }
@@ -29,6 +34,8 @@ namespace Clearcut
         internal TimberTree TargetTree { get; private set; }
         internal TimberTree TargetLog { get; private set; }
         internal TimberTree Held { get; private set; }
+        internal TimberYard WorkTarget { get; private set; }
+        internal bool UsingSaw { get; private set; }
         internal float Stamina { get; private set; } = 1;
         internal string Notice { get; private set; }
         internal float NoticeUntil { get; private set; }
@@ -46,6 +53,7 @@ namespace Clearcut
 
         CharacterController controller;
         OpeningAudio audio;
+        OpeningHud hud;
         Vector3 spawn;
         Vector3 knifeOrigin;
         Quaternion knifeRotation;
@@ -56,21 +64,38 @@ namespace Clearcut
         float lastSwing = -2;
         float lastInput;
         float saveAt;
-        float lockRequest;
         string slot;
         bool walked;
         int quality;
 
         bool Has(string id) => Save.Owns(id);
-        internal float DamageFor(TimberTree tree) => Has("01-02") && tree.height <= 3 ? 1.35f : 1;
-        internal float SwingCost => Has("01-01") ? 0.0714f : 0.084f;
+        internal float DamageFor(TimberTree tree, bool saw = false)
+        {
+            if (saw && Has("05-01"))
+                return tree.height <= 3 ? 2.4f : 0.7f;
+            return Has("01-02") && tree.height <= 3 ? 1.35f : 1;
+        }
+
+        internal bool EquipSaw(bool enabled)
+        {
+            if (enabled && (!pocketSaw || !Has("05-01")))
+                return false;
+            UsingSaw = enabled;
+            knife.gameObject.SetActive(!enabled);
+            if (pocketSaw)
+                pocketSaw.gameObject.SetActive(enabled);
+            return true;
+        }
+        internal float SwingCost => UsingSaw ? 0.102f : Has("01-01") ? 0.0714f : 0.084f;
         internal float WalkSpeed => Has("02-02") ? 4.536f : 4.2f;
         internal float Grip => Has("02-01") ? 1.15f : 1;
-        internal bool IsHeld(TimberTree tree) => Held == tree;
+        internal bool Hauling => Held || Coop.GuestHauling;
+        internal bool IsHeld(TimberTree tree) => Held == tree || Coop.IsHeldByGuest(tree);
 
         void Awake()
         {
             controller = GetComponent<CharacterController>();
+            hud = GetComponent<OpeningHud>();
             spawn = transform.position;
             knifeOrigin = knife.localPosition;
             knifeRotation = knife.localRotation;
@@ -109,8 +134,8 @@ namespace Clearcut
             if (!HasStarted || keyboard == null || mouse == null)
                 return;
 
-            if (keyboard.tabKey.wasPressedThisFrame || keyboard.escapeKey.wasPressedThisFrame ||
-                keyboard.iKey.wasPressedThisFrame)
+            if (keyboard.escapeKey.wasPressedThisFrame || (!hud.EditingText &&
+                (keyboard.tabKey.wasPressedThisFrame || keyboard.iKey.wasPressedThisFrame)))
             {
                 SetMenu(!MenuOpen);
                 return;
@@ -119,35 +144,45 @@ namespace Clearcut
             if (MenuOpen)
                 return;
 
-            bool locked = Cursor.lockState == CursorLockMode.Locked;
+            bool locked = PointerLocked;
+#if !UNITY_WEBGL || UNITY_EDITOR
             if (!DragLook && !locked && mouse.leftButton.wasPressedThisFrame)
             {
                 RequestLock();
                 return;
             }
-            if (!DragLook && !locked && Time.unscaledTime - lockRequest > 0.5f)
-            {
-                Release();
-                return;
-            }
-
-            if ((locked || DragLook && mouse.rightButton.isPressed))
+#endif
+            if (locked || mouse.rightButton.isPressed)
                 Aim(look + mouse.delta.ReadValue() * Sensitivity * new Vector2(1, -1));
 
             float dt = Time.deltaTime;
             Vector2 motion = new((keyboard.dKey.isPressed ? 1 : 0) - (keyboard.aKey.isPressed ? 1 : 0),
                 (keyboard.wKey.isPressed ? 1 : 0) - (keyboard.sKey.isPressed ? 1 : 0));
-            bool sprint = keyboard.leftShiftKey.isPressed && !Held && Stamina > 0.09f && motion.sqrMagnitude > 0;
+            bool sprint = keyboard.leftShiftKey.isPressed && !Hauling && Stamina > 0.09f && motion.sqrMagnitude > 0;
             Walk(motion, sprint, keyboard.spaceKey.wasPressedThisFrame, dt);
 
             var ray = new Ray(view.transform.position, view.transform.forward);
             FindTargets(ray);
-            if (keyboard.eKey.isPressed && !Held)
+            WorkTarget = FindWorkStation(ray);
+            if (keyboard.digit1Key.wasPressedThisFrame)
+                EquipSaw(false);
+            if (keyboard.digit2Key.wasPressedThisFrame && !EquipSaw(true))
+                Show("Unlock Pocket Saw at the field desk.");
+            if (Coop.Guest)
+                Coop.UpdateGuestGrip(keyboard.eKey.isPressed, TargetLog);
+            else if (keyboard.eKey.isPressed && !Held)
                 TryGrab(ray);
-            if (!keyboard.eKey.isPressed && Held)
+            else if (!keyboard.eKey.isPressed && Held)
                 Release();
-            if (mouse.leftButton.isPressed && !Held)
-                Swing(ray);
+            if (mouse.leftButton.isPressed && !Hauling)
+            {
+                if (!WorkTarget)
+                    Swing(ray);
+                else if (Coop.Guest)
+                    Coop.RequestWork();
+                else
+                    WorkTarget.Work();
+            }
             RecoverStamina(dt, sprint, mouse.leftButton.isPressed);
 
             AnimateKnife(dt, motion.sqrMagnitude > 0);
@@ -160,9 +195,9 @@ namespace Clearcut
             if (sprint)
                 Stamina = Mathf.Max(0, Stamina - dt * 0.13f);
             Vector3 direction = transform.TransformDirection(new Vector3(motion.x, 0, motion.y).normalized);
-            float speed = WalkSpeed * (Held ? 0.56f : sprint ? 1.57f : 1);
+            float speed = WalkSpeed * (Hauling ? 0.56f : sprint ? 1.57f : 1);
             if (controller.isGrounded)
-                gravity = jump && !Held ? 5.9f : -1.4f;
+                gravity = jump && !Hauling ? 5.9f : -1.4f;
             gravity -= dt * 18;
             controller.Move((direction * speed + Vector3.up * gravity) * dt);
             if (transform.position.y < -5)
@@ -190,21 +225,25 @@ namespace Clearcut
 
         internal void PullHeldTimber()
         {
-            if (!Held || !Held.Log || MenuOpen)
-                return;
-            var body = Held.Log;
-            Vector3 point = body.transform.TransformPoint(localGrip);
-            Vector3 forward = Vector3.ProjectOnPlane(view.transform.forward, Vector3.up).normalized;
-            Vector3 target = transform.position + forward * 1.12f + Vector3.up * Mathf.Clamp(0.39f + view.transform.forward.y * 0.21f, 0.22f, 0.60f);
+            if (Held && !MenuOpen && !PullTimber(Held, localGrip, transform.position, view.transform.forward))
+                Release();
+        }
+
+        internal bool PullTimber(TimberTree tree, Vector3 gripPoint, Vector3 operatorPosition, Vector3 lookDirection)
+        {
+            if (!tree.Log)
+                return false;
+            var body = tree.Log;
+            Vector3 point = body.transform.TransformPoint(gripPoint);
+            Vector3 forward = Vector3.ProjectOnPlane(lookDirection, Vector3.up).normalized;
+            Vector3 target = operatorPosition + forward * 1.12f + Vector3.up * Mathf.Clamp(0.39f + lookDirection.y * 0.21f, 0.22f, 0.60f);
             Vector3 offset = target - point;
             if (offset.sqrMagnitude > 18)
-            {
-                Release();
-                return;
-            }
+                return false;
             Vector3 spring = offset * 320f - body.GetPointVelocity(point) * 31f;
             spring.y = Mathf.Clamp(spring.y, -225, 285);
             body.AddForceAtPosition(Vector3.ClampMagnitude(spring, 655 * Grip), point, ForceMode.Force);
+            return true;
         }
 
         void FindTargets(Ray ray)
@@ -217,7 +256,7 @@ namespace Clearcut
                 if (tree && !tree.Record.felled && hit.distance <= 2.55f)
                     TargetTree = tree;
                 var felled = hit.collider.GetComponent<FelledTimber>();
-                if (felled && exchange.Burning != felled.tree)
+                if (felled && !felled.tree.ReservedBy && !Coop.IsHeldByGuest(felled.tree))
                     TargetLog = felled.tree;
             }
 
@@ -231,9 +270,9 @@ namespace Clearcut
             float shortest = 2.8f;
             foreach (var tree in trees)
             {
-                if (!tree.Log || exchange.Burning == tree)
+                if (!tree.Log || tree.ReservedBy || Coop.IsHeldByGuest(tree))
                     continue;
-                var collider = tree.Log.GetComponent<Collider>();
+                var collider = tree.CargoCollider;
                 Vector3 point = collider.ClosestPoint(ray.origin + ray.direction * 1.5f);
                 Vector3 delta = point - ray.origin;
                 float distance = delta.magnitude;
@@ -257,10 +296,30 @@ namespace Clearcut
                 return false;
 
             Held = TargetLog;
-            var collider = Held.Log.GetComponent<Collider>();
+            var collider = Held.CargoCollider;
             Vector3 point = collider.ClosestPoint(ray.origin + ray.direction * 1.55f);
             localGrip = Held.Log.transform.InverseTransformPoint(point);
             Held.Log.WakeUp();
+            return true;
+        }
+
+        internal bool TryRemoteGrip(int treeId, Ray ray, out TimberTree tree, out Vector3 gripPoint)
+        {
+            tree = Array.Find(trees, candidate => candidate.id == treeId);
+            gripPoint = Vector3.zero;
+            if (!tree || !tree.Log || IsHeld(tree) || tree.ReservedBy)
+                return false;
+            var collider = tree.CargoCollider;
+            Vector3 point = collider.ClosestPoint(ray.GetPoint(1.55f));
+            Vector3 toward = point - ray.origin;
+            float distance = toward.magnitude;
+            if (distance > 2.8f || Vector3.Dot(toward.normalized, ray.direction) < 0.65f)
+                return false;
+            if (Physics.Raycast(ray.origin, toward.normalized, out var hit, distance + 0.03f,
+                Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore) && hit.collider != collider)
+                return false;
+            gripPoint = tree.Log.transform.InverseTransformPoint(point);
+            tree.Log.WakeUp();
             return true;
         }
 
@@ -276,7 +335,7 @@ namespace Clearcut
         {
             if (Time.time < nextSwing || Stamina < SwingCost)
                 return false;
-            nextSwing = Time.time + (walked ? 0.69f : 0.72f);
+            nextSwing = Time.time + (UsingSaw ? 0.61f : walked ? 0.69f : 0.72f);
             lastInput = lastSwing = Time.time;
             Stamina -= SwingCost;
             if (!Physics.Raycast(ray, out var hit, 2.55f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore) ||
@@ -288,25 +347,33 @@ namespace Clearcut
 
             if (Coop.Guest)
             {
-                Coop.RequestCut();
+                Coop.RequestCut(UsingSaw);
                 return true;
             }
-            StrikeTree(tree, hit, ray);
+            StrikeTree(tree, hit, ray, UsingSaw);
             return true;
         }
 
-        internal void CutFromPeer(Ray ray)
+        internal TimberYard FindWorkStation(Ray ray)
+        {
+            foreach (var station in yard)
+                if (station.CanWork(ray))
+                    return station;
+            return null;
+        }
+
+        internal void CutFromPeer(Ray ray, bool saw)
         {
             if (Physics.Raycast(ray, out var hit, 2.55f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)
                 && hit.collider.TryGetComponent<TimberTree>(out var tree) && !tree.Record.felled)
-                StrikeTree(tree, hit, ray);
+                StrikeTree(tree, hit, ray, saw);
         }
 
-        void StrikeTree(TimberTree tree, RaycastHit hit, Ray ray)
+        void StrikeTree(TimberTree tree, RaycastHit hit, Ray ray, bool saw)
         {
             audio.Scrape();
             MakeChipBurst(hit.point, hit.normal);
-            if (tree.Strike(DamageFor(tree), hit.point, ray.direction))
+            if (tree.Strike(DamageFor(tree, saw), hit.point, ray.direction))
             {
                 audio.Fall();
                 Show("Timber! Hold E to drag the log.");
@@ -337,9 +404,10 @@ namespace Clearcut
             float arc = Mathf.Sin(phase * Mathf.PI);
             float flick = Mathf.Sin(phase * 23.5f) * arc;
             Vector3 bob = moving ? new Vector3(Mathf.Sin(Time.time * 9) * 0.013f, Mathf.Cos(Time.time * 18) * 0.013f, 0) : Vector3.zero;
-            Vector3 grip = Held ? new Vector3(0.1f, -0.35f, -0.03f) : new Vector3(-arc * 0.18f, arc * 0.03f, arc * 0.19f);
-            knife.localPosition = Vector3.Lerp(knife.localPosition, knifeOrigin + bob + grip, dt * 21);
-            knife.localRotation = Quaternion.Slerp(knife.localRotation,
+            Vector3 grip = Hauling ? new Vector3(0.1f, -0.35f, -0.03f) : new Vector3(-arc * 0.18f, arc * 0.03f, arc * 0.19f);
+            Transform tool = UsingSaw ? pocketSaw : knife;
+            tool.localPosition = Vector3.Lerp(tool.localPosition, knifeOrigin + bob + grip, dt * 21);
+            tool.localRotation = Quaternion.Slerp(tool.localRotation,
                 knifeRotation * Quaternion.Euler(arc * 27 + flick * 9, arc * 23, -arc * 78 + flick * 13), dt * 23);
         }
 
@@ -349,24 +417,34 @@ namespace Clearcut
             audio.Burn();
         }
 
-        internal void CompleteSale(TimberTree tree)
+        internal void CompleteSale(TimberTree tree) =>
+            CompleteSale(tree, tree.saleValue, "Ash Exchange", exchange.transform.position);
+
+        internal void CompleteSale(TimberTree tree, int amount, string buyer, Vector3 location)
         {
             if (tree.Record.sold)
                 return;
             tree.Consume();
-            Save.cash += tree.saleValue;
-            Save.receipts.Add(new Receipt { treeId = tree.id, species = tree.species, amount = tree.saleValue });
-            CashPopupPosition = exchange.transform.position + Vector3.up * 2f;
-            CashPopupAmount = tree.saleValue;
+            Save.cash += amount;
+            Save.receipts.Add(new Receipt {
+                treeId = tree.id, species = tree.species, amount = amount, buyer = buyer, product = tree.Record.product
+            });
+            CashPopupPosition = location + Vector3.up * 2f;
+            CashPopupAmount = amount;
             CashPopupUntil = Time.unscaledTime + 3;
-            Show("Ash Exchange receipt · " + tree.species + " · +$" + tree.saleValue, 5.5f);
+            Show(buyer + " receipt · " + tree.species + " · +$" + amount, 5.5f);
             audio.Sale();
             Persist();
         }
 
         internal bool Buy(Upgrade upgrade)
         {
-            if (Coop.Guest || Has(upgrade.Id) || Save.cash < upgrade.Price || upgrade.Requires != null && !Has(upgrade.Requires))
+            if (Coop.Guest)
+            {
+                Coop.RequestPurchase(upgrade.Id);
+                return false;
+            }
+            if (Has(upgrade.Id) || Save.cash < upgrade.Price || upgrade.Requires != null && !Has(upgrade.Requires))
                 return false;
             Save.cash -= upgrade.Price;
             Save.upgrades.Add(upgrade.Id);
@@ -374,6 +452,16 @@ namespace Clearcut
             Show(upgrade.Name + " installed");
             Persist();
             return true;
+        }
+
+        internal void BuyFromPeer(string id)
+        {
+            foreach (var upgrade in Upgrades)
+                if (upgrade.Id == id)
+                {
+                    Buy(upgrade);
+                    return;
+                }
         }
 
         internal void StartPlaying()
@@ -388,6 +476,7 @@ namespace Clearcut
             Time.timeScale = open && !Coop.InRoom ? 0 : 1;
             if (open)
             {
+                Coop.UpdateGuestGrip(false, null);
                 Release();
                 Unlock();
                 Persist();
@@ -398,17 +487,40 @@ namespace Clearcut
                 RequestLock();
         }
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+        [DllImport("__Internal")] static extern void ClearcutPointerArm(int enabled);
+        [DllImport("__Internal")] static extern int ClearcutPointerLocked();
+
+        internal bool PointerLocked => ClearcutPointerLocked() != 0;
+#else
+        internal bool PointerLocked => Cursor.lockState == CursorLockMode.Locked;
+#endif
+
         void RequestLock()
         {
-            lockRequest = Time.unscaledTime;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            ClearcutPointerArm(1);
+#else
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
+#endif
         }
 
         void Unlock()
         {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            ClearcutPointerArm(0);
+#else
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
+#endif
+        }
+
+        [UnityEngine.Scripting.Preserve]
+        public void OnWebPointerLockDenied()
+        {
+            DragLook = true;
+            Show("Mouse lock unavailable · hold right mouse to look", 5f);
         }
 
         void Aim(Vector2 angles)
@@ -487,10 +599,19 @@ namespace Clearcut
             return encoded;
         }
 
-        internal void BeginRoomSave(string roomSlot)
+        internal void BeginRoomSave(string roomSlot, int joiningActor)
         {
             Release();
             slot = roomSlot;
+            if (joiningActor > 0)
+            {
+                exchange.CancelLocal();
+                foreach (var station in yard)
+                    station.CancelLocal();
+                EquipSaw(false);
+                MoveTo(spawn + new Vector3(-1.35f * (joiningActor - 1), 0, -0.8f));
+                Aim(Vector2.zero);
+            }
         }
 
         internal string MakeRoomState()
@@ -507,6 +628,8 @@ namespace Clearcut
             if (!CampaignSave.TryRead(json, out var state))
                 return false;
             Save = state;
+            if (UsingSaw && !Has("05-01"))
+                EquipSaw(false);
             foreach (var tree in trees)
                 tree.ApplyHostRecord(Save.ForTree(tree.id));
             return true;
@@ -528,6 +651,7 @@ namespace Clearcut
         {
             if (!focused && Save != null && HasStarted)
             {
+                Coop.UpdateGuestGrip(false, null);
                 Release();
                 Persist();
             }

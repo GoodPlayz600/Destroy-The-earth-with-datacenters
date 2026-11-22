@@ -55,6 +55,13 @@ namespace Clearcut.Editor
             var crate = Bake("ServiceCrate");
             var boulder = Bake("MossBoulder");
             var flame = Bake("FlameTongue");
+            var boards = Bake("BoardBundle");
+            var shippingCrate = Bake("ShippingCrate");
+            var saw = Bake("PocketSaw");
+            var mill = Bake("YardSawBench");
+            var market = Bake("YardMarket");
+            var dryer = Bake("YardDryingRack");
+            var crateBench = Bake("YardCrateBench");
 
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             Environment();
@@ -83,6 +90,8 @@ namespace Clearcut.Editor
                 data.toughness = settings.Toughness;
                 data.saleValue = settings.Price;
                 data.logPrefab = log;
+                data.boardPrefab = boards;
+                data.cratePrefab = shippingCrate;
                 data.stumpPrefab = stump;
                 data.freshWood = Mat("Heartwood");
                 data.standingPrefab = trees[kind];
@@ -172,10 +181,23 @@ namespace Clearcut.Editor
             tool.transform.localPosition = new Vector3(0.38f, -0.31f, 0.48f);
             tool.transform.localRotation = Quaternion.Euler(19, -12, -33);
             tool.transform.localScale = Vector3.one * 1.48f;
+            var sawTool = Drop("Pocket saw", saw, camera.transform, Vector3.zero, 0);
+            sawTool.transform.SetLocalPositionAndRotation(tool.transform.localPosition, tool.transform.localRotation);
+            sawTool.transform.localScale = Vector3.one * 1.17f;
+            sawTool.SetActive(false);
             var game = player.AddComponent<CampaignSession>();
             player.AddComponent<OpeningHud>();
             game.view = camera;
             game.knife = tool.transform;
+            game.pocketSaw = sawTool.transform;
+            var yard = new GameObject("Timber yard").transform;
+            game.yard = new[] {
+                MakeYard(game, yard, YardService.Sawmill, mill, -4.0f, 2.3f, 42, 0.97f, 1.57f, "HAND SAWMILL"),
+                MakeYard(game, yard, YardService.RawBuyer, market, -1.6f, 7.7f, 0, 0.82f, 1.48f, "RAW TIMBER"),
+                MakeYard(game, yard, YardService.DryingRack, dryer, -5.0f, 5.35f, 55, 0.81f, 1.63f, "DRYING RACK"),
+                MakeYard(game, yard, YardService.CrateBench, crateBench, 3.74f, -0.45f, -85, 1.0f, 1.56f, "CRATE BENCH"),
+                MakeYard(game, yard, YardService.LumberBuyer, market, -1.8f, -3.65f, 150, 0.82f, 1.48f, "LUMBER BUYER")
+            };
             game.exchange = exchange;
             game.trees = records.ToArray();
             game.chipMaterial = Mat("Heartwood");
@@ -189,12 +211,43 @@ namespace Clearcut.Editor
             PlayerSettings.defaultScreenHeight = 720;
             PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
             PlayerSettings.WebGL.template = "PROJECT:Clearcut";
+            PlayerSettings.WebGL.nameFilesAsHashes = true;
             PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.WebGL, false);
             PlayerSettings.SetGraphicsAPIs(BuildTarget.WebGL, new[] { GraphicsDeviceType.OpenGLES3 });
             PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Disabled;
             PlayerSettings.WebGL.memorySize = 96;
             AssetDatabase.SaveAssets();
             Debug.Log("Clearcut opening saved with " + records.Count + " living 3D trees and " + trees.Length + " species.");
+        }
+
+        static TimberYard MakeYard(CampaignSession game, Transform parent, YardService service, GameObject model,
+            float x, float z, float yaw, float intakeHeight, float plaqueHeight, string caption)
+        {
+            var root = new GameObject(caption);
+            root.transform.SetParent(parent, false);
+            root.transform.SetPositionAndRotation(new Vector3(x, Elevation(x, z), z), Quaternion.Euler(0, yaw, 0));
+            var counter = Drop("Working bench", model, root.transform, root.transform.position, yaw);
+            counter.transform.localPosition = new Vector3(0, 0, 0.75f);
+            Letter(counter.transform, caption, plaqueHeight, 0.051f, new Color(1, 0.89f, 0.61f), -0.02f);
+            var volume = root.AddComponent<BoxCollider>();
+            volume.isTrigger = true;
+            volume.center = new Vector3(0, 0.62f, 0.05f);
+            volume.size = new Vector3(2.0f, 1.28f, 2.05f);
+            var site = root.AddComponent<TimberYard>();
+            site.service = service;
+            site.session = game;
+            site.intake = Anchor("Intake", new Vector3(0, intakeHeight, 0.75f));
+            float direction = service == YardService.DryingRack ? 1 : -1;
+            site.drop = Anchor("Finished cargo", new Vector3(direction * 1.47f, 0.52f, -0.61f));
+            return site;
+
+            Transform Anchor(string name, Vector3 local)
+            {
+                var anchor = new GameObject(name).transform;
+                anchor.SetParent(root.transform, false);
+                anchor.localPosition = local;
+                return anchor;
+            }
         }
 
         static AshExchange MakeExchange(GameObject pit, GameObject sign, GameObject crate, GameObject flame)
@@ -243,11 +296,11 @@ namespace Clearcut.Editor
             return exchange;
         }
 
-        static void Letter(Transform parent, string caption, float height, float size, Color color)
+        static void Letter(Transform parent, string caption, float height, float size, Color color, float depth = -0.072f)
         {
             var label = new GameObject(caption).AddComponent<TextMesh>();
             label.transform.SetParent(parent, false);
-            label.transform.localPosition = new Vector3(0, height, -0.072f);
+            label.transform.localPosition = new Vector3(0, height, depth);
             label.anchor = TextAnchor.MiddleCenter;
             label.alignment = TextAlignment.Center;
             label.fontSize = 58;

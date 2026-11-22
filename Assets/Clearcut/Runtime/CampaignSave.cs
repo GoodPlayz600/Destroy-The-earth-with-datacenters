@@ -62,7 +62,8 @@ namespace Clearcut
                         !float.IsFinite(tree.logRotation.x) || !float.IsFinite(tree.logRotation.y) ||
                         !float.IsFinite(tree.logRotation.z) || !float.IsFinite(tree.logRotation.w) ||
                         (tree.felled && Quaternion.Dot(tree.logRotation, tree.logRotation) < 0.01f) ||
-                        (tree.sold && !tree.felled))
+                        (tree.sold && !tree.felled) || (int)tree.product < 0 || tree.product > TimberProduct.Crate ||
+                        !float.IsFinite(tree.processRemaining) || tree.processRemaining < 0 || tree.processRemaining > 30)
                         return false;
 
                 var owned = new HashSet<string>();
@@ -122,6 +123,9 @@ namespace Clearcut
         public float damage;
         public bool felled;
         public bool sold;
+        public TimberProduct product;
+        public int processService;
+        public float processRemaining;
         public Vector3 logPosition;
         public Quaternion logRotation = Quaternion.identity;
     }
@@ -131,6 +135,8 @@ namespace Clearcut
     {
         public int treeId;
         public string species;
+        public string buyer;
+        public TimberProduct product;
         public int amount;
     }
 }
