@@ -1,5 +1,8 @@
 # PROJECT CLEARCUT: The Last Jungle
 
+**Unity project** · [Clearcut source and setup](Clearcut/README.md) · [Blender and FBX models](Clearcut/Assets/Models/) · [Master Unity prompt](prompt.md) · [Completed work](Clearcut/completed.md)
+
+
 > **A giant, original 3D browser-based chore / incremental / industrial-destruction simulator.**
 >
 > **You begin with a plastic butter knife, cut your first tree down one miserable scrape at a time, physically drag the trunk into a fire for a few dollars, and eventually build the machinery, factories, logistics networks, and resource-hungry industries required to turn an entire living jungle into a 100% desert.**

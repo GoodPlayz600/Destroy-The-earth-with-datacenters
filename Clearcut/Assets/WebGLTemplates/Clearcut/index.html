@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Enter the jungle with a plastic butter knife and start working the Ash Exchange.">
+  <title>Project Clearcut | The Last Jungle</title>
+  <style>
+    :root { color-scheme: dark; background: #101c16; color: #f4edcf; font: 1rem system-ui, sans-serif; }
+    body { margin: 0; }
+    main { position: relative; min-block-size: 100vh; min-block-size: 100dvh; }
+    canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; background: #15241b; }
+    .loading {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 1.25rem;
+      background: radial-gradient(ellipse at 72% 35%, #304f33, #101c16 69%);
+      box-sizing: border-box;
+    }
+    .loading[hidden], [hidden] { display: none; }
+    .sr-only { position: absolute; inline-size: 1px; block-size: 1px; clip-path: inset(50%); }
+    .card { width: min(30rem, 100%); border-block-start: .25rem solid #fbc057; padding-block-start: 1.4rem; }
+    h1 { margin: .25em 0; font-size: clamp(2.1rem, 1.25rem + 3vw, 3.5rem); line-height: 1.02; text-wrap: balance; }
+    p { line-height: 1.55; overflow-wrap: break-word; }
+    .station { color: #fbc057; font-weight: 650; letter-spacing: .13em; font-size: .875rem; }
+    progress { inline-size: 100%; accent-color: #fbc057; }
+    button {
+      min-block-size: 44px;
+      padding: .5rem 1rem;
+      border: 0;
+      background: #fbc057;
+      color: #172419;
+      font: inherit;
+      font-weight: 680;
+      cursor: pointer;
+    }
+    :focus-visible { outline: 3px solid #fbc057; outline-offset: 4px; }
+  </style>
+</head>
+<body>
+  <main>
+    <canvas id="jungle" hidden tabindex="0" aria-label="Project Clearcut game" aria-describedby="controls">
+      This game requires a browser with WebGL support.
+    </canvas>
+    <section id="loading" class="loading" aria-labelledby="title">
+      <div class="card">
+        <p class="station">ASH EXCHANGE</p>
+        <h1 id="title">Project Clearcut</h1>
+        <p id="status" role="status">Preparing the clearing…</p>
+        <progress id="progress" aria-label="Game loading progress" max="1"></progress>
+        <button id="retry" type="button" hidden>Reload game</button>
+        <p id="controls">Keyboard and mouse. Use WASD to move, left mouse to swing, E to drag, and Tab to open the field desk.</p>
+        <noscript><p>Enable JavaScript to run this Unity game.</p></noscript>
+      </div>
+    </section>
+  </main>
+  <script src="pointer-lock.js"></script>
+  <script src="photon-bridge.js"></script>
+  <script>
+    const canvas = document.querySelector("#jungle");
+    const loading = document.querySelector("#loading");
+    const progress = document.querySelector("#progress");
+    const loadStatus = document.querySelector("#status");
+    const retry = document.querySelector("#retry");
+    const controls = document.querySelector("#controls");
+    const loader = document.createElement("script");
+
+    function showFailure(detail) {
+      loadStatus.textContent = "The game could not start. Try reloading in a WebGL 2–capable desktop browser. " + detail;
+      canvas.hidden = true;
+      loading.hidden = false;
+      progress.hidden = true;
+      retry.hidden = false;
+    }
+
+    retry.addEventListener("click", () => window.location.reload());
+    loader.src = "Build/{{{ LOADER_FILENAME }}}";
+    loader.onerror = () => showFailure("The Unity loader could not be retrieved.");
+    loader.onload = () => {
+      canvas.hidden = false;
+      createUnityInstance(canvas, {
+        arguments: [],
+#if PROGRESSIVE_ASSET_LOADING
+        primaryDataUrls: {{{ JSON.stringify(PRIMARY_DATA_FILES) }}},
+        secondaryDataUrls: {{{ JSON.stringify(SECONDARY_DATA_FILES) }}},
+#else
+        dataUrl: "Build/{{{ DATA_FILENAME }}}",
+#endif
+        frameworkUrl: "Build/{{{ FRAMEWORK_FILENAME }}}",
+#if USE_WASM
+        codeUrl: "Build/{{{ CODE_FILENAME }}}",
+#endif
+#if SYMBOLS_FILENAME
+        symbolsUrl: "Build/{{{ SYMBOLS_FILENAME }}}",
+#endif
+        streamingAssetsUrl: "StreamingAssets",
+        companyName: {{{ JSON.stringify(COMPANY_NAME) }}},
+        productName: {{{ JSON.stringify(PRODUCT_NAME) }}},
+        productVersion: {{{ JSON.stringify(PRODUCT_VERSION) }}},
+        autoSyncPersistentDataPath: true,
+        devicePixelRatio: Math.min(window.devicePixelRatio || 1, 1.5)
+      }, value => { progress.value = value; })
+        .then(instance => {
+          window.clearcutUnity = instance;
+          controls.classList.add("sr-only");
+          loadStatus.classList.add("sr-only");
+          canvas.after(controls, loadStatus);
+          loading.hidden = true;
+          loadStatus.textContent = "The game is ready.";
+        })
+        .catch(error => showFailure(String(error)));
+    };
+    document.head.append(loader);
+  </script>
+</body>
+</html>
