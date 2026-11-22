@@ -112,3 +112,7 @@ InitTestScene*.unity*
 
 # Auto-generated cache in Assets folder
 /[Aa]ssets/[Ss]ceneDependencyCache*
+
+# Downloaded with Tools/install-photon-web.sh.
+Assets/WebGLTemplates/Clearcut/PhotonVendor/
+Assets/WebGLTemplates/Clearcut/PhotonVendor.meta

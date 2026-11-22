@@ -12,6 +12,7 @@ namespace Clearcut
         public float mass;
         public int saleValue;
         public Transform standing;
+        public GameObject standingPrefab;
         public Collider trunk;
         public GameObject stumpPrefab;
         public GameObject logPrefab;
@@ -39,6 +40,55 @@ namespace Clearcut
             }
             else if (record.damage > 0)
                 MarkNotch(transform.position + transform.forward * radius);
+        }
+
+        public void ApplyHostRecord(TreeRecord record)
+        {
+            bool wasFelled = Record.felled;
+            Record = record;
+            if (record.felled)
+            {
+                if (!wasFelled)
+                {
+                    LeaveStump();
+                    standing.gameObject.SetActive(false);
+                    if (notch)
+                        notch.gameObject.SetActive(false);
+                }
+                if (record.sold)
+                {
+                    if (Log)
+                        Consume();
+                    return;
+                }
+                if (!Log)
+                    MakeLog(record.logPosition, record.logRotation);
+                Log.isKinematic = true;
+                Log.MovePosition(record.logPosition);
+                Log.MoveRotation(record.logRotation);
+                return;
+            }
+
+            if (wasFelled)
+            {
+                var stump = GetComponentInChildren<StumpMarker>();
+                if (stump)
+                    Destroy(stump.gameObject);
+                if (Log)
+                    Destroy(Log.gameObject);
+                Log = null;
+                if (!standing)
+                    standing = Instantiate(standingPrefab, transform).transform;
+                standing.gameObject.SetActive(true);
+                trunk.enabled = true;
+            }
+            if (record.damage > 0)
+            {
+                MarkNotch(transform.position + transform.forward * radius);
+                notch.gameObject.SetActive(true);
+            }
+            else if (notch)
+                notch.gameObject.SetActive(false);
         }
 
         public bool Strike(float damage, Vector3 point, Vector3 away)

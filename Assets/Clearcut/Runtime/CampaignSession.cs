@@ -24,6 +24,7 @@ namespace Clearcut
             new("04-02", "Hotter Ember Bed", "Burn wood 25% faster.", 32, "04-01")
         };
 
+        internal OpeningCoop Coop { get; private set; }
         internal CampaignSave Save { get; private set; }
         internal TimberTree TargetTree { get; private set; }
         internal TimberTree TargetLog { get; private set; }
@@ -98,6 +99,7 @@ namespace Clearcut
             ApplyQuality();
             audio = gameObject.AddComponent<OpeningAudio>();
             SetVolume(Volume);
+            Coop = gameObject.AddComponent<OpeningCoop>();
         }
 
         void Update()
@@ -248,7 +250,7 @@ namespace Clearcut
 
         internal bool TryGrab(Ray ray)
         {
-            if (Held)
+            if (Held || Coop.Guest)
                 return false;
             FindTargets(ray);
             if (!TargetLog)
@@ -284,6 +286,24 @@ namespace Clearcut
                 return false;
             }
 
+            if (Coop.Guest)
+            {
+                Coop.RequestCut();
+                return true;
+            }
+            StrikeTree(tree, hit, ray);
+            return true;
+        }
+
+        internal void CutFromPeer(Ray ray)
+        {
+            if (Physics.Raycast(ray, out var hit, 2.55f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore)
+                && hit.collider.TryGetComponent<TimberTree>(out var tree) && !tree.Record.felled)
+                StrikeTree(tree, hit, ray);
+        }
+
+        void StrikeTree(TimberTree tree, RaycastHit hit, Ray ray)
+        {
             audio.Scrape();
             MakeChipBurst(hit.point, hit.normal);
             if (tree.Strike(DamageFor(tree), hit.point, ray.direction))
@@ -292,7 +312,6 @@ namespace Clearcut
                 Show("Timber! Hold E to drag the log.");
                 Persist();
             }
-            return true;
         }
 
         void MakeChipBurst(Vector3 position, Vector3 normal)
@@ -347,7 +366,7 @@ namespace Clearcut
 
         internal bool Buy(Upgrade upgrade)
         {
-            if (Has(upgrade.Id) || Save.cash < upgrade.Price || upgrade.Requires != null && !Has(upgrade.Requires))
+            if (Coop.Guest || Has(upgrade.Id) || Save.cash < upgrade.Price || upgrade.Requires != null && !Has(upgrade.Requires))
                 return false;
             Save.cash -= upgrade.Price;
             Save.upgrades.Add(upgrade.Id);
@@ -366,7 +385,7 @@ namespace Clearcut
         internal void SetMenu(bool open)
         {
             MenuOpen = open;
-            Time.timeScale = open ? 0 : 1;
+            Time.timeScale = open && !Coop.InRoom ? 0 : 1;
             if (open)
             {
                 Release();
@@ -448,7 +467,7 @@ namespace Clearcut
 
         internal bool Import(string json)
         {
-            if (!CampaignSave.TryRead(json, out var imported))
+            if (Coop.InRoom || !CampaignSave.TryRead(json, out var imported))
                 return false;
             imported.Write(slot);
             SceneManager.LoadScene(gameObject.scene.buildIndex);
@@ -463,9 +482,34 @@ namespace Clearcut
             Save.position = transform.position;
             Save.look = look;
             saveAt = Time.time + 8f;
-            string encoded = Save.Write(slot);
-            SaveStatus = "Saved locally · " + DateTime.Now.ToString("HH:mm:ss");
+            string encoded = slot == null ? JsonUtility.ToJson(Save) : Save.Write(slot);
+            SaveStatus = slot == null ? "Synced from room host" : "Saved locally · " + DateTime.Now.ToString("HH:mm:ss");
             return encoded;
+        }
+
+        internal void BeginRoomSave(string roomSlot)
+        {
+            Release();
+            slot = roomSlot;
+        }
+
+        internal string MakeRoomState()
+        {
+            foreach (var tree in trees)
+                tree.Snapshot();
+            var state = new CampaignSave { cash = Save.cash, upgrades = Save.upgrades, receipts = Save.receipts };
+            state.trees.AddRange(Save.trees.FindAll(item => item.damage > 0 || item.felled));
+            return JsonUtility.ToJson(state);
+        }
+
+        internal bool ApplyRoomState(string json)
+        {
+            if (!CampaignSave.TryRead(json, out var state))
+                return false;
+            Save = state;
+            foreach (var tree in trees)
+                tree.ApplyHostRecord(Save.ForTree(tree.id));
+            return true;
         }
 
         internal void Show(string message, float seconds = 3f)

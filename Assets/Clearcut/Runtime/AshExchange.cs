@@ -17,6 +17,8 @@ namespace Clearcut
 
         void OnTriggerStay(Collider other)
         {
+            if (session.Coop.Guest)
+                return;
             var dropped = other.GetComponent<FelledTimber>();
             if (dropped && !session.IsHeld(dropped.tree))
                 TryIntake(dropped.tree);

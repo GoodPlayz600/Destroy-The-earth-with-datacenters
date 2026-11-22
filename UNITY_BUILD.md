@@ -37,3 +37,15 @@ In Edit Mode with `TheLastJungle` open, choose **Clearcut → Run Opening Smoke
 Test**. The test enters Play Mode with an isolated save, then writes its checks
 to `Builds/Evidence/opening-smoke.txt` and returns to Edit Mode. The
 [feature matrix](FEATURE_MATRIX.md) records acceptance evidence and remaining work.
+
+## Photon co-op
+
+Before building Web from a clean checkout, run `./Tools/install-photon-web.sh`
+to install the pinned official Photon Realtime Core SDK into the Web template.
+
+In each Web client, enter the clearing and open **Field desk → Multiplayer**.
+Paste the Realtime App ID and use the same region in both clients. One player
+clicks **Host a copy of solo**, then shares the displayed code so another can
+choose **Join room**. The host retains its own room checkpoint. The opening
+currently supports guest movement and chopping, with the host handling dragging,
+burns, and purchases. Use the pinned project's Web module for Photon co-op.

@@ -19,6 +19,7 @@ namespace Clearcut
         float width, height;
         string saveText = "";
         bool showSave;
+        string photonId = "", photonRegion = "us", photonRoom = "";
 
         void Awake() => game = GetComponent<CampaignSession>();
 
@@ -207,7 +208,7 @@ namespace Clearcut
             if (Action(new Rect(card.xMax - 139, card.y + 17, 115, 37), "Resume", button, true))
                 game.SetMenu(false);
 
-            string[] tabs = { "Upgrades", "Receipts", "Settings" };
+            string[] tabs = { "Upgrades", "Receipts", "Settings", "Multiplayer" };
             for (int i = 0; i < tabs.Length; i++)
                 if (Action(new Rect(card.x + 24 + i * 114, card.y + 65, 105, 36), tabs[i], button, screen == i))
                 {
@@ -222,8 +223,10 @@ namespace Clearcut
                 DrawUpgrades(content);
             else if (screen == 1)
                 DrawReceipts(content);
-            else
+            else if (screen == 2)
                 DrawSettings(content);
+            else
+                DrawCoop(content);
         }
 
         void DrawUpgrades(Rect content)
@@ -265,6 +268,38 @@ namespace Clearcut
                 Ink(new Rect(0, i * 41 + 39, rowWidth, 1), Line);
             }
             GUI.EndScrollView();
+        }
+
+        void DrawCoop(Rect area)
+        {
+            var coop = game.Coop;
+            float x = area.x, y = area.y;
+            GUI.Label(new Rect(x, y, area.width, 29), coop.Status, body);
+            if (coop.InRoom)
+            {
+                GUI.Label(new Rect(x, y + 43, area.width, 34), "Room " + coop.RoomCode + "   ·   " + coop.PlayerCount + "/4", bold);
+                GUI.Label(new Rect(x, y + 88, area.width, 30), "Share the room code and region. The host handles timber and sales.", small);
+                if (Action(new Rect(x, y + 134, 135, 37), "Leave room", button))
+                    coop.Leave();
+                return;
+            }
+            if (coop.Connecting)
+            {
+                if (Action(new Rect(x, y + 64, 135, 37), "Cancel", button))
+                    coop.Leave();
+                return;
+            }
+
+            GUI.Label(new Rect(x, y + 44, 135, 30), "Realtime App ID", body);
+            photonId = GUI.TextField(new Rect(x + 145, y + 44, area.width - 157, 30), photonId, 40);
+            GUI.Label(new Rect(x, y + 85, 135, 30), "Region", body);
+            photonRegion = GUI.TextField(new Rect(x + 145, y + 85, 105, 30), photonRegion, 12);
+            GUI.Label(new Rect(x, y + 126, 135, 30), "Room code", body);
+            photonRoom = GUI.TextField(new Rect(x + 145, y + 126, 160, 30), photonRoom, 10);
+            if (Action(new Rect(x, y + 177, 194, 40), "Host a copy of solo", button, true))
+                coop.Open(photonId, photonRegion, photonRoom, true);
+            if (Action(new Rect(x + 207, y + 177, 134, 40), "Join room", button))
+                coop.Open(photonId, photonRegion, photonRoom, false);
         }
 
         void DrawSettings(Rect content)

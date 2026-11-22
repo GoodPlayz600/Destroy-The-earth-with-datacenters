@@ -56,6 +56,7 @@
       </div>
     </section>
   </main>
+  <script src="photon-bridge.js"></script>
   <script>
     const canvas = document.querySelector("#jungle");
     const loading = document.querySelector("#loading");
@@ -101,7 +102,8 @@
         autoSyncPersistentDataPath: true,
         devicePixelRatio: Math.min(window.devicePixelRatio || 1, 1.5)
       }, value => { progress.value = value; })
-        .then(() => {
+        .then(instance => {
+          window.clearcutUnity = instance;
           controls.classList.add("sr-only");
           loadStatus.classList.add("sr-only");
           canvas.after(controls, loadStatus);
