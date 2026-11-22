@@ -34,3 +34,4 @@
 - Added Twine Bundle, Long Rope, and Knotted Hitch. The Unity smoke test verified the 3D tether, physical log pull, release on excess stretch, 50% longer rope, heavier hitch limits, and exclusive guest attachment and release on the host.
 - Saved the editable Crude Sled model in Blender. Reimported the FBX and verified that Unity imported 25 mesh parts including its tow bridle.
 - Built and launched the rope-hauling Web player. Verified the Twine Bundle purchase, visible rope attachment with T, and release with G. In a separate two-client Photon room, the guest attached the shared log, moved while attached, and released the log.
+- Rebuilt the same rope-hauling source for Windows x64 and Linux x64. Both desktop ZIP archives passed integrity checks. Linux startup initialized OpenGL and input. Windows startup reached the scene in headless Wine.

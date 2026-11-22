@@ -22,6 +22,8 @@ The Unity opening now sells ten upgrades with gameplay effects. The three rope u
 
 The next sled is modeled in `Assets/Models/Source~/PrimitiveSled.blend` and imports into Unity as `Assets/Models/Clearcut/PrimitiveSled.fbx`. The model includes the raised runners, cargo deck, bridle, and pulling eye. The $285 purchase, two-log cargo loading, and physical sled tow still need implementation.
 
+The latest Web, Windows x64, and Linux x64 builds are all under `Builds/Towline`. The native archives are `ProjectClearcut-Windows-x64.zip` and `ProjectClearcut-Linux-x64.zip`. Linux with graphics and Windows in headless Wine passed startup checks. Multiplayer remains Web-only. The last browser usage reading was 10% for the five-hour limit and 60% for the week.
+
 ## Next
 
 - Verify guest movement, chopping, and hauling through a complete live timber-yard delivery with two clients. Desktop Photon support, host recovery, and long-session testing remain open.
