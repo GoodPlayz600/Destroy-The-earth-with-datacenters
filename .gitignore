@@ -116,3 +116,7 @@ InitTestScene*.unity*
 # Downloaded with Tools/install-photon-web.sh.
 Assets/WebGLTemplates/Clearcut/PhotonVendor/
 Assets/WebGLTemplates/Clearcut/PhotonVendor.meta
+
+# Per-workspace Photon Realtime App ID.
+/Assets/Clearcut/Resources/PhotonRealtimeAppId.txt
+/Assets/Clearcut/Resources/PhotonRealtimeAppId.txt.meta

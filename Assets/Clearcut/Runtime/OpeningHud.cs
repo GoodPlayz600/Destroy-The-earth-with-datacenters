@@ -320,18 +320,23 @@ namespace Clearcut
                 return;
             }
 
-            GUI.Label(new Rect(x, y + 44, 135, 30), "Realtime App ID", body);
-            GUI.SetNextControlName("Field desk App ID");
-            photonId = GUI.TextField(new Rect(x + 145, y + 44, area.width - 157, 30), photonId, 40);
-            GUI.Label(new Rect(x, y + 85, 135, 30), "Region", body);
+            y += 44;
+            if (!coop.HasConfiguredAppId)
+            {
+                GUI.Label(new Rect(x, y, 135, 30), "Realtime App ID", body);
+                GUI.SetNextControlName("Field desk App ID");
+                photonId = GUI.TextField(new Rect(x + 145, y, area.width - 157, 30), photonId, 40);
+                y += 41;
+            }
+            GUI.Label(new Rect(x, y, 135, 30), "Region", body);
             GUI.SetNextControlName("Field desk region");
-            photonRegion = GUI.TextField(new Rect(x + 145, y + 85, 105, 30), photonRegion, 12);
-            GUI.Label(new Rect(x, y + 126, 135, 30), "Room code", body);
+            photonRegion = GUI.TextField(new Rect(x + 145, y, 105, 30), photonRegion, 12);
+            GUI.Label(new Rect(x, y + 41, 135, 30), "Room code", body);
             GUI.SetNextControlName("Field desk room");
-            photonRoom = GUI.TextField(new Rect(x + 145, y + 126, 160, 30), photonRoom, 10);
-            if (Action(new Rect(x, y + 177, 194, 40), "Host a copy of solo", button, true))
+            photonRoom = GUI.TextField(new Rect(x + 145, y + 41, 160, 30), photonRoom, 10);
+            if (Action(new Rect(x, y + 92, 194, 40), "Host a copy of solo", button, true))
                 coop.Open(photonId, photonRegion, photonRoom, true);
-            if (Action(new Rect(x + 207, y + 177, 134, 40), "Join room", button))
+            if (Action(new Rect(x + 207, y + 92, 134, 40), "Join room", button))
                 coop.Open(photonId, photonRegion, photonRoom, false);
         }
 

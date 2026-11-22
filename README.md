@@ -26,7 +26,7 @@ Buy **Twine Bundle** for $15 to pull one light log hands-free. Face a nearby log
 
 ## Play co-op
 
-The Web build connects to Photon Realtime. In **Field desk → Multiplayer**, enter a Realtime App ID and region. One player hosts a copy of their solo clearing and shares the room code. Other players enter the same App ID, region, and code. Keep your App ID out of commits. [Photon Dashboard](https://dashboard.photonengine.com/)
+The Web build connects to Photon Realtime. Open **Field desk → Multiplayer**. One player hosts a copy of their solo clearing and shares the room code. Other players enter the code and use the host's region. Configured builds load the Realtime App ID automatically. A fresh checkout can be configured before building or can use the in-game App ID field. [Build setup](UNITY_BUILD.md#photon-co-op)
 
 ## Project files
 

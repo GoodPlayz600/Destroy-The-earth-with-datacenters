@@ -42,10 +42,14 @@ to `Builds/Evidence/opening-smoke.txt` and returns to Edit Mode. The
 Before building Web from a clean checkout, run `./Tools/install-photon-web.sh`
 to install the pinned official Photon Realtime Core SDK into the Web template.
 
+For automatic configuration, put the Photon Realtime App ID on one line in
+`Assets/Clearcut/Resources/PhotonRealtimeAppId.txt` before building. This file
+and its metadata are ignored by Git. Unity bundles the App ID in the Web client.
+Builds without the file offer the App ID field in the game.
+
 In each Web client, enter the clearing and open **Field desk → Multiplayer**.
-Paste the Realtime App ID and use the same region in both clients. One player
-clicks **Host a copy of solo**, then shares the displayed code so another can
-choose **Join room**. The host retains its own room checkpoint. A room shares timber, money, and purchases. The host validates guest actions
+Use the same region in both clients. One player clicks **Host a copy of solo**,
+then shares the displayed code so another can choose **Join room**. The host retains its own room checkpoint. A room shares timber, money, and purchases. The host validates guest actions
 and simulates forestry, hauling, sales, and workbench jobs. Use the pinned
 project's Web module for Photon co-op.
 

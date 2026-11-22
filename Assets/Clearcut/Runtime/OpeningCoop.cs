@@ -19,11 +19,13 @@ namespace Clearcut
         public int GuestTetherId => gripRequestedFor;
         public bool Ready { get; private set; }
         public int LocalActor => actor;
+        internal bool HasConfiguredAppId => configuredAppId != Guid.Empty;
 
         const int PoseCode = 40, StateCode = 41, HelloCode = 42, ActionCode = 43, GripCode = 44;
         readonly Dictionary<int, Ghost> avatars = new();
         CampaignSession game;
         GameObject avatarPrefab;
+        Guid configuredAppId;
         int actor, master;
         float nextPose, nextState;
         string lastState;
@@ -41,6 +43,8 @@ namespace Clearcut
         {
             game = GetComponent<CampaignSession>();
             avatarPrefab = Resources.Load<GameObject>("FieldOperatorAvatar");
+            var config = Resources.Load<TextAsset>("PhotonRealtimeAppId");
+            Guid.TryParse(config?.text.Trim(), out configuredAppId);
         }
 
 #if UNITY_EDITOR
@@ -55,9 +59,15 @@ namespace Clearcut
         {
             if (Connecting || InRoom)
                 return;
-            if (!Guid.TryParse(id.Trim(), out var app) || region.Trim().Length == 0)
+            Guid app = configuredAppId;
+            if (app == Guid.Empty && (!Guid.TryParse(id.Trim(), out app) || app == Guid.Empty))
             {
-                Status = "Enter a Realtime App ID and region.";
+                Status = "Enter a valid Realtime App ID.";
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(region))
+            {
+                Status = "Enter a Photon region.";
                 return;
             }
             if (!host && (room.Trim().Length != 10 || !Guid.TryParseExact(room.Trim().PadRight(32, '0'), "N", out _)))
